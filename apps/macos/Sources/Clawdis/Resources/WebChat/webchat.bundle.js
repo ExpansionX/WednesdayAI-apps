@@ -24732,9 +24732,9 @@ var init_sticker = __esmMin((() => {
 
 //#endregion
 //#region apps/macos/Sources/Clawdis/Resources/WebChat/vendor/lucide/dist/esm/icons/store.js
-var Store;
-var init_store = __esmMin((() => {
-	Store = [
+var Store$1;
+var init_store$1 = __esmMin((() => {
+	Store$1 = [
 		["path", { d: "M15 21v-5a1 1 0 0 0-1-1h-4a1 1 0 0 0-1 1v5" }],
 		["path", { d: "M17.774 10.31a1.12 1.12 0 0 0-1.549 0 2.5 2.5 0 0 1-3.451 0 1.12 1.12 0 0 0-1.548 0 2.5 2.5 0 0 1-3.452 0 1.12 1.12 0 0 0-1.549 0 2.5 2.5 0 0 1-3.77-3.248l2.889-4.184A2 2 0 0 1 7 2h10a2 2 0 0 1 1.653.873l2.895 4.192a2.5 2.5 0 0 1-3.774 3.244" }],
 		["path", { d: "M4 10.95V19a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8.05" }]
@@ -29670,7 +29670,7 @@ var iconsAndAliases_exports = /* @__PURE__ */ __export({
 	Sticker: () => Sticker,
 	StickyNote: () => StickyNote,
 	StopCircle: () => CircleStop,
-	Store: () => Store,
+	Store: () => Store$1,
 	StretchHorizontal: () => StretchHorizontal,
 	StretchVertical: () => StretchVertical,
 	Strikethrough: () => Strikethrough,
@@ -31336,7 +31336,7 @@ var init_iconsAndAliases = __esmMin((() => {
 	init_step_forward();
 	init_stethoscope();
 	init_sticker();
-	init_store();
+	init_store$1();
 	init_sticky_note();
 	init_stretch_horizontal();
 	init_stretch_vertical();
@@ -32981,7 +32981,7 @@ var init_lucide = __esmMin((() => {
 	init_step_forward();
 	init_stethoscope();
 	init_sticker();
-	init_store();
+	init_store$1();
 	init_sticky_note();
 	init_stretch_horizontal();
 	init_stretch_vertical();
@@ -195303,7 +195303,7 @@ var init_ChatPanel = __esmMin((() => {
 			this.agentInterface = document.createElement("agent-interface");
 			this.agentInterface.session = agent;
 			this.agentInterface.enableAttachments = true;
-			this.agentInterface.enableModelSelector = true;
+			this.agentInterface.enableModelSelector = false;
 			this.agentInterface.enableThinkingSelector = true;
 			this.agentInterface.showThemeToggle = false;
 			this.agentInterface.onApiKeyRequired = config?.onApiKeyRequired;
@@ -195414,6 +195414,403 @@ var init_ChatPanel = __esmMin((() => {
 }));
 
 //#endregion
+//#region apps/macos/Sources/Clawdis/Resources/WebChat/storage/store.js
+var Store;
+var init_store = __esmMin((() => {
+	Store = class {
+		constructor() {
+			this.backend = null;
+		}
+		/**
+		* Sets the storage backend. Called by AppStorage after backend creation.
+		*/
+		setBackend(backend) {
+			this.backend = backend;
+		}
+		/**
+		* Gets the storage backend. Throws if backend not set.
+		* Concrete stores must use this to access the backend.
+		*/
+		getBackend() {
+			if (!this.backend) {
+				throw new Error(`Backend not set on ${this.constructor.name}`);
+			}
+			return this.backend;
+		}
+	};
+}));
+
+//#endregion
+//#region apps/macos/Sources/Clawdis/Resources/WebChat/storage/stores/settings-store.js
+var settings_store_exports = /* @__PURE__ */ __export({ SettingsStore: () => SettingsStore });
+var SettingsStore;
+var init_settings_store = __esmMin((() => {
+	init_store();
+	SettingsStore = class extends Store {
+		getConfig() {
+			return { name: "settings" };
+		}
+		async get(key) {
+			return this.getBackend().get("settings", key);
+		}
+		async set(key, value) {
+			await this.getBackend().set("settings", key, value);
+		}
+		async delete(key) {
+			await this.getBackend().delete("settings", key);
+		}
+		async list() {
+			return this.getBackend().keys("settings");
+		}
+		async clear() {
+			await this.getBackend().clear("settings");
+		}
+	};
+}));
+
+//#endregion
+//#region apps/macos/Sources/Clawdis/Resources/WebChat/storage/stores/provider-keys-store.js
+var provider_keys_store_exports = /* @__PURE__ */ __export({ ProviderKeysStore: () => ProviderKeysStore });
+var ProviderKeysStore;
+var init_provider_keys_store = __esmMin((() => {
+	init_store();
+	ProviderKeysStore = class extends Store {
+		getConfig() {
+			return { name: "provider-keys" };
+		}
+		async get(provider) {
+			return this.getBackend().get("provider-keys", provider);
+		}
+		async set(provider, key) {
+			await this.getBackend().set("provider-keys", provider, key);
+		}
+		async delete(provider) {
+			await this.getBackend().delete("provider-keys", provider);
+		}
+		async list() {
+			return this.getBackend().keys("provider-keys");
+		}
+		async has(provider) {
+			return this.getBackend().has("provider-keys", provider);
+		}
+	};
+}));
+
+//#endregion
+//#region apps/macos/Sources/Clawdis/Resources/WebChat/storage/stores/sessions-store.js
+var sessions_store_exports = /* @__PURE__ */ __export({ SessionsStore: () => SessionsStore });
+var SessionsStore;
+var init_sessions_store = __esmMin((() => {
+	init_store();
+	SessionsStore = class extends Store {
+		getConfig() {
+			return {
+				name: "sessions",
+				keyPath: "id",
+				indices: [{
+					name: "lastModified",
+					keyPath: "lastModified"
+				}]
+			};
+		}
+		/**
+		* Additional config for sessions-metadata store.
+		* Must be included when creating the backend.
+		*/
+		static getMetadataConfig() {
+			return {
+				name: "sessions-metadata",
+				keyPath: "id",
+				indices: [{
+					name: "lastModified",
+					keyPath: "lastModified"
+				}]
+			};
+		}
+		async save(data, metadata) {
+			await this.getBackend().transaction(["sessions", "sessions-metadata"], "readwrite", async (tx) => {
+				await tx.set("sessions", data.id, data);
+				await tx.set("sessions-metadata", metadata.id, metadata);
+			});
+		}
+		async get(id) {
+			return this.getBackend().get("sessions", id);
+		}
+		async getMetadata(id) {
+			return this.getBackend().get("sessions-metadata", id);
+		}
+		async getAllMetadata() {
+			return this.getBackend().getAllFromIndex("sessions-metadata", "lastModified", "desc");
+		}
+		async delete(id) {
+			await this.getBackend().transaction(["sessions", "sessions-metadata"], "readwrite", async (tx) => {
+				await tx.delete("sessions", id);
+				await tx.delete("sessions-metadata", id);
+			});
+		}
+		async deleteSession(id) {
+			return this.delete(id);
+		}
+		async updateTitle(id, title) {
+			const metadata = await this.getMetadata(id);
+			if (metadata) {
+				metadata.title = title;
+				await this.getBackend().set("sessions-metadata", id, metadata);
+			}
+			const data = await this.get(id);
+			if (data) {
+				data.title = title;
+				await this.getBackend().set("sessions", id, data);
+			}
+		}
+		async getQuotaInfo() {
+			return this.getBackend().getQuotaInfo();
+		}
+		async requestPersistence() {
+			return this.getBackend().requestPersistence();
+		}
+		async saveSession(id, state$1, metadata, title) {
+			const meta = metadata || {
+				id,
+				title: title || "",
+				createdAt: new Date().toISOString(),
+				lastModified: new Date().toISOString(),
+				messageCount: state$1.messages?.length || 0,
+				usage: {
+					input: 0,
+					output: 0,
+					cacheRead: 0,
+					cacheWrite: 0,
+					cost: {
+						input: 0,
+						output: 0,
+						cacheRead: 0,
+						cacheWrite: 0,
+						total: 0
+					}
+				},
+				thinkingLevel: state$1.thinkingLevel || "off",
+				preview: ""
+			};
+			const data = {
+				id,
+				title: title || meta.title,
+				model: state$1.model,
+				thinkingLevel: state$1.thinkingLevel,
+				messages: state$1.messages || [],
+				createdAt: meta.createdAt,
+				lastModified: new Date().toISOString()
+			};
+			await this.save(data, meta);
+		}
+		async loadSession(id) {
+			return this.get(id);
+		}
+		async getLatestSessionId() {
+			const allMetadata = await this.getAllMetadata();
+			if (allMetadata.length === 0) return null;
+			allMetadata.sort((a$2, b$3) => b$3.lastModified.localeCompare(a$2.lastModified));
+			return allMetadata[0].id;
+		}
+	};
+}));
+
+//#endregion
+//#region apps/macos/Sources/Clawdis/Resources/WebChat/storage/stores/custom-providers-store.js
+var custom_providers_store_exports = /* @__PURE__ */ __export({ CustomProvidersStore: () => CustomProvidersStore });
+var CustomProvidersStore;
+var init_custom_providers_store = __esmMin((() => {
+	init_store();
+	CustomProvidersStore = class extends Store {
+		getConfig() {
+			return { name: "custom-providers" };
+		}
+		async get(id) {
+			return this.getBackend().get("custom-providers", id);
+		}
+		async set(provider) {
+			await this.getBackend().set("custom-providers", provider.id, provider);
+		}
+		async delete(id) {
+			await this.getBackend().delete("custom-providers", id);
+		}
+		async getAll() {
+			const keys$1 = await this.getBackend().keys("custom-providers");
+			const providers = [];
+			for (const key of keys$1) {
+				const provider = await this.get(key);
+				if (provider) {
+					providers.push(provider);
+				}
+			}
+			return providers;
+		}
+		async has(id) {
+			return this.getBackend().has("custom-providers", id);
+		}
+	};
+}));
+
+//#endregion
+//#region apps/macos/Sources/Clawdis/Resources/WebChat/storage/backends/indexeddb-storage-backend.js
+var indexeddb_storage_backend_exports = /* @__PURE__ */ __export({ IndexedDBStorageBackend: () => IndexedDBStorageBackend });
+var IndexedDBStorageBackend;
+var init_indexeddb_storage_backend = __esmMin((() => {
+	IndexedDBStorageBackend = class {
+		constructor(config) {
+			this.config = config;
+			this.dbPromise = null;
+		}
+		async getDB() {
+			if (!this.dbPromise) {
+				this.dbPromise = new Promise((resolve, reject) => {
+					const request = indexedDB.open(this.config.dbName, this.config.version);
+					request.onerror = () => reject(request.error);
+					request.onsuccess = () => resolve(request.result);
+					request.onupgradeneeded = (_event) => {
+						const db = request.result;
+						for (const storeConfig of this.config.stores) {
+							if (!db.objectStoreNames.contains(storeConfig.name)) {
+								const store = db.createObjectStore(storeConfig.name, {
+									keyPath: storeConfig.keyPath,
+									autoIncrement: storeConfig.autoIncrement
+								});
+								if (storeConfig.indices) {
+									for (const indexConfig of storeConfig.indices) {
+										store.createIndex(indexConfig.name, indexConfig.keyPath, { unique: indexConfig.unique });
+									}
+								}
+							}
+						}
+					};
+				});
+			}
+			return this.dbPromise;
+		}
+		promisifyRequest(request) {
+			return new Promise((resolve, reject) => {
+				request.onsuccess = () => resolve(request.result);
+				request.onerror = () => reject(request.error);
+			});
+		}
+		async get(storeName, key) {
+			const db = await this.getDB();
+			const tx = db.transaction(storeName, "readonly");
+			const store = tx.objectStore(storeName);
+			const result = await this.promisifyRequest(store.get(key));
+			return result ?? null;
+		}
+		async set(storeName, key, value) {
+			const db = await this.getDB();
+			const tx = db.transaction(storeName, "readwrite");
+			const store = tx.objectStore(storeName);
+			if (store.keyPath) {
+				await this.promisifyRequest(store.put(value));
+			} else {
+				await this.promisifyRequest(store.put(value, key));
+			}
+		}
+		async delete(storeName, key) {
+			const db = await this.getDB();
+			const tx = db.transaction(storeName, "readwrite");
+			const store = tx.objectStore(storeName);
+			await this.promisifyRequest(store.delete(key));
+		}
+		async keys(storeName, prefix) {
+			const db = await this.getDB();
+			const tx = db.transaction(storeName, "readonly");
+			const store = tx.objectStore(storeName);
+			if (prefix) {
+				const range = IDBKeyRange.bound(prefix, prefix + "￿", false, false);
+				const keys$1 = await this.promisifyRequest(store.getAllKeys(range));
+				return keys$1.map((k$2) => String(k$2));
+			} else {
+				const keys$1 = await this.promisifyRequest(store.getAllKeys());
+				return keys$1.map((k$2) => String(k$2));
+			}
+		}
+		async getAllFromIndex(storeName, indexName, direction = "asc") {
+			const db = await this.getDB();
+			const tx = db.transaction(storeName, "readonly");
+			const store = tx.objectStore(storeName);
+			const index = store.index(indexName);
+			return new Promise((resolve, reject) => {
+				const results = [];
+				const request = index.openCursor(null, direction === "desc" ? "prev" : "next");
+				request.onsuccess = () => {
+					const cursor = request.result;
+					if (cursor) {
+						results.push(cursor.value);
+						cursor.continue();
+					} else {
+						resolve(results);
+					}
+				};
+				request.onerror = () => reject(request.error);
+			});
+		}
+		async clear(storeName) {
+			const db = await this.getDB();
+			const tx = db.transaction(storeName, "readwrite");
+			const store = tx.objectStore(storeName);
+			await this.promisifyRequest(store.clear());
+		}
+		async has(storeName, key) {
+			const db = await this.getDB();
+			const tx = db.transaction(storeName, "readonly");
+			const store = tx.objectStore(storeName);
+			const result = await this.promisifyRequest(store.getKey(key));
+			return result !== undefined;
+		}
+		async transaction(storeNames, mode, operation) {
+			const db = await this.getDB();
+			const idbTx = db.transaction(storeNames, mode);
+			const storageTx = {
+				get: async (storeName, key) => {
+					const store = idbTx.objectStore(storeName);
+					const result = await this.promisifyRequest(store.get(key));
+					return result ?? null;
+				},
+				set: async (storeName, key, value) => {
+					const store = idbTx.objectStore(storeName);
+					if (store.keyPath) {
+						await this.promisifyRequest(store.put(value));
+					} else {
+						await this.promisifyRequest(store.put(value, key));
+					}
+				},
+				delete: async (storeName, key) => {
+					const store = idbTx.objectStore(storeName);
+					await this.promisifyRequest(store.delete(key));
+				}
+			};
+			return operation(storageTx);
+		}
+		async getQuotaInfo() {
+			if (navigator.storage?.estimate) {
+				const estimate = await navigator.storage.estimate();
+				return {
+					usage: estimate.usage || 0,
+					quota: estimate.quota || 0,
+					percent: estimate.quota ? (estimate.usage || 0) / estimate.quota * 100 : 0
+				};
+			}
+			return {
+				usage: 0,
+				quota: 0,
+				percent: 0
+			};
+		}
+		async requestPersistence() {
+			if (navigator.storage?.persist) {
+				return await navigator.storage.persist();
+			}
+			return false;
+		}
+	};
+}));
+
+//#endregion
 //#region apps/macos/Sources/Clawdis/Resources/WebChat/bootstrap.js
 if (!globalThis.process) {
 	globalThis.process = { env: {} };
@@ -195492,9 +195889,37 @@ const startChat = async () => {
 	const { Agent: Agent$1 } = await Promise.resolve().then(() => (init_agent(), agent_exports));
 	const { ChatPanel: ChatPanel$1 } = await Promise.resolve().then(() => (init_ChatPanel(), ChatPanel_exports));
 	const { AppStorage: AppStorage$1, setAppStorage: setAppStorage$1 } = await Promise.resolve().then(() => (init_app_storage(), app_storage_exports));
+	const { SettingsStore: SettingsStore$1 } = await Promise.resolve().then(() => (init_settings_store(), settings_store_exports));
+	const { ProviderKeysStore: ProviderKeysStore$1 } = await Promise.resolve().then(() => (init_provider_keys_store(), provider_keys_store_exports));
+	const { SessionsStore: SessionsStore$1 } = await Promise.resolve().then(() => (init_sessions_store(), sessions_store_exports));
+	const { CustomProvidersStore: CustomProvidersStore$1 } = await Promise.resolve().then(() => (init_custom_providers_store(), custom_providers_store_exports));
+	const { IndexedDBStorageBackend: IndexedDBStorageBackend$1 } = await Promise.resolve().then(() => (init_indexeddb_storage_backend(), indexeddb_storage_backend_exports));
 	const { getModel: getModel$1 } = await Promise.resolve().then(() => (init_pi_ai_stub(), pi_ai_stub_exports));
 	logStatus("boot: modules loaded");
-	const storage = new AppStorage$1();
+	const backend = new IndexedDBStorageBackend$1({
+		dbName: "clawdis-webchat",
+		version: 1,
+		stores: [
+			new SettingsStore$1().getConfig(),
+			new ProviderKeysStore$1().getConfig(),
+			new SessionsStore$1().getConfig(),
+			SessionsStore$1.getMetadataConfig(),
+			new CustomProvidersStore$1().getConfig()
+		]
+	});
+	const settingsStore = new SettingsStore$1();
+	const providerKeysStore = new ProviderKeysStore$1();
+	const sessionsStore = new SessionsStore$1();
+	const customProvidersStore = new CustomProvidersStore$1();
+	for (const store of [
+		settingsStore,
+		providerKeysStore,
+		sessionsStore,
+		customProvidersStore
+	]) {
+		store.setBackend(backend);
+	}
+	const storage = new AppStorage$1(settingsStore, providerKeysStore, sessionsStore, customProvidersStore, backend);
 	setAppStorage$1(storage);
 	const agent = new Agent$1({
 		initialState: {
