@@ -195306,6 +195306,7 @@ var init_ChatPanel = __esmMin((() => {
 			this.agentInterface.enableModelSelector = false;
 			this.agentInterface.enableThinkingSelector = true;
 			this.agentInterface.showThemeToggle = false;
+			this.agentInterface.onApiKeyRequired = async () => true;
 			this.agentInterface.onApiKeyRequired = config?.onApiKeyRequired;
 			this.agentInterface.onBeforeSend = config?.onBeforeSend;
 			this.agentInterface.onCostClick = config?.onCostClick;
@@ -195921,6 +195922,12 @@ const startChat = async () => {
 	}
 	const storage = new AppStorage$1(settingsStore, providerKeysStore, sessionsStore, customProvidersStore, backend);
 	setAppStorage$1(storage);
+	const defaultProvider = "anthropic";
+	try {
+		await providerKeysStore.set(defaultProvider, "embedded");
+	} catch (err) {
+		logStatus(`storage warn: could not seed provider key: ${err}`);
+	}
 	const agent = new Agent$1({
 		initialState: {
 			systemPrompt: "You are Clawd (primary session).",
