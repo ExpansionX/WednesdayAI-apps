@@ -135676,7 +135676,7 @@ var init_katex = __esmMin((() => {
 }));
 
 //#endregion
-//#region node_modules/.pnpm/marked@16.4.2/node_modules/marked/lib/marked.esm.js
+//#region node_modules/.pnpm/@mariozechner+mini-lit@0.2.1_lit@3.3.1_tailwindcss@4.1.17/node_modules/@mariozechner/mini-lit/node_modules/marked/lib/marked.esm.js
 /**
 * marked v16.4.2 - a markdown parser
 * Copyright (c) 2018-2025, MarkedJS. (MIT License)
