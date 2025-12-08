@@ -196,7 +196,7 @@ var init_agent = __esmMin((() => {
 				messages
 			});
 		}
-		async prompt(input, attachments) {
+		async prompt(input, attachments, opts) {
 			const model = this._state.model;
 			if (!model) {
 				this.emit({ type: "error-no-model" });
@@ -236,12 +236,16 @@ var init_agent = __esmMin((() => {
 				error: undefined
 			});
 			this.emit({ type: "started" });
-			const reasoning = this._state.thinkingLevel === "off" ? undefined : this._state.thinkingLevel === "minimal" ? "low" : this._state.thinkingLevel;
+			const thinkingLevel = opts?.thinkingOverride ?? this._state.thinkingLevel ?? "off";
+			const reasoning = thinkingLevel === "off" ? undefined : thinkingLevel === "minimal" ? "low" : thinkingLevel;
+			const shouldSendOverride = opts?.transient === true;
 			const cfg = {
 				systemPrompt: this._state.systemPrompt,
 				tools: this._state.tools,
 				model,
 				reasoning,
+				thinkingOverride: shouldSendOverride ? thinkingLevel : undefined,
+				thinkingOnce: shouldSendOverride ? thinkingLevel : undefined,
 				getQueuedMessages: async () => {
 					const queued = this.messageQueue.slice();
 					this.messageQueue = [];
@@ -107901,6 +107905,8 @@ var init_AgentInterface = __esmMin((() => {
 			this.enableModelSelector = true;
 			this.enableThinkingSelector = true;
 			this.showThemeToggle = false;
+			this.sessionThinkingLevel = "off";
+			this.pendingThinkingLevel = null;
 			this._autoScroll = true;
 			this._lastScrollTop = 0;
 			this._lastClientHeight = 0;
@@ -107989,6 +107995,9 @@ var init_AgentInterface = __esmMin((() => {
 			if (!this.session) return;
 			this._unsubscribeSession = this.session.subscribe(async (ev) => {
 				if (ev.type === "state-update") {
+					if (this.pendingThinkingLevel === null && ev.state.thinkingLevel) {
+						this.sessionThinkingLevel = ev.state.thinkingLevel;
+					}
 					if (this._streamingContainer) {
 						this._streamingContainer.isStreaming = ev.state.isStreaming;
 						this._streamingContainer.setMessage(ev.state.streamMessage, !ev.state.isStreaming);
@@ -108017,10 +108026,20 @@ var init_AgentInterface = __esmMin((() => {
 			if (this.onBeforeSend) {
 				await this.onBeforeSend();
 			}
+			const baseThinking = this.sessionThinkingLevel || session.state.thinkingLevel || "off";
+			const thinkingOverride = this.pendingThinkingLevel ?? baseThinking;
+			const transient = this.pendingThinkingLevel !== null && this.pendingThinkingLevel !== baseThinking;
 			this._messageEditor.value = "";
 			this._messageEditor.attachments = [];
 			this._autoScroll = true;
-			await this.session?.prompt(input, attachments);
+			await this.session?.prompt(input, attachments, {
+				thinkingOverride,
+				transient
+			});
+			this.pendingThinkingLevel = null;
+			if (this._messageEditor) {
+				this._messageEditor.thinkingLevel = this.sessionThinkingLevel || "off";
+			}
 		}
 		renderMessages() {
 			if (!this.session) return x`<div class="p-4 text-center text-muted-foreground">${i18n("No session available")}</div>`;
@@ -108109,12 +108128,12 @@ var init_AgentInterface = __esmMin((() => {
 					<div class="max-w-3xl mx-auto px-2">
 						<message-editor
 							.isStreaming=${state$1.isStreaming}
-							.currentModel=${state$1.model}
-							.thinkingLevel=${state$1.thinkingLevel}
-							.showAttachmentButton=${this.enableAttachments}
-							.showModelSelector=${this.enableModelSelector}
-							.showThinkingSelector=${this.enableThinkingSelector}
-							.onSend=${(input, attachments) => {
+                            .currentModel=${state$1.model}
+                            .thinkingLevel=${this.pendingThinkingLevel ?? this.sessionThinkingLevel ?? state$1.thinkingLevel}
+                            .showAttachmentButton=${this.enableAttachments}
+                            .showModelSelector=${this.enableModelSelector}
+                            .showThinkingSelector=${this.enableThinkingSelector}
+                            .onSend=${(input, attachments) => {
 				this.sendMessage(input, attachments);
 			}}
 							.onAbort=${() => session.abort()}
@@ -108122,7 +108141,11 @@ var init_AgentInterface = __esmMin((() => {
 				ModelSelector.open(state$1.model, (model) => session.setModel(model));
 			}}
 							.onThinkingChange=${this.enableThinkingSelector ? (level) => {
-				session.setThinkingLevel(level);
+				this.pendingThinkingLevel = level;
+				if (this._messageEditor) {
+					this._messageEditor.thinkingLevel = level;
+				}
+				this.requestUpdate();
 			} : undefined}
 						></message-editor>
 						${this.renderStats()}
@@ -108136,6 +108159,7 @@ var init_AgentInterface = __esmMin((() => {
 	__decorate$17([n$1({ type: Boolean })], AgentInterface.prototype, "enableAttachments", void 0);
 	__decorate$17([n$1({ type: Boolean })], AgentInterface.prototype, "enableModelSelector", void 0);
 	__decorate$17([n$1({ type: Boolean })], AgentInterface.prototype, "enableThinkingSelector", void 0);
+	__decorate$17([n$1({ type: String })], AgentInterface.prototype, "sessionThinkingLevel", void 0);
 	__decorate$17([n$1({ type: Boolean })], AgentInterface.prototype, "showThemeToggle", void 0);
 	__decorate$17([n$1({ attribute: false })], AgentInterface.prototype, "onApiKeyRequired", void 0);
 	__decorate$17([n$1({ attribute: false })], AgentInterface.prototype, "onBeforeSend", void 0);
@@ -108143,6 +108167,7 @@ var init_AgentInterface = __esmMin((() => {
 	__decorate$17([n$1({ attribute: false })], AgentInterface.prototype, "onCostClick", void 0);
 	__decorate$17([e$1("message-editor")], AgentInterface.prototype, "_messageEditor", void 0);
 	__decorate$17([e$1("streaming-message-container")], AgentInterface.prototype, "_streamingContainer", void 0);
+	__decorate$17([r()], AgentInterface.prototype, "pendingThinkingLevel", void 0);
 	AgentInterface = __decorate$17([t("agent-interface")], AgentInterface);
 	if (!customElements.get("agent-interface")) {
 		customElements.define("agent-interface", AgentInterface);
@@ -195731,6 +195756,7 @@ var init_ChatPanel = __esmMin((() => {
 			this.agent = agent;
 			this.agentInterface = document.createElement("agent-interface");
 			this.agentInterface.session = agent;
+			this.agentInterface.sessionThinkingLevel = config?.sessionThinkingLevel ?? agent?.state?.thinkingLevel ?? "off";
 			this.agentInterface.enableAttachments = true;
 			this.agentInterface.enableModelSelector = false;
 			this.agentInterface.enableThinkingSelector = true;
@@ -196264,7 +196290,8 @@ async function fetchBootstrap() {
 	return {
 		sessionKey,
 		basePath: info$1.basePath || "/webchat/",
-		initialMessages: Array.isArray(info$1.initialMessages) ? info$1.initialMessages : []
+		initialMessages: Array.isArray(info$1.initialMessages) ? info$1.initialMessages : [],
+		thinkingLevel: typeof info$1.thinkingLevel === "string" ? info$1.thinkingLevel : "off"
 	};
 }
 var NativeTransport = class {
@@ -196279,14 +196306,20 @@ var NativeTransport = class {
 			content: typeof a$2.content === "string" ? a$2.content : btoa(String.fromCharCode(...new Uint8Array(a$2.content)))
 		}));
 		const rpcUrl = new URL("./rpc", window.location.href);
+		const rpcBody = {
+			text: userMessage.content?.[0]?.text ?? "",
+			session: this.sessionKey,
+			attachments
+		};
+		if (cfg?.thinkingOnce) {
+			rpcBody.thinkingOnce = cfg.thinkingOnce;
+		} else if (cfg?.thinkingOverride) {
+			rpcBody.thinking = cfg.thinkingOverride;
+		}
 		const resultResp = await fetch(rpcUrl, {
 			method: "POST",
 			headers: { "Content-Type": "application/json" },
-			body: JSON.stringify({
-				text: userMessage.content?.[0]?.text ?? "",
-				session: this.sessionKey,
-				attachments
-			}),
+			body: JSON.stringify(rpcBody),
 			signal
 		});
 		if (!resultResp.ok) {
@@ -196339,7 +196372,7 @@ var NativeTransport = class {
 };
 const startChat = async () => {
 	logStatus("boot: fetching session info");
-	const { initialMessages, sessionKey } = await fetchBootstrap();
+	const { initialMessages, sessionKey, thinkingLevel } = await fetchBootstrap();
 	logStatus("boot: starting imports");
 	const { Agent: Agent$1 } = await Promise.resolve().then(() => (init_agent(), agent_exports));
 	const { ChatPanel: ChatPanel$1 } = await Promise.resolve().then(() => (init_ChatPanel(), ChatPanel_exports));
@@ -196386,7 +196419,7 @@ const startChat = async () => {
 		initialState: {
 			systemPrompt: "You are Clawd (primary session).",
 			model: getModel$1("anthropic", "claude-opus-4-5"),
-			thinkingLevel: "off",
+			thinkingLevel,
 			messages: initialMessages
 		},
 		transport: new NativeTransport(sessionKey)
@@ -196408,7 +196441,7 @@ const startChat = async () => {
 	const panel = new ChatPanel$1();
 	panel.style.height = "100%";
 	panel.style.display = "block";
-	await panel.setAgent(agent);
+	await panel.setAgent(agent, { sessionThinkingLevel: thinkingLevel });
 	const mount = document.getElementById("app");
 	if (!mount) throw new Error("#app container missing");
 	mount.dataset.booted = "1";
