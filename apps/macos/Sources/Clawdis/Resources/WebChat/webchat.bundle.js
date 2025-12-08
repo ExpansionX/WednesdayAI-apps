@@ -196272,13 +196272,20 @@ var NativeTransport = class {
 		this.sessionKey = sessionKey;
 	}
 	async *run(messages, userMessage, cfg, signal) {
+		const attachments = userMessage.attachments?.map((a$2) => ({
+			type: a$2.type,
+			mimeType: a$2.mimeType,
+			fileName: a$2.fileName,
+			content: typeof a$2.content === "string" ? a$2.content : btoa(String.fromCharCode(...new Uint8Array(a$2.content)))
+		}));
 		const rpcUrl = new URL("./rpc", window.location.href);
 		const resultResp = await fetch(rpcUrl, {
 			method: "POST",
 			headers: { "Content-Type": "application/json" },
 			body: JSON.stringify({
 				text: userMessage.content?.[0]?.text ?? "",
-				session: this.sessionKey
+				session: this.sessionKey,
+				attachments
 			}),
 			signal
 		});
