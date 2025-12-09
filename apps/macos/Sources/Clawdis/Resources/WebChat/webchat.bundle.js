@@ -196336,107 +196336,176 @@ const logStatus = (msg) => {
 		if (el && !el.dataset.booted) el.textContent = msg;
 	} catch {}
 };
-async function fetchBootstrap() {
-	const params = new URLSearchParams(window.location.search);
-	const sessionKey = params.get("session") || "main";
-	const infoUrl = new URL(`./info?session=${encodeURIComponent(sessionKey)}`, window.location.href);
-	const infoResp = await fetch(infoUrl, { credentials: "omit" });
-	if (!infoResp.ok) {
-		throw new Error(`webchat info failed (${infoResp.status})`);
+const randomId = () => {
+	if (globalThis.crypto?.randomUUID) return globalThis.crypto.randomUUID();
+	return `id-${Math.random().toString(16).slice(2)}-${Date.now()}`;
+};
+var GatewaySocket = class {
+	constructor(url) {
+		this.url = url;
+		this.ws = null;
+		this.pending = new Map();
+		this.handlers = new Map();
 	}
-	const info$1 = await infoResp.json();
-	return {
-		sessionKey,
-		basePath: info$1.basePath || "/webchat/",
-		initialMessages: Array.isArray(info$1.initialMessages) ? info$1.initialMessages : [],
-		thinkingLevel: typeof info$1.thinkingLevel === "string" ? info$1.thinkingLevel : "off"
-	};
-}
-function latestTimestamp(messages) {
-	if (!Array.isArray(messages) || messages.length === 0) return 0;
-	const withTs = messages.filter((m$3) => typeof m$3?.timestamp === "number");
-	if (withTs.length === 0) return messages.length;
-	return withTs[withTs.length - 1].timestamp;
-}
-var NativeTransport = class {
-	constructor(sessionKey) {
+	async connect() {
+		return new Promise((resolve, reject) => {
+			const ws = new WebSocket(this.url);
+			this.ws = ws;
+			ws.onopen = () => {
+				const hello = {
+					type: "hello",
+					minProtocol: 1,
+					maxProtocol: 1,
+					client: {
+						name: "webchat-ui",
+						version: "dev",
+						platform: "browser",
+						mode: "webchat",
+						instanceId: randomId()
+					}
+				};
+				ws.send(JSON.stringify(hello));
+			};
+			ws.onerror = (err) => reject(err);
+			ws.onclose = (ev) => {
+				if (this.pending.size > 0) {
+					for (const [, p$3] of this.pending) p$3.reject(new Error("gateway closed"));
+					this.pending.clear();
+				}
+				if (ev.code !== 1e3) reject(new Error(`gateway closed ${ev.code}`));
+			};
+			ws.onmessage = (ev) => {
+				let msg;
+				try {
+					msg = JSON.parse(ev.data);
+				} catch {
+					return;
+				}
+				if (msg.type === "hello-ok") {
+					this.handlers.set("snapshot", msg.snapshot);
+					resolve(msg);
+					return;
+				}
+				if (msg.type === "event") {
+					const cb = this.handlers.get(msg.event);
+					if (cb) cb(msg.payload, msg);
+					return;
+				}
+				if (msg.type === "res") {
+					const pending = this.pending.get(msg.id);
+					if (!pending) return;
+					this.pending.delete(msg.id);
+					if (msg.ok) pending.resolve(msg.payload);
+					else pending.reject(new Error(msg.error?.message || "gateway error"));
+				}
+			};
+		});
+	}
+	on(event, handler) {
+		this.handlers.set(event, handler);
+	}
+	async request(method, params, { timeoutMs = 3e4 } = {}) {
+		if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
+			throw new Error("gateway not connected");
+		}
+		const id = randomId();
+		const frame = {
+			type: "req",
+			id,
+			method,
+			params
+		};
+		this.ws.send(JSON.stringify(frame));
+		return new Promise((resolve, reject) => {
+			this.pending.set(id, {
+				resolve,
+				reject
+			});
+			setTimeout(() => {
+				if (this.pending.has(id)) {
+					this.pending.delete(id);
+					reject(new Error(`${method} timed out`));
+				}
+			}, timeoutMs);
+		});
+	}
+};
+var ChatTransport = class {
+	constructor(sessionKey, gateway, healthOkRef) {
 		this.sessionKey = sessionKey;
+		this.gateway = gateway;
+		this.healthOkRef = healthOkRef;
+		this.pendingRuns = new Map();
+		this.gateway.on("chat", (payload) => {
+			const runId = payload?.runId;
+			const pending = runId ? this.pendingRuns.get(runId) : null;
+			if (!pending) return;
+			if (payload.state === "error") {
+				pending.reject(new Error(payload.errorMessage || "chat error"));
+				this.pendingRuns.delete(runId);
+				return;
+			}
+			if (payload.state === "delta") return;
+			pending.resolve(payload);
+			this.pendingRuns.delete(runId);
+		});
 	}
-	async *run(messages, userMessage, cfg, signal) {
-		const attachments = userMessage.attachments?.map((a$2) => ({
+	async *run(_messages, userMessage, cfg, _signal) {
+		if (!this.healthOkRef.current) {
+			throw new Error("gateway health not OK; cannot send");
+		}
+		const text$2 = userMessage.content?.[0]?.text ?? "";
+		const attachments = (userMessage.attachments || []).map((a$2) => ({
 			type: a$2.type,
 			mimeType: a$2.mimeType,
 			fileName: a$2.fileName,
 			content: typeof a$2.content === "string" ? a$2.content : btoa(String.fromCharCode(...new Uint8Array(a$2.content)))
 		}));
-		const rpcUrl = new URL("./rpc", window.location.href);
-		const rpcBody = {
-			text: userMessage.content?.[0]?.text ?? "",
-			session: this.sessionKey,
-			attachments
-		};
-		if (cfg?.thinkingOnce) {
-			rpcBody.thinkingOnce = cfg.thinkingOnce;
-		} else if (cfg?.thinkingOverride) {
-			rpcBody.thinking = cfg.thinkingOverride;
-		}
-		const resultResp = await fetch(rpcUrl, {
-			method: "POST",
-			headers: { "Content-Type": "application/json" },
-			body: JSON.stringify(rpcBody),
-			signal
+		const thinking = cfg?.thinkingOnce ?? cfg?.thinkingOverride ?? cfg?.thinking ?? undefined;
+		const runId = randomId();
+		const pending = new Promise((resolve, reject) => {
+			this.pendingRuns.set(runId, {
+				resolve,
+				reject
+			});
+			setTimeout(() => {
+				if (this.pendingRuns.has(runId)) {
+					this.pendingRuns.delete(runId);
+					reject(new Error("chat timed out"));
+				}
+			}, 3e4);
 		});
-		if (!resultResp.ok) {
-			throw new Error(`rpc failed (${resultResp.status})`);
-		}
-		const body = await resultResp.json();
-		if (!body.ok) {
-			throw new Error(body.error || "rpc error");
-		}
-		const first = Array.isArray(body.payloads) ? body.payloads[0] : undefined;
-		const text$2 = (first?.text ?? "").toString();
-		const usage = {
-			input: 0,
-			output: 0,
-			cacheRead: 0,
-			cacheWrite: 0,
-			cost: {
-				input: 0,
-				output: 0,
-				cacheRead: 0,
-				cacheWrite: 0,
-				total: 0
-			}
-		};
-		const assistant = {
+		await this.gateway.request("chat.send", {
+			sessionKey: this.sessionKey,
+			message: text$2,
+			attachments: attachments.length ? attachments : undefined,
+			thinking,
+			idempotencyKey: runId,
+			timeoutMs: 3e4
+		});
+		yield { type: "turn_start" };
+		const payload = await pending;
+		const message = payload?.message || {
 			role: "assistant",
 			content: [{
 				type: "text",
-				text: text$2
+				text: ""
 			}],
-			api: cfg.model.api,
-			provider: cfg.model.provider,
-			model: cfg.model.id,
-			usage,
-			stopReason: "stop",
 			timestamp: Date.now()
 		};
-		yield { type: "turn_start" };
 		yield {
 			type: "message_start",
-			message: assistant
+			message
 		};
 		yield {
 			type: "message_end",
-			message: assistant
+			message
 		};
 		yield { type: "turn_end" };
 		yield { type: "agent_end" };
 	}
 };
 const startChat = async () => {
-	logStatus("boot: fetching session info");
-	const { initialMessages, sessionKey, thinkingLevel } = await fetchBootstrap();
 	logStatus("boot: starting imports");
 	const { Agent: Agent$1 } = await Promise.resolve().then(() => (init_agent(), agent_exports));
 	const { ChatPanel: ChatPanel$1 } = await Promise.resolve().then(() => (init_ChatPanel(), ChatPanel_exports));
@@ -196473,12 +196542,37 @@ const startChat = async () => {
 	}
 	const storage = new AppStorage$1(settingsStore, providerKeysStore, sessionsStore, customProvidersStore, backend);
 	setAppStorage$1(storage);
-	const defaultProvider = "anthropic";
 	try {
-		await providerKeysStore.set(defaultProvider, "embedded");
+		await providerKeysStore.set("anthropic", "embedded");
 	} catch (err) {
 		logStatus(`storage warn: could not seed provider key: ${err}`);
 	}
+	const params = new URLSearchParams(window.location.search);
+	const sessionKey = params.get("session") || "main";
+	const wsUrl = (() => {
+		const u$4 = new URL(window.location.href);
+		u$4.protocol = u$4.protocol.replace("http", "ws");
+		u$4.port = params.get("gatewayPort") || "18789";
+		u$4.pathname = "/";
+		u$4.search = "";
+		return u$4.toString();
+	})();
+	logStatus("boot: connecting gateway");
+	const gateway = new GatewaySocket(wsUrl);
+	const hello = await gateway.connect();
+	const healthOkRef = { current: Boolean(hello?.snapshot?.health?.ok ?? true) };
+	gateway.on("tick", async () => {
+		try {
+			const health = await gateway.request("health", {}, { timeoutMs: 5e3 });
+			healthOkRef.current = !!health?.ok;
+		} catch {
+			healthOkRef.current = false;
+		}
+	});
+	logStatus("boot: fetching history");
+	const history = await gateway.request("chat.history", { sessionKey });
+	const initialMessages = Array.isArray(history?.messages) ? history.messages : [];
+	const thinkingLevel = typeof history?.thinkingLevel === "string" ? history.thinkingLevel : "off";
 	const agent = new Agent$1({
 		initialState: {
 			systemPrompt: "You are Clawd (primary session).",
@@ -196486,7 +196580,7 @@ const startChat = async () => {
 			thinkingLevel,
 			messages: initialMessages
 		},
-		transport: new NativeTransport(sessionKey)
+		transport: new ChatTransport(sessionKey, gateway, healthOkRef)
 	});
 	const origPrompt = agent.prompt.bind(agent);
 	agent.prompt = async (input, attachments) => {
@@ -196512,58 +196606,6 @@ const startChat = async () => {
 	mount.textContent = "";
 	mount.appendChild(panel);
 	logStatus("boot: ready");
-	let lastSyncedTs = latestTimestamp(initialMessages);
-	let ws;
-	let reconnectTimer;
-	const applySnapshot = (info$1) => {
-		const messages = Array.isArray(info$1?.messages) ? info$1.messages : [];
-		const ts = latestTimestamp(messages);
-		const thinking = typeof info$1?.thinkingLevel === "string" ? info$1.thinkingLevel : "off";
-		if (!agent.state.isStreaming && ts && ts !== lastSyncedTs) {
-			agent.replaceMessages(messages);
-			lastSyncedTs = ts;
-		}
-		if (thinking && thinking !== agent.state.thinkingLevel) {
-			agent.setThinkingLevel(thinking);
-			if (panel?.agentInterface) {
-				panel.agentInterface.sessionThinkingLevel = thinking;
-				panel.agentInterface.pendingThinkingLevel = null;
-				if (panel.agentInterface._messageEditor) {
-					panel.agentInterface._messageEditor.thinkingLevel = thinking;
-				}
-			}
-		}
-	};
-	const connectSocket = () => {
-		try {
-			const wsUrl = new URL(`./socket?session=${encodeURIComponent(sessionKey)}`, window.location.href);
-			wsUrl.protocol = wsUrl.protocol.replace("http", "ws");
-			ws = new WebSocket(wsUrl);
-			ws.onmessage = (ev) => {
-				try {
-					const data = JSON.parse(ev.data);
-					if (data?.type === "session") applySnapshot(data);
-				} catch (err) {
-					console.warn("ws message parse failed", err);
-				}
-			};
-			ws.onclose = () => {
-				ws = null;
-				if (!reconnectTimer) {
-					reconnectTimer = setTimeout(() => {
-						reconnectTimer = null;
-						connectSocket();
-					}, 2e3);
-				}
-			};
-			ws.onerror = () => {
-				ws?.close();
-			};
-		} catch (err) {
-			console.warn("ws connect failed", err);
-		}
-	};
-	connectSocket();
 };
 startChat().catch((err) => {
 	const msg = err?.stack || err?.message || String(err);
