@@ -131248,11 +131248,14 @@ var init_katex = __esmMin((() => {
 				case "\\htmlData": {
 					var data = value.split(",");
 					for (var i$7 = 0; i$7 < data.length; i$7++) {
-						var keyVal = data[i$7].split("=");
-						if (keyVal.length !== 2) {
-							throw new ParseError("Error parsing key-value for \\htmlData");
+						var item = data[i$7];
+						var firstEquals = item.indexOf("=");
+						if (firstEquals < 0) {
+							throw new ParseError("\\htmlData key/value '" + item + "'" + " missing equals sign");
 						}
-						attributes["data-" + keyVal[0].trim()] = keyVal[1].trim();
+						var key = item.slice(0, firstEquals);
+						var _value = item.slice(firstEquals + 1);
+						attributes["data-" + key.trim()] = _value;
 					}
 					trustContext = {
 						command: "\\htmlData",
@@ -135726,7 +135729,7 @@ var init_katex = __esmMin((() => {
 			return renderError(error$2, expression, settings);
 		}
 	};
-	version$2 = "0.16.26";
+	version$2 = "0.16.27";
 	__domTree = {
 		Span,
 		Anchor,
@@ -196565,6 +196568,7 @@ const startChat = async () => {
 startChat().catch((err) => {
 	const msg = err?.stack || err?.message || String(err);
 	logStatus(`boot failed: ${msg}`);
+	document.body.dataset.webchatError = "1";
 	document.body.style.color = "#e06666";
 	document.body.style.fontFamily = "monospace";
 	document.body.style.padding = "16px";
