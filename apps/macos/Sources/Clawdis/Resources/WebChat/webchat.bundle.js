@@ -196394,6 +196394,7 @@ var GatewaySocket = class {
 			const ws = new WebSocket(this.url);
 			this.ws = ws;
 			ws.onopen = () => {
+				logStatus(`ws: open -> sending hello (${this.url})`);
 				const hello = {
 					type: "hello",
 					minProtocol: 1,
@@ -196408,8 +196409,12 @@ var GatewaySocket = class {
 				};
 				ws.send(JSON.stringify(hello));
 			};
-			ws.onerror = (err) => reject(err);
+			ws.onerror = (err) => {
+				logStatus(`ws: error ${formatError(err)}`);
+				reject(err);
+			};
 			ws.onclose = (ev) => {
+				logStatus(`ws: close code=${ev.code} reason=${ev.reason || "n/a"} clean=${ev.wasClean}`);
 				if (this.pending.size > 0) {
 					for (const [, p$3] of this.pending) p$3.reject(new Error("gateway closed"));
 					this.pending.clear();
@@ -196424,6 +196429,7 @@ var GatewaySocket = class {
 					return;
 				}
 				if (msg.type === "hello-ok") {
+					logStatus(`ws: hello-ok presence=${msg?.snapshot?.presence?.length ?? 0} healthOk=${msg?.snapshot?.health?.ok ?? "n/a"}`);
 					this.handlers.set("snapshot", msg.snapshot);
 					resolve(msg);
 					return;
@@ -196592,14 +196598,14 @@ const startChat = async () => {
 	const params = new URLSearchParams(window.location.search);
 	const sessionKey = params.get("session") || "main";
 	const wsUrl = (() => {
-		const u$4 = new URL(window.location.href);
-		u$4.protocol = u$4.protocol.replace("http", "ws");
-		u$4.port = params.get("gatewayPort") || "18789";
-		u$4.pathname = "/";
-		u$4.search = "";
+		const loc = new URL(window.location.href);
+		const requestedPort = Number.parseInt(params.get("gatewayPort") ?? "", 10);
+		const gatewayPort = Number.isInteger(requestedPort) && requestedPort > 0 && requestedPort <= 65535 ? requestedPort : 18789;
+		const gatewayHost = params.get("gatewayHost") || loc.hostname || "127.0.0.1";
+		const u$4 = new URL(`ws://${gatewayHost}:${gatewayPort}/`);
 		return u$4.toString();
 	})();
-	logStatus("boot: connecting gateway");
+	logStatus(`boot: connecting gateway (${wsUrl})`);
 	const gateway = new GatewaySocket(wsUrl);
 	const hello = await gateway.connect();
 	const healthOkRef = { current: Boolean(hello?.snapshot?.health?.ok ?? true) };
