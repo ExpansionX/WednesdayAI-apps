@@ -44,6 +44,37 @@ var __require = /* @__PURE__ */ ((x$2) => typeof require !== "undefined" ? requi
 });
 
 //#endregion
+//#region apps/macos/Sources/Clawdis/Resources/WebChat/format-error.js
+const formatError = (err) => {
+	if (!err) return "Unknown error";
+	if (err instanceof Error) return err.stack || err.message || String(err);
+	const isCloseEvent = typeof CloseEvent !== "undefined" && err instanceof CloseEvent || typeof err?.code === "number" && (err?.reason !== undefined || err?.wasClean !== undefined);
+	if (isCloseEvent) {
+		const reason = err.reason?.trim();
+		const parts = [`WebSocket closed (${err.code})`];
+		if (reason) parts.push(`reason: ${reason}`);
+		if (err.wasClean) parts.push("clean close");
+		return parts.join("; ");
+	}
+	const isWsErrorEvent = err?.type === "error" && typeof err?.target?.readyState === "number";
+	if (isWsErrorEvent) {
+		const states = [
+			"connecting",
+			"open",
+			"closing",
+			"closed"
+		];
+		const stateLabel = states[err.target.readyState] ?? err.target.readyState;
+		return `WebSocket error (state: ${stateLabel})`;
+	}
+	try {
+		return JSON.stringify(err);
+	} catch {
+		return String(err);
+	}
+};
+
+//#endregion
 //#region apps/macos/Sources/Clawdis/Resources/WebChat/pi-ai-stub.js
 var pi_ai_stub_exports = /* @__PURE__ */ __export({
 	AssistantMessageEventStream: () => AssistantMessageEventStream,
@@ -196619,7 +196650,7 @@ const startChat = async () => {
 	logStatus("boot: ready");
 };
 startChat().catch((err) => {
-	const msg = err?.stack || err?.message || String(err);
+	const msg = formatError(err);
 	logStatus(`boot failed: ${msg}`);
 	document.body.dataset.webchatError = "1";
 	ensureErrorStyles();
