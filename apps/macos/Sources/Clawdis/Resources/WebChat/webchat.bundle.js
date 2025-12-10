@@ -196340,6 +196340,17 @@ const randomId = () => {
 	if (globalThis.crypto?.randomUUID) return globalThis.crypto.randomUUID();
 	return `id-${Math.random().toString(16).slice(2)}-${Date.now()}`;
 };
+const ensureErrorStyles = () => {
+	if (document.getElementById("webchat-error-style")) return;
+	const style = document.createElement("style");
+	style.id = "webchat-error-style";
+	style.textContent = `
+    body.webchat-error {
+      padding: 28px;
+    }
+  `;
+	document.head.appendChild(style);
+};
 var GatewaySocket = class {
 	constructor(url) {
 		this.url = url;
@@ -196611,6 +196622,8 @@ startChat().catch((err) => {
 	const msg = err?.stack || err?.message || String(err);
 	logStatus(`boot failed: ${msg}`);
 	document.body.dataset.webchatError = "1";
+	ensureErrorStyles();
+	document.body.classList.add("webchat-error");
 	document.body.style.color = "#b32d2d";
 	document.body.style.fontFamily = "SFMono-Regular, Menlo, Consolas, monospace";
 	document.body.style.padding = "28px";
