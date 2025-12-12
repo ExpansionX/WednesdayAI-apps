@@ -196364,7 +196364,7 @@ const logStatus = (msg) => {
 	try {
 		console.log(msg);
 		const el = document.getElementById("app");
-		if (el && !el.dataset.booted) el.textContent = msg;
+		if (el && !el.dataset.booted) el.dataset.status = msg;
 	} catch {}
 };
 const randomId = () => {
