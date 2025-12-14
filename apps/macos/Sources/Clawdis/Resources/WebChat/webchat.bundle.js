@@ -196592,9 +196592,26 @@ var GatewaySocket = class {
 		this.ws = null;
 		this.pending = new Map();
 		this.handlers = new Map();
+		this.connectPromise = null;
+		this.reconnectTimer = null;
+		this.retryMs = 500;
+		this.maxRetryMs = 1e4;
+		this.hello = null;
 	}
 	async connect() {
-		return new Promise((resolve, reject) => {
+		if (this.ws && this.ws.readyState === WebSocket.OPEN && this.hello) {
+			return this.hello;
+		}
+		if (this.connectPromise) return this.connectPromise;
+		this.connectPromise = new Promise((resolve, reject) => {
+			let settled = false;
+			const settle = (err, value) => {
+				if (settled) return;
+				settled = true;
+				this.connectPromise = null;
+				if (err) reject(err);
+				else resolve(value);
+			};
 			const ws = new WebSocket(this.url);
 			this.ws = ws;
 			ws.onopen = () => {
@@ -196619,22 +196636,31 @@ var GatewaySocket = class {
 					params
 				}));
 				this.pending.set(id, {
-					resolve,
-					reject,
+					resolve: (value) => settle(null, value),
+					reject: (err) => settle(err),
 					_handshake: true
 				});
 			};
 			ws.onerror = (err) => {
 				logStatus(`ws: error ${formatError(err)}`);
-				reject(err);
+				settle(err);
 			};
 			ws.onclose = (ev) => {
 				logStatus(`ws: close code=${ev.code} reason=${ev.reason || "n/a"} clean=${ev.wasClean}`);
+				if (this.ws === ws) {
+					this.ws = null;
+					this.hello = null;
+				}
 				if (this.pending.size > 0) {
 					for (const [, p$3] of this.pending) p$3.reject(new Error("gateway closed"));
 					this.pending.clear();
 				}
-				if (ev.code !== 1e3) reject(new Error(`gateway closed ${ev.code}`));
+				if (ev.code !== 1e3) {
+					settle(new Error(`gateway closed ${ev.code}`));
+				} else {
+					settle(new Error("gateway closed"));
+				}
+				this.scheduleReconnect();
 			};
 			ws.onmessage = (ev) => {
 				let msg;
@@ -196657,6 +196683,12 @@ var GatewaySocket = class {
 							const helloOk = msg.payload;
 							logStatus(`ws: hello-ok presence=${helloOk?.snapshot?.presence?.length ?? 0} healthOk=${helloOk?.snapshot?.health?.ok ?? "n/a"}`);
 							this.handlers.set("snapshot", helloOk.snapshot);
+							this.hello = helloOk;
+							this.retryMs = 500;
+							if (this.reconnectTimer) {
+								clearTimeout(this.reconnectTimer);
+								this.reconnectTimer = null;
+							}
 							pending.resolve(helloOk);
 						} else {
 							pending.resolve(msg.payload);
@@ -196667,34 +196699,74 @@ var GatewaySocket = class {
 				}
 			};
 		});
+		return this.connectPromise;
 	}
 	on(event, handler) {
 		this.handlers.set(event, handler);
 	}
-	async request(method, params, { timeoutMs = 3e4 } = {}) {
-		if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
+	scheduleReconnect() {
+		if (this.reconnectTimer) return;
+		const delay = this.retryMs;
+		this.retryMs = Math.min(this.retryMs * 2, this.maxRetryMs);
+		logStatus(`ws: reconnect in ${delay}ms`);
+		this.reconnectTimer = setTimeout(async () => {
+			this.reconnectTimer = null;
+			try {
+				await this.connect();
+			} catch {
+				this.scheduleReconnect();
+			}
+		}, delay);
+	}
+	async ensureConnected() {
+		if (this.ws && this.ws.readyState === WebSocket.OPEN) return;
+		try {
+			await this.connect();
+		} catch (err) {
+			logStatus(`ws: connect failed ${formatError(err)}`);
+			this.scheduleReconnect();
 			throw new Error("gateway not connected");
 		}
-		const id = randomId();
-		const frame = {
-			type: "req",
-			id,
-			method,
-			params
-		};
-		this.ws.send(JSON.stringify(frame));
-		return new Promise((resolve, reject) => {
-			this.pending.set(id, {
-				resolve,
-				reject
-			});
-			setTimeout(() => {
-				if (this.pending.has(id)) {
-					this.pending.delete(id);
-					reject(new Error(`${method} timed out`));
+		if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
+			this.scheduleReconnect();
+			throw new Error("gateway not connected");
+		}
+	}
+	async request(method, params, { timeoutMs = 3e4 } = {}) {
+		let lastErr = null;
+		for (let attempt = 0; attempt < 2; attempt++) {
+			try {
+				await this.ensureConnected();
+				const ws = this.ws;
+				if (!ws || ws.readyState !== WebSocket.OPEN) {
+					throw new Error("gateway not connected");
 				}
-			}, timeoutMs);
-		});
+				const id = randomId();
+				const frame = {
+					type: "req",
+					id,
+					method,
+					params
+				};
+				ws.send(JSON.stringify(frame));
+				return await new Promise((resolve, reject) => {
+					this.pending.set(id, {
+						resolve,
+						reject
+					});
+					setTimeout(() => {
+						if (this.pending.has(id)) {
+							this.pending.delete(id);
+							reject(new Error(`${method} timed out`));
+						}
+					}, timeoutMs);
+				});
+			} catch (err) {
+				lastErr = err;
+				this.scheduleReconnect();
+			}
+		}
+		throw lastErr instanceof Error ? lastErr : new Error("gateway not connected");
 	}
 };
 var ChatTransport = class {
