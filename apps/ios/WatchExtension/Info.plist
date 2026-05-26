@@ -15,9 +15,9 @@
 	<key>CFBundleName</key>
 	<string>$(PRODUCT_NAME)</string>
 	<key>CFBundleShortVersionString</key>
-	<string>0.5.15</string>
+	<string>0.1.15</string>
 	<key>CFBundleVersion</key>
-	<string>515</string>
+	<string>115</string>
 	<key>NSExtension</key>
 	<dict>
 		<key>NSExtensionAttributes</key>
