@@ -33,3 +33,51 @@ export function deriveBuildNumber(version: string): number {
   }
   return major * 10000 + minor * 100 + patch;
 }
+
+function replaceExactlyOnce(
+  content: string,
+  pattern: RegExp,
+  replacement: string,
+  label: string,
+): string {
+  const matches = content.match(pattern);
+  if (!matches || matches.length !== 1) {
+    throw new Error(
+      `Version stamp for ${label} matched ${matches ? matches.length : 0} times (expected exactly 1). ` +
+        `The target file format changed — fix the stamper, do not ship a stale version.`,
+    );
+  }
+  return content.replace(pattern, replacement);
+}
+
+export function stampAndroid(content: string, version: string, buildNumber: number): string {
+  let out = replaceExactlyOnce(
+    content,
+    /versionName = "[^"]*"/g,
+    `versionName = "${version}"`,
+    "android versionName",
+  );
+  out = replaceExactlyOnce(
+    out,
+    /versionCode = \d+/g,
+    `versionCode = ${buildNumber}`,
+    "android versionCode",
+  );
+  return out;
+}
+
+export function stampPlist(content: string, version: string, buildNumber: number): string {
+  let out = replaceExactlyOnce(
+    content,
+    /(<key>CFBundleShortVersionString<\/key>\s*\n\s*<string>)[^<]*(<\/string>)/g,
+    `$1${version}$2`,
+    "plist CFBundleShortVersionString",
+  );
+  out = replaceExactlyOnce(
+    out,
+    /(<key>CFBundleVersion<\/key>\s*\n\s*<string>)[^<]*(<\/string>)/g,
+    `$1${buildNumber}$2`,
+    "plist CFBundleVersion",
+  );
+  return out;
+}

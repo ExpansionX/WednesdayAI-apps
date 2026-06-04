@@ -42,3 +42,38 @@ describe("deriveBuildNumber", () => {
     expect(() => deriveBuildNumber("nope")).toThrow();
   });
 });
+
+import { stampAndroid, stampPlist } from "./version-derive.ts";
+
+describe("stampAndroid", () => {
+  it("rewrites versionName and versionCode", () => {
+    const input = `    versionCode = 115\n    versionName = "0.1.15"\n`;
+    expect(stampAndroid(input, "0.1.40", 240)).toBe(
+      `    versionCode = 240\n    versionName = "0.1.40"\n`,
+    );
+  });
+});
+
+describe("stampPlist", () => {
+  it("rewrites CFBundleShortVersionString and CFBundleVersion", () => {
+    const input = [
+      "<key>CFBundleShortVersionString</key>",
+      "<string>0.1.15</string>",
+      "<key>CFBundleVersion</key>",
+      "<string>115</string>",
+    ].join("\n");
+    const out = stampPlist(input, "0.1.40", 240);
+    expect(out).toContain("<key>CFBundleShortVersionString</key>\n<string>0.1.40</string>");
+    expect(out).toContain("<key>CFBundleVersion</key>\n<string>240</string>");
+  });
+});
+
+describe("fail-loud stampers", () => {
+  it("stampAndroid throws if versionName/versionCode are not both present", () => {
+    expect(() => stampAndroid("no version here", "0.1.40", 140)).toThrow();
+  });
+  it("stampPlist throws if either key/string pair is missing", () => {
+    const onlyShort = "<key>CFBundleShortVersionString</key>\n<string>0.1.15</string>";
+    expect(() => stampPlist(onlyShort, "0.1.40", 140)).toThrow();
+  });
+});
