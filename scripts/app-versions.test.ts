@@ -22,3 +22,23 @@ describe("buildBuildInfo", () => {
     expect(buildBuildInfo({ version: "0.1.39", commit: null, builtAt: "t" }).channel).toBe("dev");
   });
 });
+
+import { deriveBuildNumber } from "./version-derive.ts";
+
+describe("deriveBuildNumber", () => {
+  it("reproduces the existing convention (0.1.15 -> 115)", () => {
+    expect(deriveBuildNumber("0.1.15")).toBe(115);
+  });
+  it("is monotonic across versions", () => {
+    expect(deriveBuildNumber("0.1.39")).toBe(139);
+    expect(deriveBuildNumber("0.2.0")).toBe(200);
+    expect(deriveBuildNumber("1.0.0")).toBe(10000);
+  });
+  it("throws when minor or patch exceed the two-digit range", () => {
+    expect(() => deriveBuildNumber("0.1.100")).toThrow();
+    expect(() => deriveBuildNumber("0.100.0")).toThrow();
+  });
+  it("throws on a non-SemVer string", () => {
+    expect(() => deriveBuildNumber("nope")).toThrow();
+  });
+});
