@@ -88,3 +88,28 @@ describe("deriveDevVersion", () => {
     expect(deriveDevVersion("v0.1.39")).toBe("0.1.40-dev.0+0000000");
   });
 });
+
+import { stampProjectYml } from "./version-derive.ts";
+
+describe("stampProjectYml", () => {
+  const yml = [
+    "    properties:",
+    '        CFBundleShortVersionString: "0.1.15"',
+    '        CFBundleVersion: "115"',
+    "  another:",
+    '        CFBundleShortVersionString: "0.1.15"',
+    '        CFBundleVersion: "115"',
+  ].join("\n");
+
+  it("stamps every target's version and build (multiple occurrences)", () => {
+    const out = stampProjectYml(yml, "0.1.40", 140);
+    expect(out).not.toContain('"0.1.15"');
+    expect(out).not.toContain('"115"');
+    expect([...out.matchAll(/CFBundleShortVersionString: "0\.1\.40"/g)]).toHaveLength(2);
+    expect([...out.matchAll(/CFBundleVersion: "140"/g)]).toHaveLength(2);
+  });
+
+  it("throws fail-loud when the version keys are absent (format changed)", () => {
+    expect(() => stampProjectYml("targets:\n  app:\n", "0.1.40", 140)).toThrow();
+  });
+});
