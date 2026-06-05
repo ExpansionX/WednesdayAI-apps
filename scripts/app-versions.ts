@@ -81,3 +81,17 @@ export function stampPlist(content: string, version: string, buildNumber: number
   );
   return out;
 }
+
+export function deriveDevVersion(gitDescribe: string): string {
+  const exact = /^v(\d+)\.(\d+)\.(\d+)$/.exec(gitDescribe.trim());
+  if (exact) {
+    const [, major, minor, patch] = exact;
+    return `${major}.${minor}.${Number(patch) + 1}-dev.0+0000000`;
+  }
+  const m = /^v(\d+)\.(\d+)\.(\d+)-(\d+)-g([0-9a-f]+)$/.exec(gitDescribe.trim());
+  if (!m) {
+    throw new Error(`Unrecognized git describe output: ${JSON.stringify(gitDescribe)}`);
+  }
+  const [, major, minor, patch, count, sha] = m;
+  return `${major}.${minor}.${Number(patch) + 1}-dev.${count}+${sha}`;
+}

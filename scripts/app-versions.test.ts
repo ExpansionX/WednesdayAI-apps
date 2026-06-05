@@ -77,3 +77,14 @@ describe("fail-loud stampers", () => {
     expect(() => stampPlist(onlyShort, "0.1.40", 140)).toThrow();
   });
 });
+
+import { deriveDevVersion } from "./version-derive.ts";
+
+describe("deriveDevVersion", () => {
+  it("bumps patch and encodes commits-since-tag + sha", () => {
+    expect(deriveDevVersion("v0.1.39-7-gabc1234")).toBe("0.1.40-dev.7+abc1234");
+  });
+  it("treats an exact tag as dev.0 of the next patch", () => {
+    expect(deriveDevVersion("v0.1.39")).toBe("0.1.40-dev.0+0000000");
+  });
+});
