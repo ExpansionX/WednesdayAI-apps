@@ -135,7 +135,14 @@ function emitStruct(name: string, schema: JsonSchema): string {
         .map(([key, prop]) => {
           const propName = safeName(key);
           const req = required.has(key);
-          return `        ${propName}: ${swiftType(prop, true)}${req ? "" : "?"}`;
+          // Optional parameters default to nil. Without this, adding an optional field to the
+          // protocol is a SOURCE-BREAKING change for every Swift caller of the memberwise init —
+          // the parameter is optional in type but still mandatory at the call site, so callers
+          // must be edited even though they have nothing to pass. That is what happened when
+          // #323 added inheritedCanonicalIdentity/inheritedSenderId to AgentParams.
+          // `= nil` is valid for any Optional, and only widens what compiles: existing calls that
+          // pass every argument keep working.
+          return `        ${propName}: ${swiftType(prop, true)}${req ? "" : "? = nil"}`;
         })
         .join(",\n") +
       ")\n" +
