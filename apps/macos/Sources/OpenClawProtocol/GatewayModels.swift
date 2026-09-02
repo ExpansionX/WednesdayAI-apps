@@ -1583,18 +1583,22 @@ public struct ConfigGetParams: Codable, Sendable {}
 public struct ConfigSetParams: Codable, Sendable {
     public let raw: String
     public let basehash: String?
+    public let allowtoplevelkeyremoval: [String]?
 
     public init(
         raw: String,
-        basehash: String? = nil)
+        basehash: String? = nil,
+        allowtoplevelkeyremoval: [String]? = nil)
     {
         self.raw = raw
         self.basehash = basehash
+        self.allowtoplevelkeyremoval = allowtoplevelkeyremoval
     }
 
     private enum CodingKeys: String, CodingKey {
         case raw
         case basehash = "baseHash"
+        case allowtoplevelkeyremoval = "allowTopLevelKeyRemoval"
     }
 }
 
@@ -1605,6 +1609,7 @@ public struct ConfigApplyParams: Codable, Sendable {
     public let note: String?
     public let restartdelayms: Int?
     public let confirmed: String?
+    public let allowtoplevelkeyremoval: [String]?
 
     public init(
         raw: String,
@@ -1612,7 +1617,8 @@ public struct ConfigApplyParams: Codable, Sendable {
         sessionkey: String? = nil,
         note: String? = nil,
         restartdelayms: Int? = nil,
-        confirmed: String? = nil)
+        confirmed: String? = nil,
+        allowtoplevelkeyremoval: [String]? = nil)
     {
         self.raw = raw
         self.basehash = basehash
@@ -1620,6 +1626,7 @@ public struct ConfigApplyParams: Codable, Sendable {
         self.note = note
         self.restartdelayms = restartdelayms
         self.confirmed = confirmed
+        self.allowtoplevelkeyremoval = allowtoplevelkeyremoval
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -1629,6 +1636,7 @@ public struct ConfigApplyParams: Codable, Sendable {
         case note
         case restartdelayms = "restartDelayMs"
         case confirmed
+        case allowtoplevelkeyremoval = "allowTopLevelKeyRemoval"
     }
 }
 
@@ -1639,6 +1647,7 @@ public struct ConfigPatchParams: Codable, Sendable {
     public let note: String?
     public let restartdelayms: Int?
     public let confirmed: String?
+    public let allowtoplevelkeyremoval: [String]?
 
     public init(
         raw: String,
@@ -1646,7 +1655,8 @@ public struct ConfigPatchParams: Codable, Sendable {
         sessionkey: String? = nil,
         note: String? = nil,
         restartdelayms: Int? = nil,
-        confirmed: String? = nil)
+        confirmed: String? = nil,
+        allowtoplevelkeyremoval: [String]? = nil)
     {
         self.raw = raw
         self.basehash = basehash
@@ -1654,6 +1664,7 @@ public struct ConfigPatchParams: Codable, Sendable {
         self.note = note
         self.restartdelayms = restartdelayms
         self.confirmed = confirmed
+        self.allowtoplevelkeyremoval = allowtoplevelkeyremoval
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -1663,6 +1674,7 @@ public struct ConfigPatchParams: Codable, Sendable {
         case note
         case restartdelayms = "restartDelayMs"
         case confirmed
+        case allowtoplevelkeyremoval = "allowTopLevelKeyRemoval"
     }
 }
 
