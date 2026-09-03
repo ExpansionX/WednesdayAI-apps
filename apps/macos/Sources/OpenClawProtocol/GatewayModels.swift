@@ -1187,6 +1187,7 @@ public struct SessionsListParams: Codable, Sendable {
     public let activeminutes: Int?
     public let includeglobal: Bool?
     public let includeunknown: Bool?
+    public let configuredagentsonly: Bool?
     public let includederivedtitles: Bool?
     public let includelastmessage: Bool?
     public let label: String?
@@ -1199,6 +1200,7 @@ public struct SessionsListParams: Codable, Sendable {
         activeminutes: Int? = nil,
         includeglobal: Bool? = nil,
         includeunknown: Bool? = nil,
+        configuredagentsonly: Bool? = nil,
         includederivedtitles: Bool? = nil,
         includelastmessage: Bool? = nil,
         label: String? = nil,
@@ -1210,6 +1212,7 @@ public struct SessionsListParams: Codable, Sendable {
         self.activeminutes = activeminutes
         self.includeglobal = includeglobal
         self.includeunknown = includeunknown
+        self.configuredagentsonly = configuredagentsonly
         self.includederivedtitles = includederivedtitles
         self.includelastmessage = includelastmessage
         self.label = label
@@ -1223,6 +1226,7 @@ public struct SessionsListParams: Codable, Sendable {
         case activeminutes = "activeMinutes"
         case includeglobal = "includeGlobal"
         case includeunknown = "includeUnknown"
+        case configuredagentsonly = "configuredAgentsOnly"
         case includederivedtitles = "includeDerivedTitles"
         case includelastmessage = "includeLastMessage"
         case label
@@ -1933,6 +1937,22 @@ public struct TalkConfigResult: Codable, Sendable {
 
     private enum CodingKeys: String, CodingKey {
         case config
+    }
+}
+
+public struct TalkCatalogParams: Codable, Sendable {}
+
+public struct TalkCatalogResult: Codable, Sendable {
+    public let transcription: [String: AnyCodable]
+
+    public init(
+        transcription: [String: AnyCodable])
+    {
+        self.transcription = transcription
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case transcription
     }
 }
 
@@ -3401,18 +3421,22 @@ public struct DevicePairResolvedEvent: Codable, Sendable {
 public struct ChatHistoryParams: Codable, Sendable {
     public let sessionkey: String
     public let limit: Int?
+    public let maxchars: Int?
 
     public init(
         sessionkey: String,
-        limit: Int? = nil)
+        limit: Int? = nil,
+        maxchars: Int? = nil)
     {
         self.sessionkey = sessionkey
         self.limit = limit
+        self.maxchars = maxchars
     }
 
     private enum CodingKeys: String, CodingKey {
         case sessionkey = "sessionKey"
         case limit
+        case maxchars = "maxChars"
     }
 }
 
