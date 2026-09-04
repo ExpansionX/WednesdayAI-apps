@@ -10,6 +10,7 @@ public enum ErrorCode: String, Codable, Sendable {
     case agentTimeout = "AGENT_TIMEOUT"
     case invalidRequest = "INVALID_REQUEST"
     case unavailable = "UNAVAILABLE"
+    case conflict = "CONFLICT"
 }
 
 public struct ConnectParams: Codable, Sendable {
@@ -1953,6 +1954,76 @@ public struct TalkCatalogResult: Codable, Sendable {
 
     private enum CodingKeys: String, CodingKey {
         case transcription
+    }
+}
+
+public struct TalkSessionCreateParams: Codable, Sendable {
+    public let sessionkey: String
+    public let mode: String
+    public let transport: String
+    public let brain: String
+    public let provider: String?
+
+    public init(
+        sessionkey: String,
+        mode: String,
+        transport: String,
+        brain: String,
+        provider: String? = nil)
+    {
+        self.sessionkey = sessionkey
+        self.mode = mode
+        self.transport = transport
+        self.brain = brain
+        self.provider = provider
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case sessionkey = "sessionKey"
+        case mode
+        case transport
+        case brain
+        case provider
+    }
+}
+
+public struct TalkSessionCreateResult: Codable, Sendable {
+    public let sessionid: String
+    public let audio: [String: AnyCodable]
+
+    public init(
+        sessionid: String,
+        audio: [String: AnyCodable])
+    {
+        self.sessionid = sessionid
+        self.audio = audio
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case sessionid = "sessionId"
+        case audio
+    }
+}
+
+public struct TalkSessionReadyEvent: Codable, Sendable {
+    public let type: String
+    public let sessionid: String
+    public let seq: Double
+
+    public init(
+        type: String,
+        sessionid: String,
+        seq: Double)
+    {
+        self.type = type
+        self.sessionid = sessionid
+        self.seq = seq
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case type
+        case sessionid = "sessionId"
+        case seq
     }
 }
 
