@@ -2100,6 +2100,20 @@ public struct RunsInvalidatedSessionEvent: Codable, Sendable {
 
 public struct SessionsThresholdsParams: Codable, Sendable {}
 
+public struct TasksRunEventsParams: Codable, Sendable {
+    public let taskrunids: [String]
+
+    public init(
+        taskrunids: [String])
+    {
+        self.taskrunids = taskrunids
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case taskrunids = "taskRunIds"
+    }
+}
+
 public struct SessionsInterruptParams: Codable, Sendable {
     public let key: String
 
