@@ -1202,6 +1202,7 @@ public struct SecretsResolveResult: Codable, Sendable {
 
 public struct SessionsListParams: Codable, Sendable {
     public let limit: Int?
+    public let offset: Int?
     public let activeminutes: Int?
     public let includeglobal: Bool?
     public let includeunknown: Bool?
@@ -1215,6 +1216,7 @@ public struct SessionsListParams: Codable, Sendable {
 
     public init(
         limit: Int? = nil,
+        offset: Int? = nil,
         activeminutes: Int? = nil,
         includeglobal: Bool? = nil,
         includeunknown: Bool? = nil,
@@ -1227,6 +1229,7 @@ public struct SessionsListParams: Codable, Sendable {
         search: String? = nil)
     {
         self.limit = limit
+        self.offset = offset
         self.activeminutes = activeminutes
         self.includeglobal = includeglobal
         self.includeunknown = includeunknown
@@ -1241,6 +1244,7 @@ public struct SessionsListParams: Codable, Sendable {
 
     private enum CodingKeys: String, CodingKey {
         case limit
+        case offset
         case activeminutes = "activeMinutes"
         case includeglobal = "includeGlobal"
         case includeunknown = "includeUnknown"
@@ -1581,6 +1585,76 @@ public struct SessionsPatchParams: Codable, Sendable {
         case spawndepth = "spawnDepth"
         case sendpolicy = "sendPolicy"
         case groupactivation = "groupActivation"
+    }
+}
+
+public struct SessionsCreateParams: Codable, Sendable {
+    public let parentsessionkey: String?
+    public let label: String?
+    public let agentid: String?
+    public let model: String?
+
+    public init(
+        parentsessionkey: String? = nil,
+        label: String? = nil,
+        agentid: String? = nil,
+        model: String? = nil)
+    {
+        self.parentsessionkey = parentsessionkey
+        self.label = label
+        self.agentid = agentid
+        self.model = model
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case parentsessionkey = "parentSessionKey"
+        case label
+        case agentid = "agentId"
+        case model
+    }
+}
+
+public struct SessionsTitlePrepareParams: Codable, Sendable {
+    public let agentid: String
+    public let message: String
+    public let model: String?
+    public let catalogid: String?
+    public let incognito: Bool?
+
+    public init(
+        agentid: String,
+        message: String,
+        model: String? = nil,
+        catalogid: String? = nil,
+        incognito: Bool? = nil)
+    {
+        self.agentid = agentid
+        self.message = message
+        self.model = model
+        self.catalogid = catalogid
+        self.incognito = incognito
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case agentid = "agentId"
+        case message
+        case model
+        case catalogid = "catalogId"
+        case incognito
+    }
+}
+
+public struct SessionsTitlePrepareResult: Codable, Sendable {
+    public let title: AnyCodable
+
+    public init(
+        title: AnyCodable)
+    {
+        self.title = title
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case title
     }
 }
 
@@ -4184,6 +4258,8 @@ public struct ChatSendParams: Codable, Sendable {
     public let attachments: [AnyCodable]?
     public let timeoutms: Int?
     public let idempotencykey: String
+    public let replytoid: String?
+    public let expectedleafentryid: AnyCodable?
 
     public init(
         sessionkey: String,
@@ -4192,7 +4268,9 @@ public struct ChatSendParams: Codable, Sendable {
         deliver: Bool? = nil,
         attachments: [AnyCodable]? = nil,
         timeoutms: Int? = nil,
-        idempotencykey: String)
+        idempotencykey: String,
+        replytoid: String? = nil,
+        expectedleafentryid: AnyCodable? = nil)
     {
         self.sessionkey = sessionkey
         self.message = message
@@ -4201,6 +4279,8 @@ public struct ChatSendParams: Codable, Sendable {
         self.attachments = attachments
         self.timeoutms = timeoutms
         self.idempotencykey = idempotencykey
+        self.replytoid = replytoid
+        self.expectedleafentryid = expectedleafentryid
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -4211,6 +4291,8 @@ public struct ChatSendParams: Codable, Sendable {
         case attachments
         case timeoutms = "timeoutMs"
         case idempotencykey = "idempotencyKey"
+        case replytoid = "replyToId"
+        case expectedleafentryid = "expectedLeafEntryId"
     }
 }
 
