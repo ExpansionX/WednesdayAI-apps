@@ -1207,6 +1207,10 @@ public struct SessionsListParams: Codable, Sendable {
     public let includeglobal: Bool?
     public let includeunknown: Bool?
     public let configuredagentsonly: Bool?
+    public let includeinternal: Bool?
+    public let sortby: String?
+    public let sortorder: String?
+    public let includeagentactivity: Bool?
     public let includederivedtitles: Bool?
     public let includelastmessage: Bool?
     public let label: String?
@@ -1221,6 +1225,10 @@ public struct SessionsListParams: Codable, Sendable {
         includeglobal: Bool? = nil,
         includeunknown: Bool? = nil,
         configuredagentsonly: Bool? = nil,
+        includeinternal: Bool? = nil,
+        sortby: String? = nil,
+        sortorder: String? = nil,
+        includeagentactivity: Bool? = nil,
         includederivedtitles: Bool? = nil,
         includelastmessage: Bool? = nil,
         label: String? = nil,
@@ -1234,6 +1242,10 @@ public struct SessionsListParams: Codable, Sendable {
         self.includeglobal = includeglobal
         self.includeunknown = includeunknown
         self.configuredagentsonly = configuredagentsonly
+        self.includeinternal = includeinternal
+        self.sortby = sortby
+        self.sortorder = sortorder
+        self.includeagentactivity = includeagentactivity
         self.includederivedtitles = includederivedtitles
         self.includelastmessage = includelastmessage
         self.label = label
@@ -1249,6 +1261,10 @@ public struct SessionsListParams: Codable, Sendable {
         case includeglobal = "includeGlobal"
         case includeunknown = "includeUnknown"
         case configuredagentsonly = "configuredAgentsOnly"
+        case includeinternal = "includeInternal"
+        case sortby = "sortBy"
+        case sortorder = "sortOrder"
+        case includeagentactivity = "includeAgentActivity"
         case includederivedtitles = "includeDerivedTitles"
         case includelastmessage = "includeLastMessage"
         case label
