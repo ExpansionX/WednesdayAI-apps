@@ -1,6 +1,6 @@
 #!/usr/bin/env -S node --import tsx
 
-import { pathToFileURL } from "node:url";
+import { isDirectRun } from "./lib/direct-run.mjs";
 
 export type SparkleBuildFloors = {
   dateKey: number;
@@ -71,6 +71,6 @@ function runCli(args: string[]): number {
   return 0;
 }
 
-if (import.meta.url === pathToFileURL(process.argv[1] ?? "").href) {
+if (isDirectRun(import.meta.url)) {
   process.exit(runCli(process.argv.slice(2)));
 }
