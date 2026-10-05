@@ -2616,15 +2616,31 @@ public struct TalkCatalogParams: Codable, Sendable {}
 
 public struct TalkCatalogResult: Codable, Sendable {
     public let transcription: [String: AnyCodable]
+    public let streamingtranscription: [String: AnyCodable]?
+    public let speech: [String: AnyCodable]?
+    public let realtime: [String: AnyCodable]?
+    public let conversationenabled: Bool?
 
     public init(
-        transcription: [String: AnyCodable])
+        transcription: [String: AnyCodable],
+        streamingtranscription: [String: AnyCodable]? = nil,
+        speech: [String: AnyCodable]? = nil,
+        realtime: [String: AnyCodable]? = nil,
+        conversationenabled: Bool? = nil)
     {
         self.transcription = transcription
+        self.streamingtranscription = streamingtranscription
+        self.speech = speech
+        self.realtime = realtime
+        self.conversationenabled = conversationenabled
     }
 
     private enum CodingKeys: String, CodingKey {
         case transcription
+        case streamingtranscription = "streamingTranscription"
+        case speech
+        case realtime
+        case conversationenabled = "conversationEnabled"
     }
 }
 
@@ -2695,6 +2711,226 @@ public struct TalkSessionReadyEvent: Codable, Sendable {
         case type
         case sessionid = "sessionId"
         case seq
+    }
+}
+
+public struct TalkSessionBargeInParams: Codable, Sendable {
+    public let sessionid: String
+    public let speechdetectedat: Double?
+    public let playbackpausedat: Double?
+
+    public init(
+        sessionid: String,
+        speechdetectedat: Double? = nil,
+        playbackpausedat: Double? = nil)
+    {
+        self.sessionid = sessionid
+        self.speechdetectedat = speechdetectedat
+        self.playbackpausedat = playbackpausedat
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case sessionid = "sessionId"
+        case speechdetectedat = "speechDetectedAt"
+        case playbackpausedat = "playbackPausedAt"
+    }
+}
+
+public struct TalkSessionBargeInResult: Codable, Sendable {}
+
+public struct TalkSessionMarkParams: Codable, Sendable {
+    public let sessionid: String
+    public let markname: String
+    public let timestamp: Double
+
+    public init(
+        sessionid: String,
+        markname: String,
+        timestamp: Double)
+    {
+        self.sessionid = sessionid
+        self.markname = markname
+        self.timestamp = timestamp
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case sessionid = "sessionId"
+        case markname = "markName"
+        case timestamp
+    }
+}
+
+public struct TalkSessionMarkResult: Codable, Sendable {}
+
+public struct TalkOutputAudioStartedPayload: Codable, Sendable {
+    public let markname: String
+    public let kind: String
+
+    public init(
+        markname: String,
+        kind: String)
+    {
+        self.markname = markname
+        self.kind = kind
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case markname = "markName"
+        case kind
+    }
+}
+
+public struct TalkOutputAudioDeltaPayload: Codable, Sendable {
+    public let markname: String
+    public let kind: String
+    public let audiobase64: String
+    public let sampleratehz: Double
+    public let sequence: Double
+
+    public init(
+        markname: String,
+        kind: String,
+        audiobase64: String,
+        sampleratehz: Double,
+        sequence: Double)
+    {
+        self.markname = markname
+        self.kind = kind
+        self.audiobase64 = audiobase64
+        self.sampleratehz = sampleratehz
+        self.sequence = sequence
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case markname = "markName"
+        case kind
+        case audiobase64 = "audioBase64"
+        case sampleratehz = "sampleRateHz"
+        case sequence
+    }
+}
+
+public struct TalkOutputAudioDonePayload: Codable, Sendable {
+    public let markname: String
+    public let kind: String
+
+    public init(
+        markname: String,
+        kind: String)
+    {
+        self.markname = markname
+        self.kind = kind
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case markname = "markName"
+        case kind
+    }
+}
+
+public struct TalkOutputAudioResumedPayload: Codable, Sendable {
+    public let markname: String
+
+    public init(
+        markname: String)
+    {
+        self.markname = markname
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case markname = "markName"
+    }
+}
+
+public struct TalkOutputAudioClearedPayload: Codable, Sendable {
+    public let markname: String
+    public let reason: String
+
+    public init(
+        markname: String,
+        reason: String)
+    {
+        self.markname = markname
+        self.reason = reason
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case markname = "markName"
+        case reason
+    }
+}
+
+public struct TalkLatencyMetricsPayload: Codable, Sendable {
+    public let turnid: String
+    public let provider: [String: AnyCodable]
+    public let endofturnms: Double?
+    public let premodelms: Double?
+    public let modelfirsttokenms: Double?
+    public let ttsfirstbytems: Double?
+    public let gatewayaddedms: Double?
+    public let stoptofirstaudioms: Double?
+    public let bargeinstopms: Double?
+    public let recalldeadlineexceeded: Bool
+    public let fillerplayed: Bool
+    public let toolackplayed: Bool
+
+    public init(
+        turnid: String,
+        provider: [String: AnyCodable],
+        endofturnms: Double? = nil,
+        premodelms: Double? = nil,
+        modelfirsttokenms: Double? = nil,
+        ttsfirstbytems: Double? = nil,
+        gatewayaddedms: Double? = nil,
+        stoptofirstaudioms: Double? = nil,
+        bargeinstopms: Double? = nil,
+        recalldeadlineexceeded: Bool,
+        fillerplayed: Bool,
+        toolackplayed: Bool)
+    {
+        self.turnid = turnid
+        self.provider = provider
+        self.endofturnms = endofturnms
+        self.premodelms = premodelms
+        self.modelfirsttokenms = modelfirsttokenms
+        self.ttsfirstbytems = ttsfirstbytems
+        self.gatewayaddedms = gatewayaddedms
+        self.stoptofirstaudioms = stoptofirstaudioms
+        self.bargeinstopms = bargeinstopms
+        self.recalldeadlineexceeded = recalldeadlineexceeded
+        self.fillerplayed = fillerplayed
+        self.toolackplayed = toolackplayed
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case turnid = "turnId"
+        case provider
+        case endofturnms = "endOfTurnMs"
+        case premodelms = "preModelMs"
+        case modelfirsttokenms = "modelFirstTokenMs"
+        case ttsfirstbytems = "ttsFirstByteMs"
+        case gatewayaddedms = "gatewayAddedMs"
+        case stoptofirstaudioms = "stopToFirstAudioMs"
+        case bargeinstopms = "bargeInStopMs"
+        case recalldeadlineexceeded = "recallDeadlineExceeded"
+        case fillerplayed = "fillerPlayed"
+        case toolackplayed = "toolAckPlayed"
+    }
+}
+
+public struct TalkMetricsParams: Codable, Sendable {}
+
+public struct TalkMetricsResult: Codable, Sendable {
+    public let providerpairs: [[String: AnyCodable]]
+
+    public init(
+        providerpairs: [[String: AnyCodable]])
+    {
+        self.providerpairs = providerpairs
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case providerpairs = "providerPairs"
     }
 }
 
