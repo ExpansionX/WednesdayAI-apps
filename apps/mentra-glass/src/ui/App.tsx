@@ -22,7 +22,6 @@ export function App() {
   const [snapshot, setSnapshot] = useState<StateSnapshot | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [code, setCode] = useState("")
-  const [micTest, setMicTest] = useState(false)
   const [transcripts, setTranscripts] = useState<TranscriptItem[]>([])
 
   useEffect(() => {
@@ -151,9 +150,8 @@ export function App() {
         <label className="row">
           <input
             type="checkbox"
-            checked={micTest}
+            checked={snapshot.micTestEnabled}
             onChange={(event) => {
-              setMicTest(event.target.checked)
               if (!event.target.checked) setTranscripts([])
               mentra.send("mictest:set", {enabled: event.target.checked})
             }}

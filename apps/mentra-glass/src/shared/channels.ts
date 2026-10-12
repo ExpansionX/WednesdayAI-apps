@@ -31,6 +31,8 @@ export interface StateSnapshot {
   defaultAgentId: string | null
   sessionScope: "per-sender" | "global" | null
   settings: GlassSettings
+  /** Whether the microphone test is currently forwarding transcripts. */
+  micTestEnabled: boolean
   lastError: string | null
 }
 

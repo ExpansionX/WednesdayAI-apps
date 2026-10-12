@@ -146,10 +146,18 @@ export class GatewayConnection {
     // Same queue as forget()/token commit: a forget queued behind this write
     // deletes it, and this write queued behind a forget rechecks its generation
     // and skips, so the URL can never resurrect after Unpair.
-    await this.withCredentialLock(async () => {
-      if (generation !== this.generation || this.stopped) return
-      await this.options.store.set(GATEWAY_STORAGE_KEY, JSON.stringify({url: setup.url}))
-    })
+    try {
+      await this.withCredentialLock(async () => {
+        if (generation !== this.generation || this.stopped) return
+        await this.options.store.set(GATEWAY_STORAGE_KEY, JSON.stringify({url: setup.url}))
+      })
+    } catch (error) {
+      // The reserved generation already deafened the previous socket; reopen the
+      // previous gateway instead of leaving a "connected" state nobody hears.
+      const previous = this.gatewayUrlValue
+      if (!this.stopped && generation === this.generation && previous) this.open(previous)
+      throw error
+    }
     if (this.stopped || generation !== this.generation) return
     this.bootstrapToken = setup.bootstrapToken
     this.attempt = 0
@@ -171,13 +179,22 @@ export class GatewayConnection {
     this.retryInMsValue = null
     this.lastErrorValue = null
     this.attempt = 0
-    await this.withCredentialLock(async () => {
-      await this.options.store.delete(GATEWAY_STORAGE_KEY)
-      await this.options.store.delete(DEVICE_AUTH_STORAGE_KEY)
+    // Try both deletions even if one fails; the in-memory teardown above already
+    // happened, so the reported state must say unpaired either way.
+    const failure = await this.withCredentialLock(async () => {
+      let firstError: unknown = null
+      for (const key of [GATEWAY_STORAGE_KEY, DEVICE_AUTH_STORAGE_KEY]) {
+        try {
+          await this.options.store.delete(key)
+        } catch (error) {
+          firstError ??= error
+        }
+      }
+      return firstError
     })
     // A newer lifecycle operation (pair/stop/another forget) owns the state now.
-    if (generation !== this.generation) return
-    this.setState("unpaired")
+    if (generation === this.generation) this.setState("unpaired")
+    if (failure !== null) throw failure
   }
 
   /** Stops I/O and timers without changing the reported state. */

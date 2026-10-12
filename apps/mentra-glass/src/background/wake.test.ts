@@ -1,6 +1,6 @@
 import {describe, expect, it} from "vitest"
 
-import {matchWake, normalizeSpeech, WakeTracker, WAKE_GREETINGS} from "./wake"
+import {matchWake, normalizeSpeech, WakeTracker} from "./wake"
 
 const TRIGGERS = ["wednesday", "computer"]
 
@@ -56,8 +56,34 @@ describe("matchWake", () => {
     })
   })
 
-  it("exposes the greeting word list used for the one-word skip", () => {
-    expect(WAKE_GREETINGS).toContain("okay")
+  it("does not drop the word after fused punctuation", () => {
+    // "Hey,Wednesday," collapses to two normalized tokens, but the query must
+    // be cut from the original text, keeping "what".
+    expect(matchWake("Hey,Wednesday, what time is it?", TRIGGERS)).toEqual({
+      query: "what time is it?",
+    })
+  })
+
+  it("slices the query at token end offsets, not whitespace words", () => {
+    // "wednesday-prime" is one whitespace word but two matched tokens; the
+    // query starts right after the token "prime".
+    expect(matchWake("wednesday-prime status", ["wednesday prime"])).toEqual({query: "status"})
+  })
+
+  it("matches triggers whose lowercase form gains combining marks", () => {
+    // "İ".toLowerCase() is "i" + U+0307; trigger and transcript must normalize alike.
+    expect(matchWake("Hey İris, lights on", ["İris"])).toEqual({query: "lights on"})
+  })
+
+  it("matches Greek triggers regardless of final-sigma casing context", () => {
+    expect(matchWake("ΟΣ:Α lights on", ["ΟΣ:Α"])).toEqual({query: "lights on"})
+    expect(matchWake("Hey ΟΣ:Α lights on", ["οσ:α"])).toEqual({query: "lights on"})
+    expect(matchWake("Hey ΟΣ.Α lights on", ["ος α"])).toEqual({query: "lights on"})
+  })
+
+  it("treats non-ASCII punctuation after the trigger as an empty query", () => {
+    expect(matchWake("Hey Wednesday…", TRIGGERS)).toEqual({query: ""})
+    expect(matchWake("Hey Wednesday， what time is it", TRIGGERS)).toEqual({query: "what time is it"})
   })
 })
 

@@ -11,7 +11,7 @@
  * to arrive as the query.
  */
 
-export const WAKE_GREETINGS = ["hey", "hi", "ok", "okay", "hello"]
+const WAKE_GREETINGS = ["hey", "hi", "ok", "okay", "hello"]
 
 export type WakeAction = {type: "none"} | {type: "listening"} | {type: "send"; query: string} | {type: "cancel"}
 
@@ -29,32 +29,61 @@ export interface WakeTrackerOptions {
 const DUPLICATE_QUERY_WINDOW_MS = 1500
 
 /**
- * Lowercase, replace punctuation (keeping letters, numbers, whitespace and
- * intra-word apostrophes) with spaces, collapse whitespace, trim.
+ * Lowercase, fold final sigma (its form depends on casing context, so "ΟΣ"
+ * and "ος" must compare equal), replace punctuation (keeping letters, numbers,
+ * whitespace and intra-word apostrophes) with spaces, collapse whitespace, trim.
  */
 export function normalizeSpeech(text: string): string {
   return text
     .toLowerCase()
+    .replace(/ς/g, "σ")
     .replace(/[^\p{L}\p{N}\s']/gu, " ")
     .replace(/\s+/g, " ")
     .trim()
 }
 
+/** A word token from the original transcript, lowercased for matching. */
+interface SourceToken {
+  token: string
+  /** Offset in the original text just past this token's last character. */
+  end: number
+}
+
+/** Word characters: exactly the classes `normalizeSpeech` keeps (letters,
+ * numbers, intra-word apostrophes); every other rune separates tokens. */
+const WORD_TOKEN_RE = /[\p{L}\p{N}']+/gu
+
+/** Tokenize the original text, keeping each token's end offset so the query
+ * can be sliced from the original, not the punctuation-collapsed, text. Each
+ * source word goes through `normalizeSpeech`, exactly like the triggers, so
+ * case folding that adds combining marks ("İ" → "i̇") splits identically. */
+function tokenizeWithEndOffsets(text: string): SourceToken[] {
+  const tokens: SourceToken[] = []
+  for (const match of text.matchAll(WORD_TOKEN_RE)) {
+    const end = match.index + match[0].length
+    for (const token of normalizeSpeech(match[0]).split(" ")) {
+      if (token) tokens.push({token, end})
+    }
+  }
+  return tokens
+}
+
 /**
  * Find a trigger phrase at the start of `text` (optionally after one
- * greeting word) and return the remaining query. Longer triggers win, so
- * "wednesday prime" beats "wednesday" when both are configured. Returns
- * null when no trigger matches.
+ * greeting word) and return the remaining query. Matching runs on the
+ * normalized tokens; the query is cut from the original text right after
+ * the last matched token, so punctuation and spacing survive. Longer
+ * triggers win, so "wednesday prime" beats "wednesday" when both are
+ * configured. Returns null when no trigger matches.
  */
 export function matchWake(text: string, triggers: string[]): {query: string} | null {
-  const normalized = normalizeSpeech(text)
-  if (!normalized) return null
-  const tokens = normalized.split(" ")
-  const words = text.trim().split(/\s+/)
+  const tokens = tokenizeWithEndOffsets(text)
+  if (tokens.length === 0) return null
 
-  // Tokenize once, longest trigger first so "wednesday prime" wins over "wednesday".
+  // Same tokenizer as the transcript, so casing context matches exactly.
+  // Longest trigger first so "wednesday prime" wins over "wednesday".
   const tokenized = triggers
-    .map((trigger) => normalizeSpeech(trigger).split(" ").filter(Boolean))
+    .map((trigger) => tokenizeWithEndOffsets(trigger).map(({token}) => token))
     .sort((a, b) => b.length - a.length)
   for (const triggerTokens of tokenized) {
     if (triggerTokens.length === 0) continue
@@ -62,25 +91,26 @@ export function matchWake(text: string, triggers: string[]): {query: string} | n
     let start = -1
     if (startsWithAt(tokens, triggerTokens, 0)) {
       start = 0
-    } else if (tokens.length > 1 && WAKE_GREETINGS.includes(tokens[0]) && startsWithAt(tokens, triggerTokens, 1)) {
+    } else if (
+      tokens.length > 1 &&
+      WAKE_GREETINGS.includes(tokens[0].token) &&
+      startsWithAt(tokens, triggerTokens, 1)
+    ) {
       start = 1
     }
     if (start < 0) continue
 
     const consumed = start + triggerTokens.length
-    const query = words
-      .slice(consumed)
-      .join(" ")
-      .replace(/^[\s,.:;!?-]+/, "")
+    const query = text.slice(tokens[consumed - 1].end).replace(/^[\s\p{P}]+/u, "")
     return {query}
   }
   return null
 }
 
-function startsWithAt(tokens: string[], prefix: string[], at: number): boolean {
+function startsWithAt(tokens: SourceToken[], prefix: string[], at: number): boolean {
   if (tokens.length - at < prefix.length) return false
   for (let i = 0; i < prefix.length; i++) {
-    if (tokens[at + i] !== prefix[i]) return false
+    if (tokens[at + i].token !== prefix[i]) return false
   }
   return true
 }

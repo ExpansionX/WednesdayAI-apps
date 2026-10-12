@@ -66,6 +66,20 @@ describe("applyChatEvent", () => {
     expect(run.state).toBe("aborted")
   })
 
+  it("ignores late events once the run is terminal", () => {
+    const aborted = startRun("k1")
+    applyChatEvent(aborted, chatEvent("aborted", null, {seq: 3}))
+    expect(applyChatEvent(aborted, chatEvent("delta", "late", {seq: 2}))).toBeNull()
+    expect(aborted.state).toBe("aborted")
+    expect(aborted.text).toBe("")
+
+    const done = startRun("k1")
+    applyChatEvent(done, chatEvent("final", "Hello", {seq: 3}))
+    expect(applyChatEvent(done, chatEvent("delta", "Hel", {seq: 2}))).toBeNull()
+    expect(done.state).toBe("final")
+    expect(done.text).toBe("Hello")
+  })
+
   it("ignores payloads that are not objects", () => {
     const run = startRun("k1")
     expect(applyChatEvent(run, null)).toBeNull()

@@ -97,9 +97,11 @@ export class GlassesView {
   private async renderFrame(generation: number): Promise<void> {
     const vm = this.current
     if (!vm || generation !== this.generation) return
+    // Throttle from the moment the render is issued: a slow or superseded
+    // render must not let the next frame slip past the ≥400 ms floor.
+    this.lastRenderAt = Date.now()
     const result = await this.session.display.render(this.elements(vm))
     if (generation !== this.generation) return
-    this.lastRenderAt = Date.now()
 
     if (vm.phase === "listening" || vm.phase === "thinking" || vm.phase === "streaming") {
       // The heartbeat re-renders the same frame, which also retries a

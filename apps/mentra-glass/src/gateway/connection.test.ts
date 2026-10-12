@@ -550,7 +550,7 @@ describe("GatewayConnection", () => {
     const base = memoryStore()
     const gate = deferred()
     const store = gatedStore(base, DEVICE_AUTH_STORAGE_KEY, gate.promise, "write")
-    const {options, states} = makeHarness(store)
+    const {options} = makeHarness(store)
     const onHello = vi.fn()
     options.onHello = onHello
     const connection = new GatewayConnection(options)
@@ -766,4 +766,70 @@ describe("GatewayConnection", () => {
     expect(latestSocket()).not.toBe(socket)
     expect(connection.state).toBe("connecting")
   })
+
+  it("reconnects to the previous gateway when the new pairing URL cannot be saved", async () => {
+    const base = memoryStore()
+    let failUrlWrite = false
+    const store: KeyValueStore = {
+      get: (key) => base.get(key),
+      async set(key, value) {
+        if (failUrlWrite && key === GATEWAY_STORAGE_KEY) throw new Error("disk full")
+        return base.set(key, value)
+      },
+      delete: (key) => base.delete(key),
+    }
+    const {options} = makeHarness(store)
+    const connection = new GatewayConnection(options)
+    await connection.pair({url: GATEWAY_URL, bootstrapToken: "boot-1"})
+    const first = latestSocket()
+    challenge(first, "n-1")
+    await flush()
+    first.sendFrame({
+      type: "res",
+      id: "__connect__",
+      ok: true,
+      payload: helloPayload({deviceTokens: [{deviceToken: "op-tok", role: "operator", scopes: [], issuedAtMs: 1}]}),
+    })
+    await flush()
+    expect(connection.state).toBe("connected")
+
+    failUrlWrite = true
+    await expect(connection.pair({url: "wss://other.example.ts.net", bootstrapToken: "boot-2"})).rejects.toThrow(
+      "disk full",
+    )
+    // The failed pairing invalidated the old socket's generation, so the old
+    // gateway is reopened instead of leaving a deaf "connected" socket.
+    const second = latestSocket()
+    expect(second).not.toBe(first)
+    expect(second.url).toBe(GATEWAY_URL)
+    challenge(second, "n-2")
+    await flush()
+    expect(connectParams(second)).toMatchObject({auth: {deviceToken: "op-tok"}})
+    second.sendFrame({type: "res", id: "__connect__", ok: true, payload: helloPayload(null)})
+    await flush()
+    expect(connection.state).toBe("connected")
+    expect(await storedValue(base, GATEWAY_STORAGE_KEY)).toEqual({url: GATEWAY_URL})
+  })
+
+  it.each([GATEWAY_STORAGE_KEY, DEVICE_AUTH_STORAGE_KEY])(
+    "reports unpaired and still deletes the other key when deleting %s fails",
+    async (failingKey) => {
+      const base = memoryStore()
+      const store: KeyValueStore = {
+        get: (key) => base.get(key),
+        set: (key, value) => base.set(key, value),
+        async delete(key) {
+          if (key === failingKey) throw new Error("storage busy")
+          return base.delete(key)
+        },
+      }
+      const {options} = makeHarness(store)
+      const {connection} = await connectWithBootstrap(options, "n-1")
+      await base.set(DEVICE_AUTH_STORAGE_KEY, "{}")
+      await expect(connection.forget()).rejects.toThrow("storage busy")
+      expect(connection.state).toBe("unpaired")
+      const otherKey = failingKey === GATEWAY_STORAGE_KEY ? DEVICE_AUTH_STORAGE_KEY : GATEWAY_STORAGE_KEY
+      expect(await base.get(otherKey)).toBeNull()
+    },
+  )
 })

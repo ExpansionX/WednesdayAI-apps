@@ -24,6 +24,7 @@ import type {AgentsInfo} from "../gateway/sessions"
 import type {ConnectionState, KeyValueStore} from "../gateway/types"
 import type {Channels, GlassSettings, StateSnapshot} from "../shared/channels"
 import {GlassesView} from "./glassesView"
+import type {GlassesViewModel} from "./glassesView"
 import {WakeTracker} from "./wake"
 import type {WakeAction} from "./wake"
 
@@ -82,10 +83,14 @@ export class AssistantController {
   private readonly unsubs: Array<() => void> = []
   private transcriptionUnsub: (() => void) | null = null
   private listeningTimer: TimerHandle | null = null
+  /** True while the listening frame is the newest frame shown; guards the window's hide. */
+  private listeningFrameUp = false
   private micTestTimer: TimerHandle | null = null
 
   private settings: GlassSettings = {...DEFAULT_SETTINGS}
   private triggers: string[] = []
+  /** Bumped by voicewake.changed; guards onHello's voicewake.get hydration. */
+  private wakeRevision = 0
   private agents: Array<{id: string; label: string}> = []
   private agentsInfo: AgentsInfo | null = null
   private mainSessionKey: string | null = null
@@ -179,14 +184,14 @@ export class AssistantController {
       return
     }
     if (state === "offline") {
-      this.view.show({
+      this.showFrame({
         phase: "offline",
         agentLabel: this.agentLabel(),
         body: this.connection.lastError ?? "WednesdayAI is not connected",
       })
       return
     }
-    this.view.show({
+    this.showFrame({
       phase: "error",
       agentLabel: this.agentLabel(),
       body: this.connection.lastError ?? "Pairing needs repair — scan the setup code again",
@@ -260,11 +265,12 @@ export class AssistantController {
   private handleWakeAction(action: WakeAction): void {
     switch (action.type) {
       case "listening": {
-        this.view.show({phase: "listening", agentLabel: this.agentLabel(), body: ""})
+        this.showFrame({phase: "listening", agentLabel: this.agentLabel(), body: ""})
         this.armListeningWindow()
         return
       }
       case "cancel":
+        this.listeningFrameUp = false
         this.stopListeningTimer()
         this.view.hide()
         return
@@ -277,12 +283,29 @@ export class AssistantController {
     }
   }
 
+  /**
+   * Show a frame through the listening-window guard: a non-listening frame
+   * takes the display away from the listening frame, so the window's expiry
+   * must no longer hide it.
+   */
+  private showFrame(vm: GlassesViewModel): void {
+    this.listeningFrameUp = vm.phase === "listening"
+    this.view.show(vm)
+  }
+
   private armListeningWindow(): void {
     this.stopListeningTimer()
     this.listeningTimer = setTimeout(() => {
       this.listeningTimer = null
+      // The await window expires regardless of what owns the display now —
+      // a stale bare wake word must not swallow the next utterance. But only
+      // clear the glasses if the listening frame still owns them; a newer
+      // frame (a run, offline, …) survives this timeout.
       this.tracker.cancelAwait()
-      this.view.hide()
+      if (this.listeningFrameUp) {
+        this.listeningFrameUp = false
+        this.view.hide()
+      }
     }, LISTENING_WINDOW_MS)
   }
 
@@ -298,7 +321,7 @@ export class AssistantController {
   private async sendQuery(query: string): Promise<void> {
     if (this.disposed) return
     if (this.connection.state !== "connected") {
-      this.view.show({
+      this.showFrame({
         phase: "offline",
         agentLabel: this.agentLabel(),
         body: "WednesdayAI is not connected",
@@ -309,7 +332,7 @@ export class AssistantController {
     const run = startRun(idempotencyKey)
     this.currentRun = run
     this.currentQuery = query
-    this.view.show({phase: "thinking", agentLabel: this.agentLabel(), body: query})
+    this.showFrame({phase: "thinking", agentLabel: this.agentLabel(), body: query})
     let result: ChatSendResult
     try {
       result = await this.connection.request<ChatSendResult>("chat.send", {
@@ -321,7 +344,7 @@ export class AssistantController {
       // A newer send owns the glasses (or the controller is disposing); don't
       // overwrite it with a stale error.
       if (!this.disposed && this.currentRun === run) {
-        this.view.show({
+        this.showFrame({
           phase: "error",
           agentLabel: this.agentLabel(),
           body: errorMessage(err, "Request failed"),
@@ -338,7 +361,7 @@ export class AssistantController {
     // the active run and replies without starting a new one. Finish the
     // frame instead of hanging on Thinking.
     this.currentRun = null
-    this.view.show({
+    this.showFrame({
       phase: "final",
       agentLabel: this.agentLabel(),
       body: result.aborted ? "Stopped" : "Nothing to stop",
@@ -357,19 +380,19 @@ export class AssistantController {
     const agentLabel = this.agentLabel()
     switch (run.state) {
       case "thinking":
-        this.view.show({phase: "thinking", agentLabel, body: this.currentQuery})
+        this.showFrame({phase: "thinking", agentLabel, body: this.currentQuery})
         return
       case "streaming":
-        this.view.show({phase: "streaming", agentLabel, body: run.text})
+        this.showFrame({phase: "streaming", agentLabel, body: run.text})
         return
       case "final":
-        this.view.show({phase: "final", agentLabel, body: run.text || "(no reply)"})
+        this.showFrame({phase: "final", agentLabel, body: run.text || "(no reply)"})
         return
       case "error":
-        this.view.show({phase: "error", agentLabel, body: run.error || "Request failed"})
+        this.showFrame({phase: "error", agentLabel, body: run.error || "Request failed"})
         return
       case "aborted":
-        this.view.show({phase: "final", agentLabel, body: "Stopped"})
+        this.showFrame({phase: "final", agentLabel, body: "Stopped"})
         return
     }
   }
@@ -381,6 +404,7 @@ export class AssistantController {
     if (event === "voicewake.changed") {
       const triggers = (payload as VoicewakeGetResult | null)?.triggers
       if (Array.isArray(triggers)) {
+        this.wakeRevision += 1
         this.setTriggers(triggers)
         this.pushState()
       }
@@ -404,9 +428,14 @@ export class AssistantController {
   private async onHello(hello: {mainSessionKey: string | null}): Promise<void> {
     if (this.disposed) return
     this.mainSessionKey = hello.mainSessionKey
+    const revisionBeforeHydration = this.wakeRevision
     try {
       const result = await this.connection.request<VoicewakeGetResult>("voicewake.get", {})
-      this.setTriggers(Array.isArray(result.triggers) ? result.triggers : [])
+      // A voicewake.changed that landed while the request was in flight is
+      // newer than this snapshot; applying it would resurrect stale words.
+      if (this.wakeRevision === revisionBeforeHydration) {
+        this.setTriggers(Array.isArray(result.triggers) ? result.triggers : [])
+      }
     } catch {
       // Keep whatever triggers we have; wake matching stays as configured.
     }
@@ -497,7 +526,10 @@ export class AssistantController {
       this.session.ui.on("pair:forget", () => {
         void Promise.resolve(this.connection.forget()).then(
           () => this.pushState(),
-          () => this.pushState(),
+          (err: unknown) => {
+            this.pushError(errorMessage(err, "Unpair failed"))
+            this.pushState()
+          },
         )
       }),
     )
@@ -537,6 +569,14 @@ export class AssistantController {
       this.pushState()
       return
     }
+    // Pairing replaces the gateway socket: a run bound to the old gateway
+    // can never finish, and its live frame would heartbeat the 10 s display
+    // lock forever. Retire it before the new connection takes over.
+    const hadFrame = this.currentRun !== null || this.listeningFrameUp
+    this.currentRun = null
+    this.currentQuery = ""
+    this.listeningFrameUp = false
+    if (hadFrame) this.view.hide()
     try {
       await this.connection.pair(setup)
     } catch (err) {
@@ -558,6 +598,7 @@ export class AssistantController {
       defaultAgentId: this.agentsInfo?.defaultId ?? null,
       sessionScope: this.agentsInfo?.scope ?? null,
       settings: {...this.settings},
+      micTestEnabled: this.micTestEnabled,
       lastError: this.notice ?? this.connection.lastError,
     }
   }

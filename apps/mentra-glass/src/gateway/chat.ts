@@ -32,6 +32,9 @@ export function applyChatEvent(run: ChatRun, payload: unknown): ChatRun | null {
   if (!isRecord(payload)) return null
   const runId = payload.runId
   if (typeof runId !== "string" || !run.keys.includes(runId)) return null
+  // A terminal run never reopens: the gateway can deliver a delta queued behind
+  // transcript persistence after an abort broadcast for the same run.
+  if (run.state === "final" || run.state === "error" || run.state === "aborted") return null
   switch (payload.state) {
     case "delta":
     case "final": {

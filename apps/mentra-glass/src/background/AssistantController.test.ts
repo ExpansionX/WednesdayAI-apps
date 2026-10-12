@@ -2,6 +2,7 @@ import {afterEach, beforeEach, describe, expect, it, vi} from "vitest"
 
 import type {MiniappSession, RenderElement} from "@mentra/miniapp/background"
 import type {GatewayConnection} from "../gateway/connection"
+import {base64UrlEncode} from "../gateway/encoding"
 import {SETTINGS_STORAGE_KEY} from "../gateway/constants"
 import type {ConnectionState, KeyValueStore} from "../gateway/types"
 import type {Channels, StateSnapshot} from "../shared/channels"
@@ -146,8 +147,12 @@ class FakeConnection {
   async start(): Promise<void> {
     this.startCalls.push(1)
   }
-  async pair(setup: {url: string; bootstrapToken: string}): Promise<void> {}
-  async forget(): Promise<void> {}
+  forgetError: Error | null = null
+  async pair(): Promise<void> {}
+  async forget(): Promise<void> {
+    this.state = "unpaired"
+    if (this.forgetError) throw this.forgetError
+  }
   stop(): void {}
 
   // ── Test drivers ────────────────────────────────────────────────────────
@@ -565,5 +570,151 @@ describe("AssistantController", () => {
     expect(snapshot.lastError).toBeNull()
     const stored = JSON.parse((await session.storage.get(SETTINGS_STORAGE_KEY)) ?? "{}") as {agentId?: string}
     expect(stored.agentId).toBe("main")
+  })
+
+  it("tells the user when Unpair cannot delete the stored credentials", async () => {
+    const session = new FakeSession()
+    const connection = new FakeConnection()
+    await startAssistant(session, connection)
+    connection.forgetError = new Error("storage busy")
+
+    session.uiMessage("pair:forget", {})
+    await flush()
+
+    expect(errorMessages(session)).toEqual(["storage busy"])
+    expect(lastSnapshot(session).connection).toBe("unpaired")
+  })
+
+  it("retires the active run when pairing a different gateway", async () => {
+    const session = new FakeSession()
+    const connection = new FakeConnection()
+    connection.respond("chat.send", () => ({runId: "srv-run-a"}))
+    await startAssistant(session, connection)
+
+    await ask(session, connection, "tell me a story")
+    connection.emitEvent("chat", {
+      runId: "srv-run-a",
+      state: "delta",
+      message: {content: [{type: "text", text: "Once upon"}]},
+    })
+    await flush()
+    await vi.advanceTimersByTimeAsync(400)
+    const rendersBeforePair = session.renders.length
+
+    const setupCode = base64UrlEncode(
+      new TextEncoder().encode(JSON.stringify({url: "wss://other.example.ts.net", bootstrapToken: "boot"})),
+    )
+    session.uiMessage("pair:code", {code: setupCode})
+    await flush()
+    connection.setState("connected")
+
+    // The old run's frame is retired: no heartbeats renew the display lock.
+    await vi.advanceTimersByTimeAsync(20000)
+    expect(session.renders.length).toBe(rendersBeforePair + 1) // the retire render([])
+    expect(session.renders.at(-1)).toEqual([])
+
+    // Late events from the old gateway's run are ignored.
+    connection.emitEvent("chat", {
+      runId: "srv-run-a",
+      state: "final",
+      message: {content: [{type: "text", text: "late"}]},
+    })
+    await flush()
+    await vi.advanceTimersByTimeAsync(5000)
+    expect(session.renders.length).toBe(rendersBeforePair + 1)
+  })
+
+  it("keeps a newer run frame when the listening window expires", async () => {
+    const session = new FakeSession()
+    const connection = new FakeConnection()
+    connection.respond("chat.send", () => ({runId: "srv-run-1"}))
+    await startAssistant(session, connection)
+
+    await ask(session, connection, "tell me a story")
+    connection.emitEvent("chat", {
+      runId: "srv-run-1",
+      state: "delta",
+      message: {content: [{type: "text", text: "Once upon"}]},
+    })
+    await flush()
+    await vi.advanceTimersByTimeAsync(400)
+
+    // Bare wake phrase during the active run: a listening frame + 8 s window.
+    session.transcript("hey wednesday", true)
+    await flush()
+    await vi.advanceTimersByTimeAsync(400)
+    expect(headerTexts(session).at(-1)).toContain("Listening")
+
+    // The run finishes while the window is armed; its final frame replaces it.
+    connection.emitEvent("chat", {
+      runId: "srv-run-1",
+      state: "final",
+      message: {content: [{type: "text", text: "A story"}]},
+    })
+    await flush()
+    await vi.advanceTimersByTimeAsync(400)
+    expect(bodyTexts(session).at(-1)).toBe("A story")
+
+    // The window expires: cancelAwait only — A's final frame survives…
+    await vi.advanceTimersByTimeAsync(8000)
+    expect(bodyTexts(session).at(-1)).toBe("A story")
+    // …until its own 15 s auto-hide.
+    await vi.advanceTimersByTimeAsync(8000)
+    expect(session.renders.at(-1)).toEqual([])
+  })
+
+  it("keeps voicewake.changed triggers over a racing voicewake.get hydration", async () => {
+    const session = new FakeSession()
+    const connection = new FakeConnection()
+    // new Promise(executor): the app's TS lib is ES2022 — no Promise.withResolvers.
+    let releaseGet: ((value: unknown) => void) | undefined
+    connection.respond(
+      "voicewake.get",
+      () =>
+        new Promise((resolve) => {
+          releaseGet = resolve
+        }),
+    )
+    connection.respond("agents.list", () => ({
+      defaultId: "main",
+      mainKey: "main",
+      scope: "per-sender" as const,
+      agents: [{id: "main", name: "Main"}],
+    }))
+    await makeController(session, connection).start()
+    connection.hello("agent:main:main")
+    await flush()
+    expect(connection.requests.some((request) => request.method === "voicewake.get")).toBe(true)
+
+    connection.emitEvent("voicewake.changed", {triggers: ["jarvis"]})
+    await flush()
+    expect(lastSnapshot(session).triggers).toEqual(["jarvis"])
+
+    // The hydration snapshot is stale: it must not overwrite the newer event.
+    releaseGet?.({triggers: ["wednesday"]})
+    await flush()
+    expect(lastSnapshot(session).triggers).toEqual(["jarvis"])
+
+    connection.respond("chat.send", () => ({runId: "srv-1"}))
+    session.transcript("hey jarvis what time is it", true)
+    await flush()
+    const send = connection.requests.find((request) => request.method === "chat.send")
+    expect(recordParams(send?.params).message).toBe("what time is it")
+  })
+
+  it("reports micTestEnabled in state snapshots", async () => {
+    const session = new FakeSession()
+    const connection = new FakeConnection()
+    await startAssistant(session, connection)
+    expect(lastSnapshot(session).micTestEnabled).toBe(false)
+
+    session.uiMessage("mictest:set", {enabled: true})
+    await flush()
+    expect(lastSnapshot(session).micTestEnabled).toBe(true)
+
+    // Closing the phone UI disables the mic test; the snapshot reports it.
+    for (const handler of [...session.closeHandlers]) handler()
+    await flush()
+    expect(lastSnapshot(session).micTestEnabled).toBe(false)
   })
 })

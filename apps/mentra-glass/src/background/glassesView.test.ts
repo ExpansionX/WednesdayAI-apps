@@ -66,6 +66,42 @@ describe("GlassesView", () => {
     view.dispose()
   })
 
+  it("coalesces a show issued while a render is still in flight", async () => {
+    // First render never resolves until released; the throttle timestamp must
+    // be taken when the render is issued, not when its promise settles.
+    let releaseFirst: () => void = () => {}
+    const firstSettled = new Promise<void>((resolve) => {
+      releaseFirst = resolve
+    })
+    const calls: Array<RenderElement[] | "clear"> = []
+    const render = async (elements: RenderElement[]) => {
+      calls.push(elements)
+      if (calls.length === 1) await firstSettled
+      return {status: "displayed" as const}
+    }
+    const view = new GlassesView({display: {render}} as unknown as MiniappSession)
+
+    view.show({phase: "thinking", agentLabel: "default", body: "first"})
+    await vi.advanceTimersByTimeAsync(0)
+    expect(calls).toHaveLength(1)
+
+    await vi.advanceTimersByTimeAsync(100)
+    view.show({phase: "thinking", agentLabel: "default", body: "second"})
+    // Only 100 ms since the first render was issued: still throttled.
+    await vi.advanceTimersByTimeAsync(299)
+    expect(calls).toHaveLength(1)
+    await vi.advanceTimersByTimeAsync(1)
+    expect(calls).toHaveLength(2)
+    const body = (calls.at(1) as RenderElement[] | undefined)?.find(
+      (element) => "id" in element && element.id === "wai-body",
+    )
+    expect(body && "text" in body && body.text).toBe("second")
+
+    releaseFirst()
+    await vi.advanceTimersByTimeAsync(0)
+    view.dispose()
+  })
+
   it("auto-hides a displayed final frame 15 s after its show", async () => {
     const host = new FakeDisplayHost()
     const view = new GlassesView(asSession(host))
