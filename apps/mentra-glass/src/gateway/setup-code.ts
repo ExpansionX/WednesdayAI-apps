@@ -22,11 +22,11 @@ export function parseUrlParts(value: string): {scheme: string; host: string; hos
   const match = /^([a-z][a-z0-9+.-]*):\/\/([^/?#]*)([^?#]*)(?:\?([^#]*))?(?:#.*)?$/i.exec(value.trim())
   if (!match) return null
   const authority = match[2]!.toLowerCase()
-  if (!/^[a-z0-9.\-[\]:]+$/.test(authority) || /[\\\s]/.test(match[3]!)) return null
-  const bracketEnd = authority.indexOf("]")
-  const hostname = authority.startsWith("[")
-    ? authority.slice(1, bracketEnd === -1 ? undefined : bracketEnd)
-    : authority.replace(/:\d*$/, "")
+  if (/[\\\s]/.test(match[3]!)) return null
+  // Exactly `host[:port]` or `[ipv6][:port]`; anything else is refused.
+  const host = /^(?:\[([0-9a-f:.]+)\]|([a-z0-9.-]+))(?::\d*)?$/.exec(authority)
+  if (!host) return null
+  const hostname = host[1] ?? host[2]!
   return {scheme: match[1]!.toLowerCase(), host: authority, hostname, query: match[4] ?? ""}
 }
 

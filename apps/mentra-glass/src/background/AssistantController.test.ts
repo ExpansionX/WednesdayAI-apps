@@ -3,7 +3,7 @@ import {afterEach, beforeEach, describe, expect, it, vi} from "vitest"
 import type {MiniappSession, RenderElement} from "@mentra/miniapp/background"
 import type {GatewayConnection} from "../gateway/connection"
 import {base64UrlEncode} from "../gateway/encoding"
-import {SETTINGS_STORAGE_KEY} from "../gateway/constants"
+import {DEVICE_AUTH_STORAGE_KEY, GATEWAY_STORAGE_KEY, SETTINGS_STORAGE_KEY} from "../gateway/constants"
 import type {ConnectionState, KeyValueStore} from "../gateway/types"
 import type {Channels, StateSnapshot} from "../shared/channels"
 
@@ -24,6 +24,23 @@ function memoryStore(seed?: Record<string, string>): KeyValueStore {
     async delete(key) {
       values.delete(key)
     },
+  }
+}
+
+/**
+ * Minimal global WebSocket stand-in for the real default connection: records
+ * the dialed URL, performs no I/O.
+ */
+class RecordingWebSocket {
+  static all: RecordingWebSocket[] = []
+
+  onopen: unknown = null
+  onmessage: unknown = null
+  onerror: unknown = null
+  onclose: unknown = null
+
+  constructor(readonly url: string) {
+    RecordingWebSocket.all.push(this)
   }
 }
 
@@ -148,7 +165,15 @@ class FakeConnection {
     this.startCalls.push(1)
   }
   forgetError: Error | null = null
-  async pair(): Promise<void> {}
+  readonly pairCalls: Array<{url: string; bootstrapToken: string}> = []
+  /** When set, pair() rejects with this value (Error or not). */
+  pairError: unknown = null
+  async pair(setup: {url: string; bootstrapToken: string}): Promise<void> {
+    this.pairCalls.push(setup)
+    if (this.pairError) throw this.pairError
+    // The real connection re-points at the paired gateway; the snapshot reads it.
+    this.gatewayUrl = setup.url
+  }
   async forget(): Promise<void> {
     this.state = "unpaired"
     if (this.forgetError) throw this.forgetError
@@ -716,5 +741,456 @@ describe("AssistantController", () => {
     for (const handler of [...session.closeHandlers]) handler()
     await flush()
     expect(lastSnapshot(session).micTestEnabled).toBe(false)
+  })
+
+  it("opens the gateway socket from stored pairing on startup", async () => {
+    const store = memoryStore({
+      [GATEWAY_STORAGE_KEY]: JSON.stringify({url: GATEWAY_HOST}),
+      [DEVICE_AUTH_STORAGE_KEY]: JSON.stringify({
+        [GATEWAY_HOST]: {token: "tok", role: "operator", scopes: [], issuedAtMs: 1},
+      }),
+    })
+    const session = new FakeSession(undefined, store)
+    RecordingWebSocket.all = []
+    const previous = globalThis.WebSocket
+    globalThis.WebSocket = RecordingWebSocket as unknown as typeof WebSocket
+    try {
+      const controller = new AssistantController(session as unknown as MiniappSession<Channels>)
+      await controller.start()
+      await flush()
+
+      // start() must boot the stored pairing through the real connection:
+      // one socket dialing the stored gateway, announced to the phone UI.
+      expect(RecordingWebSocket.all).toHaveLength(1)
+      expect(RecordingWebSocket.all[0]?.url).toBe(GATEWAY_HOST)
+      const snapshot = lastSnapshot(session)
+      expect(snapshot.connection).toBe("connecting")
+      expect(snapshot.gatewayHost).toBe("gw.example.ts.net")
+    } finally {
+      globalThis.WebSocket = previous
+    }
+  })
+
+  it("falls back to default settings when the stored settings cannot be read", async () => {
+    const store: KeyValueStore = {
+      get: (key) =>
+        key === SETTINGS_STORAGE_KEY ? Promise.reject(new Error("storage corrupted")) : Promise.resolve(null),
+      set: async () => {},
+      delete: async () => {},
+    }
+    const session = new FakeSession(undefined, store)
+    const connection = new FakeConnection()
+    await startAssistant(session, connection)
+
+    expect(session.transcriptSubscriptions().at(-1)).toEqual({forceLocal: true})
+    expect(lastSnapshot(session).settings).toEqual({wakeSttMode: "local", agentId: null})
+  })
+
+  it("warns when settings cannot be saved but still applies them", async () => {
+    const base = memoryStore()
+    const store: KeyValueStore = {
+      get: (key) => base.get(key),
+      set: (key, value) =>
+        key === SETTINGS_STORAGE_KEY ? Promise.reject(new Error("disk full")) : base.set(key, value),
+      delete: (key) => base.delete(key),
+    }
+    const session = new FakeSession(undefined, store)
+    const connection = new FakeConnection()
+    await startAssistant(session, connection)
+
+    session.uiMessage("settings:set", {wakeSttMode: "cloud"})
+    await flush()
+
+    expect(errorMessages(session)).toEqual(["disk full"])
+    expect(lastSnapshot(session).settings).toEqual({wakeSttMode: "cloud", agentId: null})
+    expect(session.transcriptSubscriptions().at(-1)).toEqual({forceLocal: false})
+  })
+
+  it("persists the wake STT mode when it changes", async () => {
+    const session = new FakeSession()
+    const connection = new FakeConnection()
+    await startAssistant(session, connection)
+
+    session.uiMessage("settings:set", {wakeSttMode: "cloud"})
+    await flush()
+
+    expect(session.transcriptSubscriptions().at(-1)).toEqual({forceLocal: false})
+    const stored = JSON.parse((await session.storage.get(SETTINGS_STORAGE_KEY)) ?? "{}") as {wakeSttMode?: string}
+    expect(stored.wakeSttMode).toBe("cloud")
+  })
+
+  it("routes to the selected agent, shows its name, and persists the choice", async () => {
+    const session = new FakeSession()
+    const connection = new FakeConnection()
+    connection.respond("chat.send", () => ({runId: "srv-run-1"}))
+    await startAssistant(session, connection)
+    connection.respond("agents.list", () => ({
+      defaultId: "main",
+      mainKey: "main",
+      scope: "per-sender" as const,
+      agents: [
+        {id: "main", name: "Main"},
+        {id: "ops", name: "Ops bot"},
+      ],
+    }))
+    connection.hello("agent:main:main")
+    await flush()
+
+    session.uiMessage("settings:set", {agentId: "ops"})
+    await flush()
+    const stored = JSON.parse((await session.storage.get(SETTINGS_STORAGE_KEY)) ?? "{}") as {agentId?: string}
+    expect(stored.agentId).toBe("ops")
+
+    await ask(session, connection, "status report")
+    const send = connection.requests.find((request) => request.method === "chat.send")
+    expect(recordParams(send?.params).sessionKey).toBe("agent:ops:main")
+
+    await vi.advanceTimersByTimeAsync(0)
+    expect(headerTexts(session).at(-1)).toBe("WednesdayAI · Ops bot — Thinking…")
+  })
+
+  it("routes to the gateway default when the saved agent no longer exists", async () => {
+    const session = new FakeSession({
+      [SETTINGS_STORAGE_KEY]: JSON.stringify({wakeSttMode: "local", agentId: "gone"}),
+    })
+    const connection = new FakeConnection()
+    connection.respond("chat.send", () => ({runId: "srv-run-1"}))
+    await startAssistant(session, connection)
+    expect(lastSnapshot(session).lastError).toContain("Saved agent gone no longer exists")
+
+    await ask(session, connection, "how late is it")
+    const send = connection.requests.find((request) => request.method === "chat.send")
+    expect(recordParams(send?.params).sessionKey).toBe("agent:main:main")
+  })
+
+  it("routes to the global session when the gateway uses one shared session", async () => {
+    const session = new FakeSession()
+    const connection = new FakeConnection()
+    connection.respond("chat.send", () => ({runId: "srv-run-1"}))
+    await startAssistant(session, connection)
+    connection.respond("agents.list", () => ({
+      defaultId: "main",
+      mainKey: "main",
+      scope: "global" as const,
+      agents: [{id: "main", name: "Main"}],
+    }))
+    connection.hello("agent:main:main")
+    await flush()
+
+    await ask(session, connection, "what is two plus two")
+    const send = connection.requests.find((request) => request.method === "chat.send")
+    expect(recordParams(send?.params).sessionKey).toBe("global")
+  })
+
+  it("shows an offline frame instead of sending when the gateway is down", async () => {
+    const session = new FakeSession()
+    const connection = new FakeConnection()
+    await startAssistant(session, connection)
+    connection.setState("offline")
+
+    session.transcript("hey wednesday what is two plus two", true)
+    await flush()
+    await vi.advanceTimersByTimeAsync(400)
+
+    expect(connection.requests.some((request) => request.method === "chat.send")).toBe(false)
+    expect(headerTexts(session).at(-1)).toContain("Offline")
+    expect(bodyTexts(session).at(-1)).toBe("WednesdayAI is not connected")
+  })
+
+  it("shows the gateway's failure on the glasses when chat.send rejects", async () => {
+    const session = new FakeSession()
+    const connection = new FakeConnection()
+    connection.respond("chat.send", () => {
+      throw new Error("Gateway queue is full")
+    })
+    await startAssistant(session, connection)
+
+    await ask(session, connection, "tell me a joke")
+    await vi.advanceTimersByTimeAsync(400)
+
+    expect(headerTexts(session).at(-1)).toContain("Error")
+    expect(bodyTexts(session).at(-1)).toBe("Gateway queue is full")
+  })
+
+  it("shows the run's error message when the gateway reports a failed run", async () => {
+    const session = new FakeSession()
+    const connection = new FakeConnection()
+    connection.respond("chat.send", () => ({runId: "srv-run-1"}))
+    await startAssistant(session, connection)
+
+    await ask(session, connection, "what is two plus two")
+    connection.emitEvent("chat", {runId: "srv-run-1", state: "error", errorMessage: "Model timed out"})
+    await flush()
+    await vi.advanceTimersByTimeAsync(400)
+
+    expect(headerTexts(session).at(-1)).toContain("Error")
+    expect(bodyTexts(session).at(-1)).toBe("Model timed out")
+  })
+
+  it("shows Stopped when the gateway aborts the run", async () => {
+    const session = new FakeSession()
+    const connection = new FakeConnection()
+    connection.respond("chat.send", () => ({runId: "srv-run-1"}))
+    await startAssistant(session, connection)
+
+    await ask(session, connection, "tell me a story")
+    connection.emitEvent("chat", {runId: "srv-run-1", state: "aborted"})
+    await flush()
+    await vi.advanceTimersByTimeAsync(400)
+
+    expect(bodyTexts(session).at(-1)).toBe("Stopped")
+  })
+
+  it("clears the glasses when pairing is lost mid-run", async () => {
+    const session = new FakeSession()
+    const connection = new FakeConnection()
+    connection.respond("chat.send", () => ({runId: "srv-run-1"}))
+    await startAssistant(session, connection)
+
+    await ask(session, connection, "tell me a story")
+    await vi.advanceTimersByTimeAsync(0)
+    const rendersBefore = session.renders.length
+
+    connection.setState("unpaired")
+    await flush()
+
+    expect(session.renders.length).toBe(rendersBefore + 1)
+    expect(session.renders.at(-1)).toEqual([])
+  })
+
+  it("asks for repair on the glasses when the connection needs re-pairing", async () => {
+    const session = new FakeSession()
+    const connection = new FakeConnection()
+    connection.respond("chat.send", () => ({runId: "srv-run-1"}))
+    await startAssistant(session, connection)
+
+    await ask(session, connection, "tell me a story")
+    await vi.advanceTimersByTimeAsync(0)
+    connection.setState("repair_required", "bootstrap token rejected")
+    await flush()
+    await vi.advanceTimersByTimeAsync(400)
+    expect(headerTexts(session).at(-1)).toContain("Error")
+    expect(bodyTexts(session).at(-1)).toBe("bootstrap token rejected")
+
+    // Without a connection error the frame tells the user what to do.
+    const session2 = new FakeSession()
+    const connection2 = new FakeConnection()
+    connection2.respond("chat.send", () => ({runId: "srv-run-2"}))
+    await startAssistant(session2, connection2)
+    await ask(session2, connection2, "tell me another")
+    await vi.advanceTimersByTimeAsync(0)
+    connection2.setState("repair_required")
+    await flush()
+    await vi.advanceTimersByTimeAsync(400)
+    expect(bodyTexts(session2).at(-1)).toBe("Pairing needs repair — scan the setup code again")
+  })
+
+  it("hides the listening frame when the user changes their mind mid-utterance", async () => {
+    const session = new FakeSession()
+    const connection = new FakeConnection()
+    await startAssistant(session, connection)
+
+    session.transcript("hey wednesday", false)
+    await flush()
+    await vi.advanceTimersByTimeAsync(400)
+    expect(headerTexts(session).at(-1)).toContain("Listening")
+
+    session.transcript("hey wendy", true)
+    await flush()
+    expect(session.renders.at(-1)).toEqual([])
+    expect(connection.requests.some((request) => request.method === "chat.send")).toBe(false)
+
+    // The window timer is gone: no stray hide arrives later.
+    const total = session.renders.length
+    await vi.advanceTimersByTimeAsync(10000)
+    expect(session.renders.length).toBe(total)
+  })
+
+  it("expires the listening window: the frame hides and the next utterance is not a query", async () => {
+    const session = new FakeSession()
+    const connection = new FakeConnection()
+    await startAssistant(session, connection)
+
+    session.transcript("hey wednesday", true)
+    await flush()
+    await vi.advanceTimersByTimeAsync(400)
+    expect(headerTexts(session).at(-1)).toContain("Listening")
+
+    await vi.advanceTimersByTimeAsync(8000)
+    expect(session.renders.at(-1)).toEqual([])
+
+    // The await was cancelled: a later unrelated sentence stays unrelated.
+    session.transcript("set a timer", true)
+    await flush()
+    expect(connection.requests.some((request) => request.method === "chat.send")).toBe(false)
+  })
+
+  it("cancels the listening window when the query arrives", async () => {
+    const session = new FakeSession()
+    const connection = new FakeConnection()
+    connection.respond("chat.send", () => ({runId: "srv-run-1"}))
+    await startAssistant(session, connection)
+
+    session.transcript("hey wednesday", true)
+    await flush()
+    await vi.advanceTimersByTimeAsync(400)
+    session.transcript("set a timer", true)
+    await flush()
+    await vi.advanceTimersByTimeAsync(0)
+    expect(headerTexts(session).at(-1)).toContain("Thinking")
+
+    // The expired window must not clear the live run frame.
+    await vi.advanceTimersByTimeAsync(8000)
+    expect(session.renders.at(-1)).not.toEqual([])
+
+    connection.emitEvent("chat", {
+      runId: "srv-run-1",
+      state: "final",
+      message: {content: [{type: "text", text: "Done"}]},
+    })
+    await flush()
+    await vi.advanceTimersByTimeAsync(400)
+    expect(bodyTexts(session).at(-1)).toBe("Done")
+  })
+
+  it("keeps wake matching idle when voicewake.get fails at hello", async () => {
+    const session = new FakeSession()
+    const connection = new FakeConnection()
+    // Only agents.list has a responder: voicewake.get rejects.
+    connection.respond("agents.list", () => ({
+      defaultId: "main",
+      mainKey: "main",
+      scope: "per-sender" as const,
+      agents: [{id: "main", name: "Main"}],
+    }))
+    await makeController(session, connection).start()
+    connection.hello("agent:main:main")
+    await flush()
+
+    // The failure is contained: agents still load.
+    expect(lastSnapshot(session).agents).toEqual([{id: "main", label: "Main"}])
+
+    // No hydrated triggers: speech does not fire the assistant.
+    session.transcript("hey wednesday what time is it", true)
+    await flush()
+    expect(connection.requests.some((request) => request.method === "chat.send")).toBe(false)
+  })
+
+  it("answers wake queries with the hello's main session when agents.list fails", async () => {
+    const session = new FakeSession()
+    const connection = new FakeConnection()
+    // Only voicewake.get has a responder: agents.list rejects.
+    connection.respond("voicewake.get", () => ({triggers: ["wednesday"]}))
+    await makeController(session, connection).start()
+    // Non-default key: a controller that drops the hello's session and falls
+    // back to the agent:main:main default must fail this test.
+    connection.hello("agent:ops:custom-main")
+    await flush()
+
+    const snapshot = lastSnapshot(session)
+    expect(snapshot.agents).toEqual([])
+    expect(snapshot.defaultAgentId).toBeNull()
+
+    connection.respond("chat.send", () => ({runId: "srv-run-1"}))
+    await ask(session, connection, "what time is it")
+    const send = connection.requests.find((request) => request.method === "chat.send")
+    expect(recordParams(send?.params).sessionKey).toBe("agent:ops:custom-main")
+  })
+
+  it("keeps the connection when the QR scan is cancelled", async () => {
+    const session = new FakeSession()
+    const connection = new FakeConnection()
+    await startAssistant(session, connection)
+
+    session.uiMessage("pair:scan", {})
+    await flush()
+
+    expect(connection.pairCalls).toEqual([])
+    expect(errorMessages(session)).toEqual([])
+    expect(lastSnapshot(session).connection).toBe("connected")
+  })
+
+  it("pairs with the setup code carried by the scanned QR URL", async () => {
+    const session = new FakeSession()
+    const connection = new FakeConnection()
+    await startAssistant(session, connection)
+    const setupCode = base64UrlEncode(
+      new TextEncoder().encode(JSON.stringify({url: "wss://scanned.example.ts.net", bootstrapToken: "boot-1"})),
+    )
+    // A scanner hands over the QR's full text: a relay URL carrying the code,
+    // not the bare setup code.
+    session.scanQr.mockResolvedValue({
+      cancelled: false,
+      data: `https://relay.example/pair?setupCode=${setupCode}`,
+    })
+
+    session.uiMessage("pair:scan", {})
+    await flush()
+
+    // The scanned text must be parsed before pairing: the connection receives
+    // the decoded gateway and token, not the raw QR payload.
+    expect(connection.pairCalls).toEqual([{url: "wss://scanned.example.ts.net", bootstrapToken: "boot-1"}])
+    // Pairing is consumer-visible: the snapshot reports the scanned gateway.
+    expect(lastSnapshot(session).connection).toBe("connected")
+    expect(lastSnapshot(session).gatewayHost).toBe("scanned.example.ts.net")
+  })
+
+  it("does not pair when the session disconnects during the QR scan", async () => {
+    const session = new FakeSession()
+    const connection = new FakeConnection()
+    await startAssistant(session, connection)
+    const setupCode = base64UrlEncode(
+      new TextEncoder().encode(JSON.stringify({url: "wss://late.example.ts.net", bootstrapToken: "boot-2"})),
+    )
+    session.scanQr.mockImplementation(async () => {
+      for (const handler of [...session.disconnectHandlers]) handler()
+      return {cancelled: false, data: setupCode}
+    })
+
+    session.uiMessage("pair:scan", {})
+    await flush()
+
+    expect(connection.pairCalls).toEqual([])
+  })
+
+  it("reports a failed QR scan without pairing", async () => {
+    const session = new FakeSession()
+    const connection = new FakeConnection()
+    await startAssistant(session, connection)
+    session.scanQr.mockRejectedValue(new Error("camera unavailable"))
+
+    session.uiMessage("pair:scan", {})
+    await flush()
+
+    expect(errorMessages(session)).toEqual(["camera unavailable"])
+    expect(connection.pairCalls).toEqual([])
+  })
+
+  it("rejects an unrecognised setup code without touching the connection", async () => {
+    const session = new FakeSession()
+    const connection = new FakeConnection()
+    await startAssistant(session, connection)
+
+    session.uiMessage("pair:code", {code: "hello world"})
+    await flush()
+
+    expect(errorMessages(session)).toEqual(["Unrecognised setup code"])
+    expect(connection.pairCalls).toEqual([])
+  })
+
+  it("reports a pairing failure that is not an Error as a plain failure", async () => {
+    const session = new FakeSession()
+    const connection = new FakeConnection()
+    connection.pairError = "gateway socket refused"
+    await startAssistant(session, connection)
+    const setupCode = base64UrlEncode(
+      new TextEncoder().encode(JSON.stringify({url: "wss://gw.example.ts.net", bootstrapToken: "boot-3"})),
+    )
+
+    session.uiMessage("pair:code", {code: setupCode})
+    await flush()
+
+    expect(errorMessages(session)).toEqual(["Pairing failed"])
+    expect(lastSnapshot(session).connection).toBe("connected")
   })
 })

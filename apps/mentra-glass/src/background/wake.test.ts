@@ -85,6 +85,23 @@ describe("matchWake", () => {
     expect(matchWake("Hey Wednesday…", TRIGGERS)).toEqual({query: ""})
     expect(matchWake("Hey Wednesday， what time is it", TRIGGERS)).toEqual({query: "what time is it"})
   })
+
+  it("ignores an empty trigger instead of matching everything", () => {
+    // An empty trigger would otherwise match at index 0 with nothing
+    // consumed, crashing the query slice on a missing token.
+    expect(matchWake("hey there", [""])).toBeNull()
+    expect(matchWake("wednesday hello", ["", "wednesday"])).toEqual({query: "hello"})
+  })
+
+  it("does not treat a bare greeting as a wake word", () => {
+    expect(matchWake("hey", TRIGGERS)).toBeNull()
+    expect(matchWake("hello", TRIGGERS)).toBeNull()
+  })
+
+  it("does not match when the utterance is shorter than the trigger phrase", () => {
+    expect(matchWake("hey", ["hey wednesday"])).toBeNull()
+    expect(matchWake("hey computer", ["hey computer go"])).toBeNull()
+  })
 })
 
 describe("WakeTracker", () => {
@@ -146,6 +163,19 @@ describe("WakeTracker", () => {
     })
     tracker.cancelAwait()
     expect(tracker.onTranscript({text: "set a timer", isFinal: true})).toEqual({type: "none"})
+  })
+
+  it("keeps waiting when an empty final transcript lands during the await window", () => {
+    const {tracker} = trackerWithClock()
+    expect(tracker.onTranscript({text: "hey wednesday", isFinal: true})).toEqual({
+      type: "listening",
+    })
+    // An STT glitch delivers an empty final; it must neither send nor cancel.
+    expect(tracker.onTranscript({text: "   ", isFinal: true})).toEqual({type: "none"})
+    expect(tracker.onTranscript({text: "set a timer", isFinal: true})).toEqual({
+      type: "send",
+      query: "set a timer",
+    })
   })
 
   it("still sends a different query inside the duplicate window", () => {

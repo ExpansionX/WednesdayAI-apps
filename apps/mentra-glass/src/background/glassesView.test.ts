@@ -184,4 +184,36 @@ describe("GlassesView", () => {
     await vi.advanceTimersByTimeAsync(60000)
     expect(host.calls).toHaveLength(total)
   })
+
+  it("omits the body element when a frame has no body text", async () => {
+    const host = new FakeDisplayHost()
+    const view = new GlassesView(asSession(host))
+    view.show({phase: "listening", agentLabel: "default", body: ""})
+    await vi.advanceTimersByTimeAsync(0)
+
+    expect(host.calls).toHaveLength(1)
+    const frame = host.calls[0] as RenderElement[]
+    expect(frame).toHaveLength(1)
+    const header = frame[0]!
+    expect("id" in header && header.id).toBe("wai-header")
+    view.dispose()
+  })
+
+  it("cancels the previous frame's auto-clear when a new frame takes over", async () => {
+    const host = new FakeDisplayHost()
+    const view = new GlassesView(asSession(host))
+    view.show(finalFrame("Old answer"))
+    await vi.advanceTimersByTimeAsync(0)
+
+    // A live frame arrives while the final's auto-clear is still pending.
+    view.show({phase: "thinking", agentLabel: "default", body: "new question"})
+    await vi.advanceTimersByTimeAsync(400)
+    expect(host.lastBodyText()).toBe("new question")
+
+    // The old frame's deadline passes: the new frame must survive it.
+    await vi.advanceTimersByTimeAsync(20000)
+    expect(host.calls).not.toContain("clear")
+    expect(host.lastBodyText()).toBe("new question")
+    view.dispose()
+  })
 })
