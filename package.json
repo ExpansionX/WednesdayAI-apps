@@ -1,0 +1,13 @@
+{
+  "name": "wednesdayai-apps",
+  "private": true,
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "glass:test": "npm run test -w @wednesdayai/mentra-glass",
+    "glass:coverage": "npm run test:coverage -w @wednesdayai/mentra-glass",
+    "glass:typecheck": "npm run typecheck -w @wednesdayai/mentra-glass"
+  }
+}

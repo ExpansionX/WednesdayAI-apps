@@ -1,0 +1,33 @@
+{
+  "$schema": "./node_modules/@mentra/miniapp-cli/schema/miniapp.schema.json",
+  "packageName": "com.expansionx.wednesdayai.glass",
+  "version": "0.1.0",
+  "name": "WednesdayAI",
+  "description": "Your WednesdayAI assistant on your glasses. Say your wake word, then your question.",
+  "icon": "icon.png",
+  "type": "background",
+  "sdkVersion": "0.3.0",
+  "minHostVersion": "1.42.0",
+  "entry": {
+    "background": "background/index.js",
+    "ui": "ui/index.html"
+  },
+  "permissions": [
+    {
+      "type": "MICROPHONE",
+      "description": "Listens for your WednesdayAI wake word and spoken questions"
+    }
+  ],
+  "hardwareRequirements": [
+    {
+      "type": "DISPLAY",
+      "level": "REQUIRED",
+      "description": "Shows WednesdayAI replies"
+    },
+    {
+      "type": "MICROPHONE",
+      "level": "REQUIRED",
+      "description": "Hears the wake word and your question"
+    }
+  ]
+}
