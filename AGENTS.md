@@ -13,6 +13,6 @@ Guidelines for coding agents working in `WednesdayAI-apps`.
 
 ## Workspaces
 
-| Path | Purpose |
-| --- | --- |
-| apps/mentra-glass | MentraOS background miniapp: WednesdayAI assistant on display glasses (bun build, vitest) |
+| Path              | Purpose                                                                                              |
+| ----------------- | ---------------------------------------------------------------------------------------------------- |
+| apps/mentra-glass | MentraOS background miniapp: WednesdayAI assistant on display glasses (bun build, vitest + coverage) |

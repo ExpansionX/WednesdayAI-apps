@@ -40,11 +40,12 @@ transcripts, sends the spoken question to the user's WednesdayAI gateway with
 
 ## Commands
 
-| Command | Purpose |
-| --- | --- |
-| `npm run glass:test` (repo root) or `npm test` | vitest |
-| `npm run glass:typecheck` (repo root) or `npm run typecheck` | `tsc --noEmit` |
-| `bun run build` | bundles `dist/background/index.js` and `dist/ui/` |
-| `bun run dev` | dev server with sideload QR |
-| `bun run release` | build, pack, serve a `miniapp://release` install QR |
-| `bun run smoke:gateway -- --setup-code <code>` | pair + chat against a gateway |
+| Command                                                         | Purpose                                                                    |
+| --------------------------------------------------------------- | -------------------------------------------------------------------------- |
+| `npm run glass:test` (repo root) or `npm test`                  | vitest                                                                     |
+| `npm run glass:coverage` (repo root) or `npm run test:coverage` | vitest with v8 coverage (80% thresholds, `src/gateway` + `src/background`) |
+| `npm run glass:typecheck` (repo root) or `npm run typecheck`    | `tsc --noEmit`                                                             |
+| `bun run build`                                                 | bundles `dist/background/index.js` and `dist/ui/`                          |
+| `bun run dev`                                                   | dev server with sideload QR                                                |
+| `bun run release`                                               | build, pack, serve a `miniapp://release` install QR                        |
+| `bun run smoke:gateway -- --setup-code <code>`                  | pair + chat against a gateway                                              |
