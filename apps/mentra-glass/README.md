@@ -1,37 +1,67 @@
-# Mentra miniapp
+# WednesdayAI for MentraOS glasses
 
-This project has two runtimes with different jobs:
+Say your WednesdayAI wake word (for example "Hey Wednesday, what's on my
+calendar?") and the answer from your own WednesdayAI gateway streams onto your
+MentraOS display glasses (Even Realities G1/G2, Vuzix, Mentra display glasses).
 
-- `src/background/` is always on while the miniapp is enabled. Put glasses
-  subscriptions, `session.*` calls, durable state, and logic that must keep
-  running after the UI closes here.
-- `src/ui/` is a normal WebView that exists only while the user has the miniapp
-  open. Put React, rendering, DOM access, and browser UI libraries here.
+It is a background Mentra miniapp, so it runs alongside your other miniapps
+(Captions, Translation, ...) and only takes the display while it is answering.
 
-The background is a bare JavaScript engine, not a browser or Node. It supports
-`console`, timers, `fetch`, `WebSocket`, `localStorage`,
-`crypto.getRandomValues`, `crypto.randomUUID`, `TextEncoder`, `TextDecoder`,
-`atob`, `btoa`, and the SDK-supported `AbortController` subset. It does not
-support `window`, `document`, DOM elements, `performance`, `XMLHttpRequest`,
-`crypto.subtle`, Node built-ins, `process`, or runtime module resolution. Use
-`Date.now()` instead of `performance.now()`.
+## Requirements
 
-`bun run build` checks background source (including imported shared files) and
-reports common unsupported browser or Node APIs with a file, line, and supported
-alternative before it emits a bundle.
+- Mentra App with display glasses connected.
+- A WednesdayAI gateway that knows the `openclaw-mentra-node` client
+  (WednesdayAI-core with the mentra node bootstrap profile), reachable from the
+  phone over `wss://` (for example Tailscale Serve) or the tailnet IP.
+- For on-device wake listening: the offline speech model, downloaded in
+  Mentra App -> Settings -> Transcription.
 
-The layers do not share memory. Exchange serializable data through the typed
-`mentra.*` / `session.ui.*` message bus declared in `src/shared/channels.ts`.
+## Install (sideload)
 
-## Commands
+Mentra Miniapp SDK apps are not distributed through the Mentra Miniapp Store
+yet, so installs are sideloaded.
 
-```bash
-bun run dev      # live, temporary; keep the computer and CLI running
-bun run release  # persistent local install that runs without the computer
-bun run build    # build both layers into dist/
+```sh
+npm install            # from the repo root
+cd apps/mentra-glass
+bun run dev            # live development: scan the printed QR in
+                       # Mentra App -> Settings -> Miniapp Developer Settings -> Scan Miniapp QR Code
+bun run release        # standalone install: prints a miniapp://release QR
 ```
 
-The Mentra App keeps one dev entry per manifest package name, so you can scan and
-test multiple dev miniapps side by side. It also caches each entry's name and
-icon. Rescanning the same package updates that entry. Use `bun run release` when
-you want the miniapp to run without the computer.
+In the Mentra App, stop "Mentra AI" so only one assistant answers.
+
+## Pair with your gateway
+
+1. On the gateway host run `wednesdayai qr --client openclaw-mentra-node`.
+2. Open the WednesdayAI miniapp in the Mentra App and tap **Scan setup QR**
+   (or paste the setup code and tap **Pair**).
+3. The status shows **Connected** and your gateway's wake words.
+
+The miniapp gets a bounded operator token: `operator.read` and
+`operator.write` only (chat, sessions, agents, wake words). No admin,
+pairing, approvals, or node role.
+
+## Settings
+
+- **Agent**: the gateway default, or any agent from `agents.list`. Disabled
+  when the gateway uses one global session.
+- **Wake listening**: on-device (private, needs the offline model) or Mentra
+  cloud (more accurate).
+- **Mic test**: shows the last transcripts so you can check what the wake
+  detector hears.
+
+Wake words come from the gateway (`voicewake.get`) and update live when they
+change (`voicewake.set`).
+
+## Development
+
+| Command | Purpose |
+| --- | --- |
+| `npm test` | unit tests (vitest) |
+| `npm run typecheck` | `tsc --noEmit` |
+| `bun run build` | production bundles in `dist/` |
+| `bun run smoke:gateway -- --setup-code <code>` | device-free check: pairs, reads wake words and agents, sends `chat.send`, reconnects with the stored device token |
+
+Get a setup code for the smoke test with
+`wednesdayai qr --client openclaw-mentra-node --setup-code-only`.
