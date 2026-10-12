@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "mentra-miniapp dev",
     "build": "bun run build.ts",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc --noEmit && tsc --noEmit -p scripts",
     "test": "vitest run",
     "release": "mentra-miniapp release",
     "pack": "mentra-miniapp pack",
@@ -21,6 +21,7 @@
   },
   "devDependencies": {
     "@mentra/miniapp-cli": "0.1.0-dev.1",
+    "@types/bun": "^1.4.3",
     "@types/react": "^19.2.0",
     "@types/react-dom": "^19.2.0",
     "typescript": "~5.9.2",
