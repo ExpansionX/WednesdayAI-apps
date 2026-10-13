@@ -94,11 +94,11 @@ export class GatewaySttCapture {
   private signalReady: (() => void) | null = null
   /** Server retired the session with session.closed; settle() must not close again. */
   private closedByServer = false
-  /** A closed session awaiting the server's asynchronous drain (fence on begin). */
-  private fencedSessionId: string | null = null
-  /** A create was in flight when the capture settled: fence begin until it retires. */
-  private fencePending = false
-  private fenceTimer: TimerHandle | null = null
+  /** Sessions closed locally whose drain the server has not confirmed via session.closed. */
+  private readonly fencedSessions = new Map<string, TimerHandle>()
+  /** A create was in flight when the capture settled: begin stays fenced until it retires. */
+  private pendingCreateFence = false
+  private pendingFenceTimer: TimerHandle | null = null
   /** This utterance's finish ran and settled; its late create is stale. */
   private finishSettled = false
   private createPromise: Promise<CreateOutcome> | null = null
@@ -143,10 +143,11 @@ export class GatewaySttCapture {
 
   /** Open a transcription session seeded with the pre-roll. Ignored unless idle. */
   begin(sessionKey: string): void {
-    // A fenced capture means the server is still draining the previous
-    // session — or its create is still in flight; a create now would fail
-    // with CONFLICT.
-    if (this.disposed || this.fencePending || this.fencedSessionId !== null || this.stateValue !== "idle") return
+    // A fenced capture means the server is still draining a previous session
+    // — or a create is still in flight; a create now would fail with CONFLICT.
+    if (this.disposed || this.pendingCreateFence || this.fencedSessions.size > 0 || this.stateValue !== "idle") {
+      return
+    }
     this.utterance += 1
     const utterance = this.utterance
     this.abortRequested = false
@@ -206,7 +207,8 @@ export class GatewaySttCapture {
       return
     }
     if (this.stateValue === "open") {
-      this.requestClose(this.sessionId)
+      // The server may already have retired the session; never close it again.
+      if (!this.closedByServer) this.requestClose(this.sessionId)
       this.settle(null)
       return
     }
@@ -222,14 +224,16 @@ export class GatewaySttCapture {
     if (this.disposed) return
     this.disposed = true
     this.ring.length = 0
-    this.clearFence()
     if (this.stateValue === "open") {
-      this.requestClose(this.sessionId)
+      // The server may already have retired the session; never close it again.
+      if (!this.closedByServer) this.requestClose(this.sessionId)
     } else if (this.stateValue === "opening") {
       this.abortRequested = true
       this.clearTimer("maxTimer")
     }
     this.settle(null)
+    // A disposed capture never begins again: drop every fence and its timers.
+    this.clearAllFences()
   }
 
   /** Feed a `talk.event` payload; ignores malformed frames and other sessions. */
@@ -237,9 +241,9 @@ export class GatewaySttCapture {
     if (!isRecord(payload)) return
     const {type, sessionId} = payload
     if (typeof type !== "string" || typeof sessionId !== "string") return
-    // The server's close of a fenced session ends the fence, whether or not
-    // this capture still tracks that session locally.
-    if (type === "session.closed" && sessionId === this.fencedSessionId) this.clearFence()
+    // The server's close retires that session's fence, whether or not this
+    // capture still tracks the session locally.
+    if (type === "session.closed") this.retireFence(sessionId)
     if (this.sessionId === null || sessionId !== this.sessionId) return
     if (type === "session.ready") {
       this.onSessionReady()
@@ -286,10 +290,11 @@ export class GatewaySttCapture {
       return
     }
     this.createPromise = null
+    // The pending fence existed only to block begin until this create
+    // settled; a success fences its own session below, a failure has none.
+    this.clearPendingFence()
     if (!outcome.ok) {
       if (!this.abortRequested && !this.disposed) this.onError?.(outcome.message)
-      // No session exists: a pending fence has nothing left to wait for.
-      this.clearFence()
       this.settle(null)
       return
     }
@@ -402,28 +407,50 @@ export class GatewaySttCapture {
     this.closedSessionId = sessionId
     // The close ack races the server's transcription drain, which keeps the
     // session until commitInput finishes: fence begin until session.closed.
-    this.armFence()
-    this.fencedSessionId = sessionId
+    this.fenceSession(sessionId)
     void this.requester.request("talk.session.close", {sessionId}).catch(() => {})
   }
 
-  /** Fence begin until session.closed (or the timeout); the id may still be unknown. */
-  private armFence(): void {
-    if (this.fenceTimer !== null) clearTimeout(this.fenceTimer)
-    this.fenceTimer = setTimeout(() => {
-      this.fenceTimer = null
-      this.fencedSessionId = null
-      this.fencePending = false
+  /** Fence one closed session until session.closed (or its own timeout). */
+  private fenceSession(sessionId: string): void {
+    if (this.fencedSessions.has(sessionId)) return
+    this.fencedSessions.set(
+      sessionId,
+      setTimeout(() => {
+        this.fencedSessions.delete(sessionId)
+      }, STT_RESULT_TIMEOUT_MS),
+    )
+  }
+
+  private retireFence(sessionId: string): void {
+    const timer = this.fencedSessions.get(sessionId)
+    if (timer === undefined) return
+    clearTimeout(timer)
+    this.fencedSessions.delete(sessionId)
+  }
+
+  /** Fence begin until the in-flight create settles (or the timeout). */
+  private armPendingFence(): void {
+    this.pendingCreateFence = true
+    if (this.pendingFenceTimer !== null) clearTimeout(this.pendingFenceTimer)
+    this.pendingFenceTimer = setTimeout(() => {
+      this.pendingFenceTimer = null
+      this.pendingCreateFence = false
     }, STT_RESULT_TIMEOUT_MS)
   }
 
-  private clearFence(): void {
-    if (this.fenceTimer !== null) {
-      clearTimeout(this.fenceTimer)
-      this.fenceTimer = null
+  private clearPendingFence(): void {
+    if (this.pendingFenceTimer !== null) {
+      clearTimeout(this.pendingFenceTimer)
+      this.pendingFenceTimer = null
     }
-    this.fencedSessionId = null
-    this.fencePending = false
+    this.pendingCreateFence = false
+  }
+
+  private clearAllFences(): void {
+    for (const timer of this.fencedSessions.values()) clearTimeout(timer)
+    this.fencedSessions.clear()
+    this.clearPendingFence()
   }
 
   /** End the utterance: clear every timer and field, resolve finish, go idle. */
@@ -444,8 +471,7 @@ export class GatewaySttCapture {
     if (this.createPromise !== null && !this.disposed) {
       // The create is still in flight: fence the next begin until it settles
       // and its session (if any) retires — racing it would fail with CONFLICT.
-      this.fencePending = true
-      this.armFence()
+      this.armPendingFence()
     }
     this.pending = []
     this.sessionId = null

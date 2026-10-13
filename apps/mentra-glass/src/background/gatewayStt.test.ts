@@ -761,4 +761,53 @@ describe("GatewaySttCapture", () => {
     expect(requester.callsOf("talk.session.create")).toHaveLength(2)
     capture.dispose()
   })
+
+  it("a failed replacement create does not clear an older session's fence", async () => {
+    const {requester, capture, errors} = harness()
+    const createA = deferred<unknown>()
+    const createB = deferred<unknown>()
+    requester.respond("talk.session.create", () => createA.promise)
+    capture.begin("sk-1")
+    await vi.advanceTimersByTimeAsync(0)
+    capture.abort()
+    // The pending fence times out; a new question starts B.
+    await vi.advanceTimersByTimeAsync(STT_RESULT_TIMEOUT_MS)
+    requester.respond("talk.session.create", () => createB.promise)
+    capture.begin("sk-2")
+    await vi.advanceTimersByTimeAsync(0)
+    expect(requester.callsOf("talk.session.create")).toHaveLength(2)
+    // A's late create lands: closed once, and its drain fences the capture.
+    createA.resolve(CREATE_RESULT)
+    await vi.advanceTimersByTimeAsync(0)
+    expect(requester.callsOf("talk.session.close")).toEqual([
+      {method: "talk.session.close", params: {sessionId: "s1"}},
+    ])
+    // B fails: that must lift only B's own pending fence, never A's.
+    createB.reject(new Error("no active transcription provider"))
+    await vi.advanceTimersByTimeAsync(0)
+    expect(errors).toEqual(["no active transcription provider"])
+    capture.begin("sk-3")
+    await vi.advanceTimersByTimeAsync(0)
+    expect(requester.callsOf("talk.session.create")).toHaveLength(2)
+    capture.onTalkEvent({type: "session.closed", sessionId: "s1"})
+    capture.begin("sk-3")
+    await vi.advanceTimersByTimeAsync(0)
+    expect(requester.callsOf("talk.session.create")).toHaveLength(3)
+    capture.dispose()
+  })
+
+  it("abort and dispose never close a session the server already retired", async () => {
+    const {requester, capture, open} = harness()
+    await open()
+    capture.onTalkEvent({type: "session.closed", sessionId: "s1"})
+    capture.abort()
+    expect(capture.state).toBe("idle")
+    expect(requester.callsOf("talk.session.close")).toHaveLength(0)
+
+    const second = harness()
+    await second.open()
+    second.capture.onTalkEvent({type: "session.closed", sessionId: "s1"})
+    second.capture.dispose()
+    expect(second.requester.callsOf("talk.session.close")).toHaveLength(0)
+  })
 })
