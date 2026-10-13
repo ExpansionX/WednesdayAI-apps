@@ -1,6 +1,12 @@
 import {afterEach, beforeEach, describe, expect, it, vi} from "vitest"
 
-import type {AccelData, MiniappSession, PhoneNotificationData, RenderElement} from "@mentra/miniapp/background"
+import type {
+  AccelData,
+  AudioChunkData,
+  MiniappSession,
+  PhoneNotificationData,
+  RenderElement,
+} from "@mentra/miniapp/background"
 import type {GatewayConnection} from "../gateway/connection"
 import {base64UrlEncode} from "../gateway/encoding"
 import {
@@ -123,8 +129,19 @@ class FakeSession {
   }
 
   private readonly accelEntries: Array<(data: AccelData) => void> = []
+  private readonly audioEntries: Array<(data: AudioChunkData) => void> = []
   private readonly notificationEntries: Array<(data: PhoneNotificationData) => void> = []
   private readonly dismissedEntries: Array<(data: {notificationId: string}) => void> = []
+
+  readonly mic = {
+    onAudioChunk: (handler: (data: AudioChunkData) => void) => {
+      this.audioEntries.push(handler)
+      return () => {
+        const index = this.audioEntries.indexOf(handler)
+        if (index >= 0) this.audioEntries.splice(index, 1)
+      }
+    },
+  }
 
   readonly imu = {
     onAccel: (handler: (data: AccelData) => void) => {
@@ -197,6 +214,15 @@ class FakeSession {
 
   dismiss(id: string): void {
     for (const handler of [...this.dismissedEntries]) handler({notificationId: id})
+  }
+
+  /** One 16 kHz PCM mic chunk in standard base64. */
+  audio(data: string, format = "pcm_s16le", sampleRate = 16000): void {
+    for (const handler of [...this.audioEntries]) handler({data, format, sampleRate})
+  }
+
+  audioSubscriptions(): number {
+    return this.audioEntries.length
   }
 }
 
@@ -295,7 +321,29 @@ async function flush(): Promise<void> {
   }
 }
 
-async function startAssistant(session: FakeSession, connection: FakeConnection): Promise<AssistantController> {
+/**
+ * Starts a controller against the fake gateway. The stored settings are
+ * seeded with `querySttMode: "mentra"` unless overridden — keeping existing
+ * tests on the Mentra transcription path; gateway-STT tests pass
+ * `{querySttMode: "gateway"}`. A stored value is left alone so tests can
+ * plant malformed settings; an explicit option always overwrites. Seeding is
+ * best-effort: a store whose read or write fails keeps the test's own
+ * storage semantics intact.
+ */
+async function startAssistant(
+  session: FakeSession,
+  connection: FakeConnection,
+  options: {querySttMode?: "gateway" | "mentra"} = {},
+): Promise<AssistantController> {
+  try {
+    const stored = JSON.parse((await session.storage.get(SETTINGS_STORAGE_KEY)) ?? "{}") as Record<string, unknown>
+    if (options.querySttMode !== undefined || stored.querySttMode === undefined) {
+      stored.querySttMode = options.querySttMode ?? "mentra"
+    }
+    await session.storage.set(SETTINGS_STORAGE_KEY, JSON.stringify(stored))
+  } catch {
+    // The test's store is deliberately broken; let the controller see that.
+  }
   stubGateway(connection)
   const controller = makeController(session, connection)
   await controller.start()
@@ -360,6 +408,40 @@ async function ask(
   responder?: (params: unknown) => unknown,
 ): Promise<void> {
   if (responder) connection.respond("chat.send", responder)
+  session.transcript(`hey wednesday ${query}`, true)
+  await flush()
+}
+
+/** Standard base64 for PCM bytes: the gateway path decodes it with atob. */
+function b64(bytes: number[]): string {
+  let binary = ""
+  for (const byte of bytes) binary += String.fromCharCode(byte)
+  return btoa(binary)
+}
+
+/** Stubs the talk.session trio for a transcription session that opens. */
+function stubTalkSession(connection: FakeConnection, sessionId: string): void {
+  connection.respond("talk.session.create", () => ({
+    sessionId,
+    audio: {inputEncoding: "pcm16", inputSampleRateHz: 16000, channels: 1},
+  }))
+  connection.respond("talk.session.appendAudio", () => ({}))
+  connection.respond("talk.session.close", () => ({}))
+}
+
+/**
+ * Drives a spoken question the way the device does: an interim bare wake word
+ * (which opens the gateway capture), then a final transcript carrying the
+ * question. Returns with finish() in flight.
+ */
+async function askViaGateway(
+  session: FakeSession,
+  connection: FakeConnection,
+  query: string,
+): Promise<void> {
+  connection.respond("chat.send", () => ({runId: "srv-run-1"}))
+  session.transcript("hey wednesday", false)
+  await flush()
   session.transcript(`hey wednesday ${query}`, true)
   await flush()
 }
@@ -895,7 +977,13 @@ describe("AssistantController", () => {
   it("defaults query transcription to the gateway and no notification apps", async () => {
     const session = new FakeSession()
     const connection = new FakeConnection()
-    await startAssistant(session, connection)
+    // Bare start, without startAssistant's querySttMode seeding: this test is
+    // about the controller's own default when nothing is stored.
+    stubGateway(connection)
+    const controller = makeController(session, connection)
+    await controller.start()
+    connection.hello("agent:main:main")
+    await flush()
 
     const settings = lastSnapshot(session).settings
     expect(settings.querySttMode).toBe("gateway")
@@ -1536,5 +1624,175 @@ describe("AssistantController", () => {
     await flush()
     expect(headerTexts(session).at(-1)).toBe("Messages · Alice")
     expect(bodyTexts(session).at(-1)).toBe("Lunch?")
+  })
+
+  describe("gateway question transcription", () => {
+    it("streams audio after the wake word and sends the gateway transcript", async () => {
+      const session = new FakeSession()
+      const connection = new FakeConnection()
+      stubTalkSession(connection, "s1")
+      await startAssistant(session, connection, {querySttMode: "gateway"})
+      expect(session.audioSubscriptions()).toBe(1)
+
+      session.audio(b64([1, 2]))
+      session.transcript("hey wednesday what's", false)
+      await flush()
+
+      const create = connection.requests.find((request) => request.method === "talk.session.create")
+      expect(recordParams(create?.params)).toEqual({
+        sessionKey: "agent:main:main",
+        mode: "transcription",
+        transport: "gateway-relay",
+        brain: "none",
+      })
+
+      session.transcript("hey wednesday what is the weather in paris", true)
+      await flush()
+      const append = connection.requests.find((request) => request.method === "talk.session.appendAudio")
+      expect(recordParams(append?.params)).toEqual({sessionId: "s1", audioBase64: b64([1, 2])})
+      expect(connection.requests.some((request) => request.method === "talk.session.close")).toBe(true)
+
+      connection.emitEvent("talk.event", {
+        type: "transcript.done",
+        sessionId: "s1",
+        payload: {text: "Hey Wednesday, what's the weather in Paris?"},
+      })
+      await flush()
+
+      const send = connection.requests.find((request) => request.method === "chat.send")
+      const sendParams = recordParams(send?.params)
+      expect(sendParams.message).toBe("what's the weather in Paris?")
+      // The transcription session captured audio for the same conversation
+      // the question was sent to.
+      expect(sendParams.sessionKey).toBe("agent:main:main")
+    })
+
+    it("falls back to the Mentra query when the gateway has no transcription provider", async () => {
+      const session = new FakeSession()
+      const connection = new FakeConnection()
+      connection.respond("chat.send", () => ({runId: "srv-run-1"}))
+      connection.respond("talk.session.create", () => {
+        throw new Error("no active transcription provider")
+      })
+      await startAssistant(session, connection, {querySttMode: "gateway"})
+
+      await askViaGateway(session, connection, "what is one plus one")
+      await askViaGateway(session, connection, "what is two plus two")
+
+      const messages = connection.requests
+        .filter((request) => request.method === "chat.send")
+        .map((request) => recordParams(request.params).message)
+      expect(messages).toEqual(["what is one plus one", "what is two plus two"])
+      expect(
+        errorMessages(session).filter((message) => message.startsWith("WednesdayAI transcription unavailable")),
+      ).toEqual([
+        "WednesdayAI transcription unavailable: no active transcription provider. Using Mentra transcription.",
+      ])
+    })
+
+    it("falls back to the Mentra query after 6 s without a transcript", async () => {
+      const session = new FakeSession()
+      const connection = new FakeConnection()
+      stubTalkSession(connection, "s1")
+      await startAssistant(session, connection, {querySttMode: "gateway"})
+
+      await askViaGateway(session, connection, "what is the weather")
+      await vi.advanceTimersByTimeAsync(6000)
+
+      const send = connection.requests.find((request) => request.method === "chat.send")
+      expect(recordParams(send?.params).message).toBe("what is the weather")
+      // A deadline miss is a fallback, not a controller error.
+      expect(errorMessages(session)).toEqual([])
+    })
+
+    it("uses the Mentra query when the gateway transcript has no wake word", async () => {
+      const session = new FakeSession()
+      const connection = new FakeConnection()
+      stubTalkSession(connection, "s1")
+      await startAssistant(session, connection, {querySttMode: "gateway"})
+
+      await askViaGateway(session, connection, "what is the weather in paris")
+      connection.emitEvent("talk.event", {
+        type: "transcript.done",
+        sessionId: "s1",
+        payload: {text: "it is sunny in paris today"},
+      })
+      await flush()
+
+      const send = connection.requests.find((request) => request.method === "chat.send")
+      expect(recordParams(send?.params).message).toBe("what is the weather in paris")
+    })
+
+    it("Mentra mode never subscribes to audio or opens talk sessions", async () => {
+      const session = new FakeSession()
+      const connection = new FakeConnection()
+      connection.respond("chat.send", () => ({runId: "srv-run-1"}))
+      await startAssistant(session, connection, {querySttMode: "mentra"})
+      expect(session.audioSubscriptions()).toBe(0)
+
+      await ask(session, connection, "what is two plus two")
+
+      expect(connection.requests.some((request) => request.method === "talk.session.create")).toBe(false)
+      const send = connection.requests.find((request) => request.method === "chat.send")
+      expect(recordParams(send?.params).message).toBe("what is two plus two")
+    })
+
+    it("cancel aborts the talk session without sending chat", async () => {
+      const session = new FakeSession()
+      const connection = new FakeConnection()
+      stubTalkSession(connection, "s1")
+      await startAssistant(session, connection, {querySttMode: "gateway"})
+
+      session.transcript("hey wednesday", false)
+      await flush()
+      expect(connection.requests.some((request) => request.method === "talk.session.create")).toBe(true)
+
+      session.transcript("hey wendy", true)
+      await flush()
+      expect(connection.requests.filter((request) => request.method === "talk.session.close")).toHaveLength(1)
+      expect(connection.requests.some((request) => request.method === "chat.send")).toBe(false)
+    })
+
+    it("audio subscription follows the connection", async () => {
+      const session = new FakeSession()
+      const connection = new FakeConnection()
+      await startAssistant(session, connection, {querySttMode: "gateway"})
+      expect(session.audioSubscriptions()).toBe(1)
+
+      connection.setState("offline")
+      expect(session.audioSubscriptions()).toBe(0)
+
+      connection.setState("connected")
+      expect(session.audioSubscriptions()).toBe(1)
+    })
+
+    it("disconnect while awaiting the gateway transcript sends nothing", async () => {
+      const session = new FakeSession()
+      const connection = new FakeConnection()
+      stubTalkSession(connection, "s1")
+      await startAssistant(session, connection, {querySttMode: "gateway"})
+
+      await askViaGateway(session, connection, "what is the weather in paris")
+
+      // finish() is waiting on the transcript when the gateway drops.
+      connection.setState("offline")
+      await flush()
+      await vi.advanceTimersByTimeAsync(400)
+      const offlineIndex = bodyTexts(session).length - 1
+      expect(bodyTexts(session)[offlineIndex]).toBe("WednesdayAI is not connected")
+
+      // The late transcript must not send chat or paint anything new.
+      connection.emitEvent("talk.event", {
+        type: "transcript.done",
+        sessionId: "s1",
+        payload: {text: "what is the weather in paris"},
+      })
+      await flush()
+      await vi.advanceTimersByTimeAsync(7000)
+
+      expect(connection.requests.some((request) => request.method === "chat.send")).toBe(false)
+      // Only the offline frame's own auto-clear happened after it.
+      expect(bodyTexts(session).slice(offlineIndex + 1)).toEqual([""])
+    })
   })
 })

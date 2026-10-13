@@ -2,13 +2,14 @@
  * AssistantController — owns the glasses-side assistant.
  *
  * Wires the gateway connection (pairing, requests, chat events), wake-word
- * tracking over speech-to-text transcripts, the glasses display — assistant
- * frames, the head-tilt glance, and allowlisted phone notifications —
- * persisted settings, and the phone UI menu (see src/ui/App.tsx +
- * src/shared/channels.ts). One instance lives for the whole background
- * JSContext; session.on("disconnect") tears everything down, marking the
- * controller disposed so async continuations cannot paint into a dead
- * session.
+ * tracking over speech-to-text transcripts, gateway question transcription
+ * (the mic's own audio via talk.session, falling back to Mentra's
+ * transcript), the glasses display — assistant frames, the head-tilt glance,
+ * and allowlisted phone notifications — persisted settings, and the phone UI
+ * menu (see src/ui/App.tsx + src/shared/channels.ts). One instance lives for
+ * the whole background JSContext; session.on("disconnect") tears everything
+ * down, marking the controller disposed so async continuations cannot paint
+ * into a dead session.
  */
 
 import type {AccelData, MiniappSession, PhoneNotificationData} from "@mentra/miniapp/background"
@@ -30,8 +31,9 @@ import type {QueuedNotification} from "./notifications"
 import {NotificationPresenter} from "./notificationPresenter"
 import {GlassesView} from "./glassesView"
 import type {GlassesViewModel} from "./glassesView"
+import {GatewaySttCapture} from "./gatewayStt"
 import {TiltDetector} from "./tilt"
-import {WakeTracker} from "./wake"
+import {findWake, WakeTracker} from "./wake"
 import type {WakeAction} from "./wake"
 
 const CLIENT_VERSION = manifest.version
@@ -109,6 +111,8 @@ export class AssistantController {
   private disposed = false
   private readonly unsubs: Array<() => void> = []
   private transcriptionUnsub: (() => void) | null = null
+  /** Live while gateway question transcription may stream mic audio. */
+  private audioUnsub: (() => void) | null = null
   private listeningTimer: TimerHandle | null = null
   /** True while the listening frame is the newest frame shown; guards the window's hide. */
   private listeningFrameUp = false
@@ -118,6 +122,14 @@ export class AssistantController {
   private readonly tilt = new TiltDetector()
   private readonly notifications: NotificationPresenter
   private seenApps: NotificationAppOption[] = []
+  /** Gateway transcription of the spoken question; Mentra's transcript is the fallback. */
+  private readonly stt: GatewaySttCapture
+  /** One "transcription unavailable" warning per gateway hello. */
+  private sttWarned = false
+  /** Bumped per spoken question; a stale finish() must not send. */
+  private sendToken = 0
+  /** True while resolveAndSend awaits the gateway transcript of a painted query. */
+  private awaitingTranscript = false
 
   private settings: GlassSettings = {...DEFAULT_SETTINGS}
   private triggers: string[] = []
@@ -168,6 +180,10 @@ export class AssistantController {
           ...connectionHooks,
         }))
     this.connection = createConnection(hooks)
+    this.stt = new GatewaySttCapture({
+      requester: this.connection,
+      onError: (message) => this.onSttError(message),
+    })
   }
 
   async start(): Promise<void> {
@@ -189,6 +205,7 @@ export class AssistantController {
     this.unsubs.push(
       this.session.phone.notifications.onDismissed((data) => this.notifications.dismiss(data.notificationId)),
     )
+    this.syncAudioSubscription()
 
     void Promise.resolve(this.connection.start()).catch(() => {
       // Connection failures surface through onStateChange → pushState.
@@ -209,6 +226,12 @@ export class AssistantController {
       this.transcriptionUnsub()
       this.transcriptionUnsub = null
     }
+    if (this.audioUnsub) {
+      this.audioUnsub()
+      this.audioUnsub = null
+    }
+    // Closes any open transcription session before the connection goes down.
+    this.stt.dispose()
     for (const unsub of this.unsubs.splice(0)) {
       unsub()
     }
@@ -230,10 +253,14 @@ export class AssistantController {
    */
   private onConnectionState(state: ConnectionState): void {
     if (this.disposed) return
+    this.syncAudioSubscription()
     this.pushState()
     if (state === "connected" || state === "connecting") return
     const run = this.currentRun
-    if (!run || run.state === "final" || run.state === "error" || run.state === "aborted") return
+    const runIsLive = run !== null && run.state !== "final" && run.state !== "error" && run.state !== "aborted"
+    // A painted query awaiting its gateway transcript is a live frame too:
+    // the drop means it can never be answered, so finish it like a run.
+    if (!runIsLive && !this.awaitingTranscript) return
     this.currentRun = null
     if (state === "unpaired") {
       this.releaseDisplay()
@@ -252,6 +279,26 @@ export class AssistantController {
       agentLabel: this.agentLabel(),
       body: this.connection.lastError ?? "Pairing needs repair — scan the setup code again",
     })
+  }
+
+  /**
+   * Keep the mic subscription exactly when gateway question transcription
+   * wants it: 16 kHz PCM streams into the capture only while the gateway is
+   * up and the mode selects it. Losing the subscription also cancels any
+   * capture in flight, so a dropped gateway can never hold a talk session.
+   */
+  private syncAudioSubscription(): void {
+    const wanted =
+      !this.disposed && this.settings.querySttMode === "gateway" && this.connection.state === "connected"
+    if (wanted && this.audioUnsub === null) {
+      this.audioUnsub = this.session.mic.onAudioChunk((chunk) => this.stt.pushChunk(chunk))
+      return
+    }
+    if (!wanted && this.audioUnsub !== null) {
+      this.audioUnsub()
+      this.audioUnsub = null
+      this.stt.abort()
+    }
   }
 
   // ── Settings ─────────────────────────────────────────────────────────────
@@ -282,6 +329,8 @@ export class AssistantController {
     const modeChanged = patch.wakeSttMode !== undefined && patch.wakeSttMode !== this.settings.wakeSttMode
     const agentChanged = patch.agentId !== undefined
     const appsChanged = patch.notificationApps !== undefined
+    const sttModeChanged =
+      patch.querySttMode !== undefined && patch.querySttMode !== this.settings.querySttMode
     this.settings = {
       wakeSttMode: patch.wakeSttMode ?? this.settings.wakeSttMode,
       agentId: patch.agentId !== undefined ? patch.agentId : this.settings.agentId,
@@ -303,6 +352,7 @@ export class AssistantController {
       // under the old mode must not fire across it.
       if (this.micTestEnabled) this.armMicTestTimer()
     }
+    if (sttModeChanged) this.syncAudioSubscription()
     if (agentChanged) this.refreshAgentNotice()
     this.pushState()
   }
@@ -331,16 +381,19 @@ export class AssistantController {
       case "listening": {
         this.showFrame({phase: "listening", agentLabel: this.agentLabel(), body: ""})
         this.armListeningWindow()
+        // The capture carries the mic's pre-roll only when it is streaming.
+        if (this.audioUnsub !== null) this.stt.begin(this.sessionKey())
         return
       }
       case "cancel":
         this.listeningFrameUp = false
         this.stopListeningTimer()
+        this.stt.abort()
         this.releaseDisplay()
         return
       case "send":
         this.stopListeningTimer()
-        void this.sendQuery(action.query)
+        void this.resolveAndSend(action.query)
         return
       case "none":
         return
@@ -468,6 +521,7 @@ export class AssistantController {
       // clear the glasses if the listening frame still owns them; a newer
       // frame (a run, offline, …) survives this timeout.
       this.tracker.cancelAwait()
+      this.stt.abort()
       if (this.listeningFrameUp) {
         this.listeningFrameUp = false
         this.releaseDisplay()
@@ -483,6 +537,29 @@ export class AssistantController {
   }
 
   // ── Chat sends ──────────────────────────────────────────────────────────
+
+  /**
+   * Send the spoken question, preferring the gateway's transcript of the mic
+   * audio over Mentra's. The Mentra query is painted while the transcript is
+   * awaited, so a gateway that cannot transcribe only costs a short delay.
+   * A transcript that lands after a disconnect, a disposal, or a newer send
+   * sends nothing and paints nothing.
+   */
+  private async resolveAndSend(mentraQuery: string): Promise<void> {
+    const token = ++this.sendToken
+    if (!this.stt.active) {
+      await this.sendQuery(mentraQuery)
+      return
+    }
+    this.currentQuery = mentraQuery
+    this.showFrame({phase: "thinking", agentLabel: this.agentLabel(), body: mentraQuery})
+    this.awaitingTranscript = true
+    const text = await this.stt.finish()
+    this.awaitingTranscript = false
+    if (this.disposed || token !== this.sendToken || this.connection.state !== "connected") return
+    const query = (text && findWake(text, this.triggers)?.query.trim()) || mentraQuery
+    await this.sendQuery(query)
+  }
 
   private async sendQuery(query: string): Promise<void> {
     if (this.disposed) return
@@ -578,6 +655,10 @@ export class AssistantController {
     }
     if (event === "chat") {
       this.onChatEvent(payload)
+      return
+    }
+    if (event === "talk.event") {
+      this.stt.onTalkEvent(payload)
     }
   }
 
@@ -594,6 +675,8 @@ export class AssistantController {
   private async onHello(hello: {mainSessionKey: string | null}): Promise<void> {
     if (this.disposed) return
     this.mainSessionKey = hello.mainSessionKey
+    // A reconnect is a fresh gateway process: transcription may work again.
+    this.sttWarned = false
     const revisionBeforeHydration = this.wakeRevision
     try {
       const result = await this.connection.request<VoicewakeGetResult>("voicewake.get", {})
@@ -619,6 +702,13 @@ export class AssistantController {
   private setTriggers(triggers: string[]): void {
     this.triggers = triggers
     this.tracker.setTriggers(triggers)
+  }
+
+  /** One warning per hello: the gateway said why it cannot transcribe. */
+  private onSttError(message: string): void {
+    if (this.sttWarned) return
+    this.sttWarned = true
+    this.pushError(`WednesdayAI transcription unavailable: ${message}. Using Mentra transcription.`)
   }
 
   private refreshAgentNotice(): void {
