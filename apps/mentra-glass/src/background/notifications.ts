@@ -90,11 +90,6 @@ export class NotificationQueue {
     return this.items.length
   }
 
-  /** The queued entry with this id, if any. */
-  find(id: string): QueuedNotification | null {
-    return this.items.find((existing) => existing.id === id) ?? null
-  }
-
   /** Append; a same-id repost replaces in place, and overflow drops the oldest. */
   enqueue(item: QueuedNotification): void {
     const index = this.items.findIndex((existing) => existing.id === item.id)

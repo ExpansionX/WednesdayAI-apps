@@ -193,11 +193,11 @@ describe("NotificationPresenter", () => {
     const presenter = makePresenter(surface, () => {
       changes += 1
     })
-    // add() reports through its return value (the controller pushes a
-    // single snapshot per intake); removals and advances report onChange.
-    expect(presenter.add(entry("a", "hello"))).toBe(true)
-    expect(presenter.add(entry("b", "from b"))).toBe(true)
-    expect(presenter.add(entry("c", "from c"))).toBe(true)
+    // add() itself does not report: intake pushes from its own exposed
+    // state. Removals and advances report through onChange.
+    presenter.add(entry("a", "hello"))
+    presenter.add(entry("b", "from b"))
+    presenter.add(entry("c", "from c"))
     expect(presenter.queued).toBe(2)
     expect(changes).toBe(0)
     vi.advanceTimersByTime(NOTIFICATION_PAGE_MS)
@@ -209,9 +209,9 @@ describe("NotificationPresenter", () => {
   it("a repost of the showing notification does not restart it", () => {
     const surface = new RecordingSurface()
     const presenter = makePresenter(surface)
-    expect(presenter.add(entry("a", "hello"))).toBe(true)
+    presenter.add(entry("a", "hello"))
     expect(surface.shown).toHaveLength(1)
-    expect(presenter.add({...entry("a", "updated"), title: "A2"})).toBe(false)
+    presenter.add({...entry("a", "updated"), title: "A2"})
     expect(surface.shown).toHaveLength(1)
     expect(presenter.queued).toBe(0)
     expect(presenter.showing).toBe(true)
@@ -231,12 +231,16 @@ describe("NotificationPresenter", () => {
   it("an identical repost of a queued notification changes nothing", () => {
     const surface = new RecordingSurface()
     const presenter = makePresenter(surface)
-    expect(presenter.add(entry("a", "hello"))).toBe(true)
-    expect(presenter.add(entry("b", "from b"))).toBe(true)
-    expect(presenter.add(entry("b", "from b"))).toBe(false)
-    expect(presenter.add({...entry("b", "from b"), title: "B2"})).toBe(true)
+    presenter.add(entry("a", "hello"))
+    presenter.add(entry("b", "from b"))
+    presenter.add(entry("b", "from b"))
     expect(presenter.queued).toBe(1)
     expect(surface.shown).toHaveLength(1)
+    // A changed repost still replaces the queued copy in place.
+    presenter.add({...entry("b", "from b"), title: "B2"})
+    expect(presenter.queued).toBe(1)
+    vi.advanceTimersByTime(NOTIFICATION_PAGE_MS)
+    expect(surface.shown[surface.shown.length - 1]).toMatchObject({header: "Messages · B2"})
   })
 
   it("retain drops queued items and the on-screen item failing the filter", () => {

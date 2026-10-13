@@ -1665,6 +1665,29 @@ describe("AssistantController", () => {
     expect(session.uiSends.filter((send) => send.channel === "state").length - before).toBe(2)
   })
 
+  it("pushes no snapshot for a queued repost with changed content", async () => {
+    const session = new FakeSession()
+    const connection = new FakeConnection()
+    await startAssistant(session, connection)
+    session.uiMessage("notifications:allow", {packageName: "com.google.android.apps.messaging", enabled: true})
+    await flush()
+
+    session.notify({notificationId: "n1", title: "Alice", content: "Lunch?"})
+    await flush()
+    await vi.advanceTimersByTimeAsync(400)
+    session.notify({notificationId: "n2", title: "Bob", content: "Hey"})
+    await flush()
+    expect(lastSnapshot(session).queuedNotifications).toBe(1)
+    const states = session.uiSends.filter((send) => send.channel === "state").length
+
+    // Notification content is not part of the state snapshot: the repost
+    // replaces the queued copy silently.
+    session.notify({notificationId: "n2", title: "Bob", content: "Hey — edited"})
+    await flush()
+    expect(session.uiSends.filter((send) => send.channel === "state").length).toBe(states)
+    expect(lastSnapshot(session).queuedNotifications).toBe(1)
+  })
+
   it("applies per-app allowlist intents and keeps the queue of still-enabled apps", async () => {
     const session = new FakeSession()
     const connection = new FakeConnection()

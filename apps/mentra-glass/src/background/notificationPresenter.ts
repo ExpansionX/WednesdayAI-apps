@@ -13,12 +13,12 @@
  * queue; pump() retries. interrupt() requeues the on-screen notification at
  * the front without hiding, so an assistant frame can take the display and
  * the notification can resume at page 1. add() of a repost keeps the
- * on-screen copy as is and replaces a waiting copy in place, reporting
- * through its return value whether intake changed anything — the controller
- * pushes a single state snapshot per notification. dispose() stops
+ * on-screen copy as is and replaces a waiting copy in place; the controller
+ * decides from its own exposed state whether intake needs a snapshot push.
+ * dispose() stops
  * the page timer and ignores further work; it never calls surface.hide().
- * Every other queue-size change reports through onChange so the controller
- * can push state to the phone — and only actual changes do.
+ * Queue changes outside add() report through onChange so the controller can
+ * push state to the phone — and only actual changes do.
  */
 
 import type {GlassesViewModel} from "./glassesView"
@@ -61,24 +61,12 @@ export class NotificationPresenter {
     return this.isShowing
   }
 
-  add(item: QueuedNotification): boolean {
-    if (this.disposed) return false
+  add(item: QueuedNotification): void {
+    if (this.disposed) return
     // A repost of the notification on screen keeps it as is; no restart.
-    if (this.isShowing && this.current?.id === item.id) return false
-    // An identical queued repost changes nothing the state snapshot exposes.
-    const queued = this.queue.find(item.id)
-    if (
-      queued &&
-      queued.app === item.app &&
-      queued.packageName === item.packageName &&
-      queued.title === item.title &&
-      queued.content === item.content
-    ) {
-      return false
-    }
+    if (this.isShowing && this.current?.id === item.id) return
     this.queue.enqueue(item)
     this.tryStart()
-    return true
   }
 
   dismiss(id: string): void {

@@ -481,11 +481,12 @@ export class AssistantController {
     const item = notificationFromEvent(data)
     if (!item) return
     const seenChanged = this.recordSeenApp(item)
-    // At most one state push per intake: add() reports its change instead
-    // of pushing through onChange.
-    const queueChanged =
-      this.settings.notificationApps.includes(item.packageName) && this.notifications.add(item)
-    if (seenChanged || queueChanged) this.pushState()
+    // The snapshot exposes the seen list and the queued count only: a
+    // repost that edits queued content changes neither, so nothing is
+    // pushed.
+    const queuedBefore = this.notifications.queued
+    if (this.settings.notificationApps.includes(item.packageName)) this.notifications.add(item)
+    if (seenChanged || this.notifications.queued !== queuedBefore) this.pushState()
   }
 
   /**
