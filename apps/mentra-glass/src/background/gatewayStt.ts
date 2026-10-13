@@ -406,8 +406,9 @@ export class GatewaySttCapture {
     if (sessionId === null || sessionId === this.closedSessionId) return
     this.closedSessionId = sessionId
     // The close ack races the server's transcription drain, which keeps the
-    // session until commitInput finishes: fence begin until session.closed.
-    this.fenceSession(sessionId)
+    // session until commitInput finishes: fence begin until session.closed —
+    // never after dispose, where begin is gone and no timer may outlive it.
+    if (!this.disposed) this.fenceSession(sessionId)
     void this.requester.request("talk.session.close", {sessionId}).catch(() => {})
   }
 

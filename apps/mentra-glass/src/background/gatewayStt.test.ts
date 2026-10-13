@@ -334,6 +334,24 @@ describe("GatewaySttCapture", () => {
     expect(capture.state).toBe("idle")
   })
 
+  it("a create landing after dispose closes without arming any timer", async () => {
+    const {requester, capture} = harness()
+    const create = deferred<unknown>()
+    requester.respond("talk.session.create", () => create.promise)
+    capture.begin("sk-1")
+    await vi.advanceTimersByTimeAsync(0)
+    capture.dispose()
+    expect(requester.callsOf("talk.session.close")).toHaveLength(0)
+    create.resolve(CREATE_RESULT)
+    await vi.advanceTimersByTimeAsync(0)
+    expect(requester.callsOf("talk.session.close")).toEqual([
+      {method: "talk.session.close", params: {sessionId: "s1"}},
+    ])
+    expect(capture.state).toBe("idle")
+    // The close still goes out, but no fence timer may outlive dispose.
+    expect(vi.getTimerCount()).toBe(0)
+  })
+
   it("begin is ignored unless idle", async () => {
     const {requester, capture, open} = harness()
     await open()
