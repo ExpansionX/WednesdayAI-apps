@@ -10,6 +10,8 @@ Guidelines for coding agents working in `WednesdayAI-apps`.
 - Gateway client ids use the `openclaw-` prefix (for example `openclaw-mentra-node`).
 - Any change to `README.md` requires the matching change in `README.zh-CN.md`.
 - npm workspaces with hoisted installs (`.npmrc`). Run `npm install` from the repo root.
+- Engineering docs live in `dev-docs/` and follow the WednesdayAI-core `dev-docs/STRUCTURE.md` layout and frontmatter (workstreams in `dev-docs/workstreams/<name>/`).
+- MentraOS host changes go in the `ExpansionX/MentraOS` fork (one `wai/<slug>` branch per hook, tests included, PR to upstream `dev`), never in this repo. See `dev-docs/workstreams/glasses-platform/`.
 
 ## Workspaces
 
