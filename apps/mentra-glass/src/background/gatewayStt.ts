@@ -7,9 +7,9 @@
  *
  * The controller pushes every 16 kHz PCM16 mic chunk here while connected;
  * begin() opens a transcription session carrying the last PREROLL_MS of
- * audio, then live chunks append through one ordered drain: at most one
- * append in flight, at most MAX_APPEND_BYTES decoded bytes per frame. The
- * gateway returns the session id before its provider connects, so nothing
+ * audio, then live chunks append through one ordered drain per utterance:
+ * at most one append in flight, at most MAX_APPEND_BYTES decoded bytes per
+ * frame. The gateway returns the session id before its provider connects, so nothing
  * is appended until the matching `talk.event` `session.ready` arrives;
  * `finish()` called before then waits for ready inside the same
  * STT_RESULT_TIMEOUT_MS budget measured from the finish call. `finish()`
@@ -169,6 +169,10 @@ export class GatewaySttCapture {
     this.readyWaiter = null
     this.signalReady = null
     this.closedByServer = false
+    // The chain is scoped to the utterance: a retired utterance's queued
+    // drains discard themselves via their bound identity, and their queue
+    // positions must not delay this one's first flush.
+    this.appendChain = Promise.resolve()
     this.stateValue = "opening"
     // The ring is only pruned on arrival; drop anything the gap since the last
     // chunk pushed past the pre-roll window before seeding this capture.
@@ -383,7 +387,12 @@ export class GatewaySttCapture {
   private startStreaming(utterance: number): void {
     if (this.stateValue !== "open" || this.flushTimer !== null || this.finishPromise !== null) return
     void this.flushOnce().then(() => {
-      if (utterance === this.utterance && this.stateValue === "open" && this.finishPromise === null) {
+      if (
+        utterance === this.utterance &&
+        this.stateValue === "open" &&
+        this.finishPromise === null &&
+        !this.terminalSeen
+      ) {
         this.scheduleFlush()
       }
     })
@@ -406,8 +415,12 @@ export class GatewaySttCapture {
    * after all queued audio was appended.
    */
   private flushOnce(): Promise<void> {
-    if (this.sessionId === null) return this.appendChain
-    const run = this.appendChain.then(() => this.drainPending())
+    // Bind the queued drain to the utterance and session it was queued for:
+    // a queue position can outlive both (terminal settlement, replacement).
+    const utterance = this.utterance
+    const sessionId = this.sessionId
+    if (sessionId === null) return this.appendChain
+    const run = this.appendChain.then(() => this.drainPending(utterance, sessionId))
     // drainPending handles its own failures; keep the shared chain alive.
     this.appendChain = run.then(
       () => undefined,
@@ -416,11 +429,13 @@ export class GatewaySttCapture {
     return run
   }
 
-  /** Send the buffered audio as ordered frames of at most MAX_APPEND_BYTES. */
-  private async drainPending(): Promise<void> {
-    const utterance = this.utterance
-    const sessionId = this.sessionId
-    if (sessionId === null || this.terminalSeen) return
+  /**
+   * Send the buffered audio as ordered frames of at most MAX_APPEND_BYTES.
+   * Bound to the utterance and session at queue time: a drain whose utterance
+   * was replaced (or whose session was settled/retired) discards itself.
+   */
+  private async drainPending(utterance: number, sessionId: string): Promise<void> {
+    if (utterance !== this.utterance || sessionId !== this.sessionId || this.terminalSeen) return
     while (this.pending.length > 0) {
       // A settle (abort/dispose) or a terminal event invalidates this drain;
       // never touch a replacement capture's buffer or a retired session.
@@ -461,12 +476,17 @@ export class GatewaySttCapture {
 
   private scheduleFlush(): void {
     this.flushTimer = setTimeout(() => {
-      // Finish owns appends once it starts; a timer armed before it must not
-      // flush (the final drain covers the buffer) nor re-arm afterwards.
-      if (this.finishPromise !== null) return
+      // Finish owns appends once it starts, and a session the server retired
+      // must not flush: a timer armed earlier does neither.
+      if (this.finishPromise !== null || this.terminalSeen) return
       const utterance = this.utterance
       void this.flushOnce().then(() => {
-        if (utterance === this.utterance && this.stateValue === "open" && this.finishPromise === null) {
+        if (
+          utterance === this.utterance &&
+          this.stateValue === "open" &&
+          this.finishPromise === null &&
+          !this.terminalSeen
+        ) {
           this.scheduleFlush()
         }
       })

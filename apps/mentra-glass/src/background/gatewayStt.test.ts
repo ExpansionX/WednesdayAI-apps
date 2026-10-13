@@ -973,4 +973,124 @@ describe("GatewaySttCapture", () => {
     await vi.advanceTimersByTimeAsync(AUDIO_FLUSH_MS)
     expect(requester.appends()).toHaveLength(0)
   })
+
+  // ── A-02 residual: no timer re-arm after a terminal event ────────────────
+
+  it("does not re-arm the periodic timer after a terminal event", async () => {
+    const {requester, capture, errors, setNow, open} = harness()
+    const ack = deferred<unknown>()
+    requester.respond("talk.session.appendAudio", () => ack.promise)
+    await open()
+    setNow(100)
+    capture.pushChunk(chunkAt(1))
+    await vi.advanceTimersByTimeAsync(250)
+    expect(requester.appends()).toHaveLength(1)
+    // The server retires the session while the append is in flight.
+    capture.onTalkEvent({type: "session.error", sessionId: "s1", payload: {}})
+    capture.onTalkEvent({type: "session.closed", sessionId: "s1"})
+    ack.resolve({})
+    await vi.advanceTimersByTimeAsync(0)
+    // Only the 20 s capture cap may remain: the drain's completion must not
+    // re-arm the periodic cadence of a retired session.
+    expect(vi.getTimerCount()).toBe(1)
+    await vi.advanceTimersByTimeAsync(AUDIO_FLUSH_MS * 4)
+    expect(requester.appends()).toHaveLength(1)
+    expect(errors).toEqual([])
+    // A later finish still settles from the cached terminal.
+    expect(await capture.finish()).toBeNull()
+    expect(requester.callsOf("talk.session.close")).toHaveLength(0)
+  })
+
+  // ── P1: queued drains are bound to their utterance ───────────────────────
+
+  it("a drain queued by finish never runs against a replacement utterance", async () => {
+    const {requester, capture, errors, setNow, open} = harness()
+    const ack = deferred<unknown>()
+    requester.respond("talk.session.appendAudio", () => ack.promise)
+    await open()
+    setNow(100)
+    capture.pushChunk(chunkAt(1))
+    await vi.advanceTimersByTimeAsync(250)
+    setNow(300)
+    capture.pushChunk(chunkAt(2))
+    // finish queues its final drain behind the in-flight append...
+    const done = capture.finish()
+    // ...but the server retires the session first and finish settles null.
+    capture.onTalkEvent({type: "session.error", sessionId: "s1", payload: {}})
+    capture.onTalkEvent({type: "session.closed", sessionId: "s1"})
+    expect(await done).toBeNull()
+    // finish pending + session.error settles at once; settle() closes unless
+    // the server already did (session.closed lands a moment later).
+    expect(requester.callsOf("talk.session.close")).toEqual([
+      {method: "talk.session.close", params: {sessionId: "s1"}},
+    ])
+    // A replacement utterance opens s2 and buffers a chunk pre-ready.
+    setNow(2000)
+    requester.respond("talk.session.create", () => ({sessionId: "s2", audio: CREATE_RESULT.audio}))
+    capture.begin("sk-2")
+    await vi.advanceTimersByTimeAsync(0)
+    expect(capture.state).toBe("open")
+    setNow(2100)
+    capture.pushChunk(chunkAt(3))
+    // The old append resolves; the queued drain must discard itself.
+    ack.resolve({})
+    await vi.advanceTimersByTimeAsync(0)
+    expect(requester.appends()).toHaveLength(1)
+    expect(errors).toEqual([])
+    // s2 streams normally once its provider is ready.
+    capture.onTalkEvent({type: "session.ready", sessionId: "s2"})
+    await vi.advanceTimersByTimeAsync(0)
+    const appends = requester.appends()
+    expect(appends).toHaveLength(2)
+    expect(appends[1]!.params.sessionId).toBe("s2")
+    expect(decoded(appends[1]!.params.audioBase64)).toEqual(preRollBytes(3, 3))
+    capture.dispose()
+  })
+
+  // ── P2: the append chain does not outlive its utterance ──────────────────
+
+  it("a new utterance does not wait behind a stuck append of a retired session", async () => {
+    const {requester, capture, errors, setNow, open} = harness()
+    const stuck = deferred<unknown>()
+    let appendIndex = 0
+    requester.respond("talk.session.appendAudio", () => {
+      appendIndex += 1
+      return appendIndex === 1 ? stuck.promise : Promise.resolve({})
+    })
+    await open()
+    setNow(100)
+    capture.pushChunk(chunkAt(1))
+    await vi.advanceTimersByTimeAsync(250)
+    // The first append never resolves (requester timeout); the server then
+    // retires the session and the capture aborts.
+    capture.onTalkEvent({type: "session.error", sessionId: "s1", payload: {}})
+    capture.onTalkEvent({type: "session.closed", sessionId: "s1"})
+    capture.abort()
+    expect(capture.state).toBe("idle")
+    // A replacement utterance opens s2 and must stream without waiting.
+    // (Clock past the pre-roll window: the retired utterance's chunk is
+    // pruned from the ring and must not re-seed the replacement.)
+    setNow(3000)
+    requester.respond("talk.session.create", () => ({sessionId: "s2", audio: CREATE_RESULT.audio}))
+    capture.begin("sk-2")
+    await vi.advanceTimersByTimeAsync(0)
+    capture.onTalkEvent({type: "session.ready", sessionId: "s2"})
+    await vi.advanceTimersByTimeAsync(0)
+    setNow(3100)
+    capture.pushChunk(chunkAt(2))
+    await vi.advanceTimersByTimeAsync(AUDIO_FLUSH_MS)
+    const appends = requester.appends()
+    expect(appends).toHaveLength(2)
+    expect(appends[1]!.params.sessionId).toBe("s2")
+    expect(decoded(appends[1]!.params.audioBase64)).toEqual(preRollBytes(2, 2))
+    expect(errors).toEqual([])
+    // finish is not starved by the stuck append: it resolves with the transcript.
+    const done = capture.finish()
+    await vi.advanceTimersByTimeAsync(0)
+    capture.onTalkEvent({type: "transcript.done", sessionId: "s2", payload: {text: "ok"}})
+    expect(await done).toBe("ok")
+    expect(requester.callsOf("talk.session.close")).toEqual([
+      {method: "talk.session.close", params: {sessionId: "s2"}},
+    ])
+  })
 })
