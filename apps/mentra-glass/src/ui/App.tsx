@@ -146,6 +146,55 @@ export function App() {
       </section>
 
       <section className="card">
+        <h2>Question transcription</h2>
+        <label className="row">
+          <input
+            type="radio"
+            name="query-stt-mode"
+            checked={snapshot.settings.querySttMode === "gateway"}
+            onChange={() => mentra.send("settings:set", {querySttMode: "gateway"})}
+          />
+          WednesdayAI gateway (more accurate; needs a transcription provider on the gateway)
+        </label>
+        <label className="row">
+          <input
+            type="radio"
+            name="query-stt-mode"
+            checked={snapshot.settings.querySttMode === "mentra"}
+            onChange={() => mentra.send("settings:set", {querySttMode: "mentra"})}
+          />
+          Mentra (same as wake listening)
+        </label>
+        <p className="hint">If the gateway cannot transcribe, Mentra&apos;s transcript is used.</p>
+      </section>
+
+      <section className="card">
+        <h2>Glasses notifications</h2>
+        <p className="hint">Android only. On iOS the glasses firmware shows notifications itself.</p>
+        {snapshot.seenNotificationApps.length === 0 ? (
+          <p className="hint">No notifications seen yet. Apps appear here after your phone shows one.</p>
+        ) : (
+          snapshot.seenNotificationApps.map((app) => (
+            <label key={app.packageName} className="row">
+              <input
+                type="checkbox"
+                checked={snapshot.settings.notificationApps.includes(app.packageName)}
+                onChange={(event) => {
+                  const next = event.target.checked
+                    ? [...snapshot.settings.notificationApps, app.packageName]
+                    : snapshot.settings.notificationApps.filter((name) => name !== app.packageName)
+                  mentra.send("settings:set", {notificationApps: next})
+                }}
+              />
+              {app.app} <span className="hint">{app.packageName}</span>
+            </label>
+          ))
+        )}
+        {snapshot.queuedNotifications > 0 && <p className="hint">Queued: {snapshot.queuedNotifications}</p>}
+        <p className="hint">Stop Mentra Notify in the Mentra App so messages are not shown twice.</p>
+      </section>
+
+      <section className="card">
         <h2>Mic test</h2>
         <label className="row">
           <input
