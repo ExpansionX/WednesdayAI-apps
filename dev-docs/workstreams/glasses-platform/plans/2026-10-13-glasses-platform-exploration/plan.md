@@ -17,9 +17,10 @@ The target is an "owned Even Hub" on Even G2: our AI, transcription, memory, hom
 
 ## Decision
 
-- **Own now, as a miniapp (`apps/mentra-glass`):** AI, memory, wake via STT, own STT, our glance frame, an Android notification renderer, firmware notification tuning (history-only).
+- **Own now, as a miniapp (`apps/mentra-glass`):** AI, memory, wake via STT, own STT, our glance frame, an Android notification renderer, firmware notification tuning (global settings only).
 - **Needs upstream MentraOS PRs:** G2 head-up event, "Hey Even" forwarding, dashboard widget content API, menu-selected event, assistant role (#3).
-- **Not reachable on stock iOS + G2:** phone-side notification text from other apps, cross-app widget sharing, deep sleep while connected.
+- **Not reachable on stock iOS + G2:** phone-side notification text from other apps, cross-app widget sharing.
+- **Unmeasured:** whether the glasses reach native low-power idle while MentraOS keeps the EvenHub page (#14).
 
 ## Roadmap
 
@@ -27,8 +28,8 @@ The target is an "owned Even Hub" on Even G2: our AI, transcription, memory, hom
 
 |Id|Item|Issue|Acceptance (observable on device)|
 |---|---|---|---|
-|A1|Glance frame on tilt: time + agent status + queued notification count|#12|Tilting the head up past the threshold shows the frame within one display tick; it clears after `durationMs`.|
-|A2|Notification queue renderer. Android first. iOS: document the operator setting "native notifications → popups off (history only)" for messaging apps once the gateway mirror delivers them; until #8 lands, iOS keeps firmware popups.|#13|On Android with Notify stopped, three notifications arriving together show one at a time, each scrolled in full, then the next.|
+|A1|Glance frame on tilt: time + agent status + queued notification count. Ships only if V2 shows it coexists with the firmware tilt dashboard (MentraOS cannot turn firmware tilt off). If not, add a head-up switch setting to B1.|#12|Tilting the head up past the threshold shows the frame within one display tick; it clears after `durationMs`.|
+|A2|Notification queue renderer. Android first. iOS: firmware history-only mode is global, so it also stops popups from every non-mirrored app in the firmware whitelist. Document it as an explicit operator trade-off, to enable only once the gateway mirror works; until #8 lands, iOS keeps firmware popups.|#13|On Android with Notify stopped, three notifications arriving together show one at a time, each scrolled in full, then the next.|
 |A3|Own STT after wake|#15|After wake, the utterance is transcribed by the gateway; Mentra STT is used only when the gateway is unreachable.|
 |A4|Idle-power measurement|#14|Battery drain per hour recorded for MentraOS connected + blank vs Even app idle.|
 |A5|Device spike of the hidden dashboard path|#11|With `use_native_dashboard` off, a temple double-tap shows our `view:"dashboard"` frame (V1).|
@@ -38,7 +39,7 @@ The target is an "owned Even Hub" on Even G2: our AI, transcription, memory, hom
 
 |Id|Item|Branch|Issue|Acceptance (observable on device)|
 |---|---|---|---|---|
-|B1|G2 head-up from IMU pitch|`wai/g2-head-up-pitch`|#12|`session.imu.onHeadPosition` fires "up"/"down" on G2 when the head tilts.|
+|B1|G2 head-up from IMU pitch (plus a head-up switch setting if V2 shows a conflict with the firmware tilt dashboard)|`wai/g2-head-up-pitch`|#12|`session.imu.onHeadPosition` fires "up"/"down" on G2 when the head tilts.|
 |B2|"Hey Even" wake forwarding as a `wakeword` stream|`wai/g2-hey-even-wakeword`|#3, #4|Saying "Hey Even" delivers a `wakeword` event to a subscribed miniapp and the EvenHub page stays visible (V4).|
 |B3|Menu-selected event to running apps|`wai/menu-selected-event`|#16|Selecting a running background app in the glasses menu delivers an event and the app keeps running.|
 |B4|Dashboard widget content API|`wai/dashboard-widget-content`|#11|`dashboard.setContent()` text appears in a firmware dashboard widget slot.|

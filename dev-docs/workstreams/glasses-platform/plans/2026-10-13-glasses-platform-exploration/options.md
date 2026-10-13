@@ -39,7 +39,7 @@ Path key. Anchors below use the short names; all are MentraOS-repo-relative unle
 |`G2.swift`|`mobile/modules/bluetooth-sdk/ios/Source/sgcs/G2.swift`|
 |`G2.kt`|`mobile/modules/bluetooth-sdk/android/src/main/java/com/mentra/bluetoothsdk/sgcs/G2.kt`|
 |`G1.swift`|`mobile/modules/bluetooth-sdk/ios/Source/sgcs/G1.swift`|
-|`DeviceManager.swift`|`mobile/modules/bluetooth-sdk/ios/Source/DeviceManager.swift`|
+|`DeviceManager.swift`, `DeviceStore.swift`, `Bridge.swift`|`mobile/modules/bluetooth-sdk/ios/Source/`|
 |`NativeNotifications.swift`|`mobile/modules/bluetooth-sdk/ios/Source/NativeNotifications.swift`|
 |`SherpaOnnx.swift`|`mobile/modules/bluetooth-sdk/ios/Packages/SherpaOnnx/SherpaOnnx.swift`|
 |`LocalMiniappRuntime.ts`, `LocalDisplayManager.ts`, `SceneRenderer.ts`, `DeviceEventRouter.ts`, `MicStateCoordinator.ts`, `PhoneNotificationsSync.ts`|`mobile/modules/engine/src/services/`|
@@ -62,21 +62,21 @@ The stock firmware owns the dashboard (time, widgets, tilt-to-dashboard, menu), 
 |---|---|---|
 |Dashboard widgets|Widget order + Schedule content today (`G2.swift:3321-3345,1042-1160`). News/Quicklist content needs protocol reverse-engineering.|Fully custom board (faceclaw Glanceboard, `faceclaw/app/apps/glanceboard/board.ts`).|
 |Dashboard menu|Miniapp list + launch (`G2.swift:4148-4160,4581-4605`).|—|
-|Tilt-to-dashboard|Switch + angle (`G2.swift:718-745,4093-4110`).|Head-up event to the phone (`faceclaw/app/g2/events.ts:74-79`).|
+|Tilt-to-dashboard|Angle today; the MentraOS angle control always sends switch = on (`G2.swift:4093-4110`). A switch-off builder exists but is unused (`G2.swift:718-745`).|Head-up event to the phone (`faceclaw/app/g2/events.ts:74-79`).|
 |Notifications|On/off, popups vs history, 1-30 s duration, DND (`G2.swift:3942-3977`, `NativeNotifications.swift:4-26`).|Text relay to phone (`faceclaw/app/g2/ancs-client.ts:3-7`), scroll/queue renderer, whitelist editing from MentraOS (unsupported, `engine/README.md:195`).|
 |"Hey Even"|On/off (`G2.swift:819-833`; disabled on connect at `:1983-1989`), built-in skills (`G2.swift:866-889`).|Suppressing the stock Even AI UI (faceclaw lease, `faceclaw/app/g2/dashboard-controller.ts:854-858`).|
-|Sleep|None: the EvenHub page + heartbeat keep it awake (`G2.swift:2088`).|Suspend on screen off (faceclaw, `faceclaw/app/ui/dashboard-settings.ts:679-685`).|
+|Sleep|None. [INFERENCE] The retained EvenHub page, heartbeat and IMU keepalive may prevent native low-power idle (`G2.swift:2088,14-19`); unmeasured.|Suspend on screen off (faceclaw, `faceclaw/app/ui/dashboard-settings.ts:679-685`).|
 
 ## Verdicts
 
 |Q|Capability|Miniapp today|Confidence|Key evidence|Host change if wanted|Size|Upstream fit|
 |---|---|---|---|---|---|---|---|
 |Q1|Dashboard / home|**Partial.** The firmware dashboard stays. We can be a menu entry, but selecting it stops a running background app (#16). The hidden `view:"dashboard"` path is unverified on device.|med|#11, #16; [Q1 evidence](#q1-dashboard--home)|(i) widget content API writing a firmware slot (News/Quicklist RE + `dashboard.setContent` implementation); (ii) menu-selected event (#16); (iii) dashboard-owner setting for the view path|(i) ~150-250 LOC + RE, unverified; (ii) ~30-50 LOC; (iii) ~120-160 LOC|medium-high (fills a stubbed SDK API)|
-|Q2|Tilt-to-wake|**Partial.** Tilt-to-dashboard is firmware-native and user-settable. Our own glance needs miniapp pitch detection from `onAccel`, because the firmware emits no event.|high on "no event"; med on latency and overlap with the firmware dashboard|#12; [Q2 evidence](#q2-tilt-to-wake)|G2 driver pitch estimator setting `headUp`|~35 LOC per platform|high (G1/Nimo parity)|
-|Q3|Wake word|**Yes via STT regex (shipped). No for acoustic KWS in a miniapp**: the background runtime is JavaScriptCore/QuickJS with no WebAssembly.|high|#3, #4; [Q3 evidence](#q3-wake-word)|(i) forward G2 firmware "Hey Even" `EVEN_AI_WAKE_UP` as a miniapp `wakeword` stream: re-enable it instead of disabling at `G2.swift:1983-1989`, and suppress the stock Even AI UI via CTRL (unverified on stock firmware); (ii) native sherpa-onnx KWS `session.wake` with custom keywords|(i) ~70-100 LOC per platform; (ii) ~150-250 LOC per platform|high (#4 proposal)|
-|Q4|Idle blanking|**Partial.** The miniapp blanks via `durationMs`/`render([])`. There is no brightness or auto-off API, and the glasses never reach native sleep.|med|#14; [Q4 evidence](#q4-idle-blanking)|Page suspend-on-blank conflicts with the iOS IMU keepalive. Measure first; no patch proposed.|—|research|
+|Q2|Tilt-to-wake|**Partial.** Tilt-to-dashboard is firmware-native and user-settable. Our own glance needs miniapp pitch detection from `onAccel`, because the firmware emits no tilt event. MentraOS cannot turn firmware tilt off, so coexistence with the firmware dashboard needs device testing (V2).|high on "no event"; med on latency and overlap with the firmware dashboard|#12; [Q2 evidence](#q2-tilt-to-wake)|G2 driver pitch estimator setting `headUp`; if V2 shows a conflict, a head-up switch setting|~35 LOC per platform; switch ~20 LOC per platform|high (G1/Nimo parity)|
+|Q3|Wake word|**Yes via STT regex (shipped).** No acoustic KWS API is exposed to miniapps. [INFERENCE] A WebAssembly detector is not viable in the current background runtime (JavaScriptCore/QuickJS, no WebAssembly integration).|high on shipped and "not exposed"; med on WASM infeasibility|#3, #4; [Q3 evidence](#q3-wake-word)|(i) forward G2 firmware "Hey Even" `EVEN_AI_WAKE_UP` as a miniapp `wakeword` stream: re-enable it instead of disabling at `G2.swift:1983-1989`, and suppress the stock Even AI UI via CTRL (unverified on stock firmware); (ii) native sherpa-onnx KWS `session.wake` with custom keywords|(i) ~70-100 LOC per platform; (ii) ~150-250 LOC per platform|high (#4 proposal)|
+|Q4|Idle blanking|**Partial.** The miniapp blanks via `durationMs`/`render([])`. There is no brightness or auto-off API. Blanking keeps the EvenHub page. [INFERENCE] The retained page and IMU keepalive may prevent native low-power idle; sleep state and battery cost need device measurement.|med|#14; [Q4 evidence](#q4-idle-blanking)|Page suspend-on-blank conflicts with the iOS IMU keepalive. Measure first; no patch proposed.|—|research|
 |Q5|Widgets / multi-app|**No** for sharing between apps (one 10 s background lock, full-scene frames). **Yes** inside our own miniapp (compose our widgets in one frame).|high|#5; [Q5 evidence](#q5-widgets--multi-app)|Region compositor in `LocalDisplayManager`/`SceneRenderer` + manifest regions|~400-600 LOC|low-medium; **not pursued**|
-|Q6|Messaging notifications|**Android yes** (stop Notify, own renderer). **iOS: no text reaches the phone**, because iOS sends notifications to the glasses over ANCS and the firmware renders them. The host can only tune the firmware renderer (popups vs history-only, 1-30 s, DND). Truncation and no-scroll are firmware behaviour. Target iOS UX: gateway mirror (WhatsApp/Telegram) + our queue renderer, with firmware popups set to history-only.|high|#13; [Q6 evidence](#q6-messaging-notifications)|None possible in host. Text relay needs custom firmware (rejected).|Core work (#8 + mirror)|n/a|
+|Q6|Messaging notifications|**Android yes** (stop Notify, own renderer). **iOS: no text reaches the phone**, because iOS sends notifications to the glasses over ANCS and the firmware renders them. The host can only tune the firmware renderer (popups vs history-only, 1-30 s, DND), and only globally: history-only applies to every app in the firmware whitelist. Truncation and no-scroll are firmware behaviour. Target iOS UX: gateway mirror (WhatsApp/Telegram) + our queue renderer. Turning firmware popups to history-only is an explicit trade-off: popups from non-mirrored apps stop too.|high|#13; [Q6 evidence](#q6-messaging-notifications)|None possible in host. Text relay needs custom firmware (rejected).|Core work (#8 + mirror)|n/a|
 
 LOC sizes are estimates from reading the code, not prototypes.
 
@@ -95,10 +95,10 @@ LOC sizes are estimates from reading the code, not prototypes.
 
 ### Q2 Tilt-to-wake
 
-- Tilt-to-dashboard is a firmware feature (operator observation, 2026-10-13). The host only writes `setHeadUpSwitch`/`setHeadUpAngle` (`G2.swift:718-745,4093-4110`). User setting `head_up_angle`, default 45 (`settings.ts:612`; UI `dashboard.tsx:17`).
+- Tilt-to-dashboard is a firmware feature (operator observation, 2026-10-13). The host only writes `setHeadUpSwitch`/`setHeadUpAngle` (`G2.swift:718-745,4093-4110`). User setting `head_up_angle`, default 45 (`settings.ts:612`; UI `dashboard.tsx:17`). The MentraOS angle control clamps to 0-60 and always sends switch = on (`G2.swift:4093-4110`), so it cannot turn firmware tilt off.
 - G2 stock firmware sends no head-up event: none is parsed in `G2.swift`/`G2.kt`. G1 does send one (`G1.swift:1303-1313`).
 - faceclaw's `HEAD_UP_EVENT: 12` is a custom-firmware extension (`faceclaw/app/g2/events.ts:74-79`). Stock events include `FOREGROUND_ENTER_EVENT: 4` and `FOREGROUND_EXIT_EVENT: 5` (`faceclaw/app/g2/events.ts:60-68`).
-- `session.imu.onHeadPosition` never fires on G2 (`LocalMiniappRuntime.ts:2156-2168`).
+- G2 emits no head-position change from tilt. `headUp` changes only from temple double-tap when `use_native_dashboard` is off (`G2.swift:4804-4815`). That change does reach miniapps: `DeviceStore.swift:187-190` → `Bridge.sendHeadUp` (`Bridge.swift:83-85`) → `DeviceEventRouter.ts:203-208` → `head_position` stream (`LocalMiniappRuntime.ts:6333-6334`).
 - `session.imu.onAccel` streams raw `{x,y,z}` in g (`imu.ts:21-28`). Subscribing auto-enables the IMU (`LocalMiniappRuntime.ts:3045-3051`). The IMU needs an active EvenHub page; pace codes 100-1000 (`G2.swift:4070-4090`).
 - The host already runs an IMU keepalive at pace 1000 for iOS background BLE (`G2.swift:14-19`).
 - [INFERENCE] Miniapp-side pitch detection is feasible without a host change. Sample rate per pace code and end-to-end latency are unmeasured (V2 in plan.md).
@@ -114,11 +114,11 @@ LOC sizes are estimates from reading the code, not prototypes.
 ### Q4 Idle blanking
 
 - The host clears only on `durationMs` expiry or `render([])` (`LocalDisplayManager.ts:577-584`).
-- `clearDisplay()` blanks in place without ending the EvenHub page (`G2.swift:2630-2655`). A heartbeat every 10 s keeps the page alive (`G2.swift:2088`).
+- `clearDisplay()` blanks in place without ending the EvenHub page (`G2.swift:2630-2655`). A heartbeat every 10 s keeps the page alive (`G2.swift:2088`). `showDashboard()` does end the page while BLE stays connected (`G2.swift:3289-3306`).
 - IMU keepalive at pace 1000 keeps iOS background BLE alive (`G2.swift:14-19`).
 - No miniapp brightness or auto-off API.
 - faceclaw: "Suspend EvenHub when screen off … significantly improves battery life" (`faceclaw/app/ui/dashboard-settings.ts:679-685`). On faceclaw this depends on its custom-firmware lease.
-- Battery cost is unmeasured (V5, #14).
+- [INFERENCE] The retained page and IMU keepalive may prevent native low-power idle. The firmware's sleep state and the battery cost are unmeasured (V5, #14).
 
 ### Q5 Widgets / multi-app
 
@@ -131,9 +131,9 @@ LOC sizes are estimates from reading the code, not prototypes.
 - Android: full title and body from `NotificationListener.kt:307-400` → `phone_notification` → default renderer `com.mentra.notify` (`MantleManager.ts:20,1229`).
 - Miniapps receive the event before the Notify guard (`MantleManager.ts:1182` vs `:1195`) via `session.phone.notifications.on` (`phone.ts:51-53`), permission `READ_NOTIFICATIONS` (`LocalMiniappRuntime.ts:1980`). `onDismissed` is Android-only (`phone.ts:56-68`). So on Android a user can stop Notify and our miniapp still receives every notification.
 - iOS + G2: the app connects with `CBConnectPeripheralOptionRequiresANCS` (`G2.swift:3987`). The glasses read ANCS themselves and render natively (operator observation, 2026-10-13). The host gets app identity only, with empty `title`/`content` (`G2.swift:4467-4494`). `engine/README.md:195`: full title/body, firmware app-filter editing and dismissal sync are unsupported on iOS. `PhoneNotificationsSync.ts:74` skips iOS.
-- Firmware renderer controls: `notificationCtrl {notifEnable, autoDispEnable, dispTime, avoidDisturbEnable}` (`G2.swift:912-935`), applied at `G2.swift:3942-3977`. Duration 1-30 s; `blockedApps` must be empty for ANCS (`NativeNotifications.swift:4-26`). UI in `NativeNotificationSettings.tsx:22-25,77-99`. The Even app's whitelist is preserved, not editable (`G2.swift:3976-3977`).
+- Firmware renderer controls: `notificationCtrl {notifEnable, autoDispEnable, dispTime, avoidDisturbEnable}` (`G2.swift:912-935`), applied at `G2.swift:3942-3977`. Settings are global (`PhoneNotificationsSync.ts:31-43`). Duration 1-30 s; `blockedApps` must be empty for ANCS (`NativeNotifications.swift:4-26`). UI in `NativeNotificationSettings.tsx:22-25,77-99`. The Even app's whitelist is preserved, not editable (`G2.swift:3976-3977`).
 - The host can open the firmware notification panel (`showNotificationsPanel`, `G2.swift:3993-4020`) but cannot inject notifications: outbound `NOTIFICATION_IOS` returns errorCode 8 NOT_SUPPORT (`G2.swift:894-900`).
-- No SDK scroll or paging API (`display.ts`). Scroll = timed re-renders; the driver coalesces on a 100 ms tick (`G2.swift:2110-2135`). Text containers are forced to `isEventCapture: false` (`G2.swift:3469-3484`), so no firmware scroll.
+- No SDK scroll or paging API (`display.ts`). Scroll = timed re-renders at a cadence the miniapp chooses. The native reconcile loop is event-driven: each mutation wakes it immediately and bursts coalesce (`G2.swift:2096-2100,2139-2142`); a 100 ms idle tick handles periodic resends and retries (`G2.swift:2110-2135`). Text containers are forced to `isEventCapture: false` (`G2.swift:3469-3484`), so no firmware scroll.
 - Truncation: the ANCS client (the glasses firmware) chooses the max attribute length (Apple ANCS spec). faceclaw's custom firmware requests title 128 B and message 512 B (`faceclaw/app/g2/ancs-client.ts:196-201`). The stock limit is unknown (V7).
 - iOS full text without firmware changes must come from the gateway. WhatsApp supports personal linked-device mode (`WednesdayAI-core/docs/channels/whatsapp.md:97,125-134`). [INFERENCE] Inbound from senders outside `allowFrom` is dropped before the agent, so a mirror hook is new core work. Telegram is bot-only (`WednesdayAI-core/docs/channels/telegram.md:27-41`); personal chats need an MTProto user session (new). Delivery to the glasses needs #8.
 

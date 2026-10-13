@@ -28,7 +28,7 @@ Findings (`ExpansionX/WednesdayAI-apps`):
 - #11 Own the G2 home: firmware dashboard overlays and the "dashboard" view
 - #12 Tilt-to-glance on G2: firmware tilt is internal, raw accelerometer is exposed
 - #13 Messaging notification queue: show, scroll, hide, next
-- #14 G2 never reaches native sleep while MentraOS is connected
+- #14 Measure G2 idle power while MentraOS keeps the EvenHub page
 - #15 Own STT: stream glasses audio to WednesdayAI instead of Mentra transcription
 - #16 Firmware dashboard menu toggles our background miniapp off
 
