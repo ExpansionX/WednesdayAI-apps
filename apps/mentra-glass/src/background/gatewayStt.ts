@@ -13,10 +13,13 @@
  *
  * Leak safety: every successful create ends in exactly one close — via
  * finish, abort (including the auto-abort at MAX_CAPTURE_MS), dispose, or a
- * create that lands after an abort/dispose. LC3 or non-16 kHz chunks never
- * reach appendAudio. `talk.event` payloads are parsed defensively: anything
- * without a string `type` and `sessionId`, or naming another session, is
- * ignored.
+ * create or append that lands after an abort/dispose. A failed append closes
+ * the session, reports once, and makes that utterance's finish resolve null.
+ * Continuations resumed after an await re-check the utterance identity, so a
+ * stale capture can never touch the fields or timers of its replacement. LC3
+ * or non-16 kHz chunks never reach appendAudio. `talk.event` payloads are
+ * parsed defensively: anything without a string `type` and `sessionId`, or
+ * naming another session, is ignored.
  */
 
 import type {AudioChunkData} from "@mentra/miniapp/background"
@@ -68,7 +71,6 @@ export class GatewaySttCapture {
   private closeRequested = false
   private abortRequested = false
   private disposed = false
-  private utteranceFailed = false
   private createPromise: Promise<CreateOutcome> | null = null
   private finishPromise: Promise<string | null> | null = null
   private resolveFinish: ((value: string | null) => void) | null = null
@@ -116,6 +118,10 @@ export class GatewaySttCapture {
     const utterance = this.utterance
     this.abortRequested = false
     this.stateValue = "opening"
+    // The ring is only pruned on arrival; drop anything the gap since the last
+    // chunk pushed past the pre-roll window before seeding this capture.
+    const cutoff = this.now() - PREROLL_MS
+    while (this.ring.length > 0 && this.ring[0].at < cutoff) this.ring.shift()
     this.pending = this.ring.map((entry) => entry.data)
     this.maxTimer = setTimeout(() => this.abort(), MAX_CAPTURE_MS)
     const createPromise = this.requestCreate(sessionKey)
@@ -130,7 +136,7 @@ export class GatewaySttCapture {
     this.finishPromise = new Promise<string | null>((resolve) => {
       this.resolveFinish = resolve
     })
-    void this.runFinish()
+    void this.runFinish(this.utterance)
     return this.finishPromise
   }
 
@@ -145,6 +151,12 @@ export class GatewaySttCapture {
     }
     if (this.stateValue === "open") {
       this.requestClose(this.sessionId)
+      this.settle(null)
+      return
+    }
+    if (this.stateValue === "closing") {
+      // The close request is already out; cancel the wait without a second
+      // close and make later events for the session irrelevant.
       this.settle(null)
     }
   }
@@ -225,25 +237,21 @@ export class GatewaySttCapture {
     this.sessionId = outcome.sessionId
     this.stateValue = "open"
     void this.flushOnce().then(() => {
-      if (this.stateValue === "open") this.scheduleFlush()
+      if (utterance === this.utterance && this.stateValue === "open") this.scheduleFlush()
     })
   }
 
-  private async runFinish(): Promise<void> {
+  private async runFinish(utterance: number): Promise<void> {
     const createPromise = this.createPromise
     if (createPromise) {
       await createPromise
-      if (!this.finishPromise) return
+      // A settle (abort/dispose) or a newer begin invalidates this continuation.
+      if (utterance !== this.utterance || this.finishPromise === null) return
     }
     // Stop periodic flushes and push whatever is still buffered before closing.
     this.clearTimer("flushTimer")
     await this.flushOnce()
-    if (!this.finishPromise) return
-    if (this.utteranceFailed) {
-      this.requestClose(this.sessionId)
-      this.settle(null)
-      return
-    }
+    if (utterance !== this.utterance || this.finishPromise === null) return
     this.stateValue = "closing"
     this.requestClose(this.sessionId)
     this.terminalTimer = setTimeout(() => this.settle(null), STT_RESULT_TIMEOUT_MS)
@@ -262,22 +270,30 @@ export class GatewaySttCapture {
 
   /** Send the buffered audio as one append; clears the buffer up front. */
   private async flushOnce(): Promise<void> {
-    if (this.sessionId === null || this.pending.length === 0) return
+    const utterance = this.utterance
+    const sessionId = this.sessionId
+    if (sessionId === null || this.pending.length === 0) return
     const audioBase64 = concatBase64(this.pending)
     this.pending = []
     try {
-      await this.requester.request("talk.session.appendAudio", {sessionId: this.sessionId, audioBase64})
+      await this.requester.request("talk.session.appendAudio", {sessionId, audioBase64})
     } catch (error) {
-      if (this.disposed || this.sessionId === null) return
-      this.utteranceFailed = true
+      // A rejection from an utterance that already ended (abort/dispose/re-begin)
+      // must not touch the capture that replaced it.
+      if (utterance !== this.utterance || sessionId !== this.sessionId) return
+      // This utterance is broken: report once, close the session exactly once,
+      // and resolve any pending finish with null instead of a transcript.
+      this.requestClose(sessionId)
       this.onError?.(error instanceof Error ? error.message : String(error))
+      this.settle(null)
     }
   }
 
   private scheduleFlush(): void {
     this.flushTimer = setTimeout(() => {
+      const utterance = this.utterance
       void this.flushOnce().then(() => {
-        if (this.stateValue === "open") this.scheduleFlush()
+        if (utterance === this.utterance && this.stateValue === "open") this.scheduleFlush()
       })
     }, AUDIO_FLUSH_MS)
   }
@@ -300,7 +316,6 @@ export class GatewaySttCapture {
     this.createPromise = null
     this.transcriptText = null
     this.terminalSeen = false
-    this.utteranceFailed = false
     this.finishPromise = null
     this.resolveFinish = null
     this.stateValue = "idle"
