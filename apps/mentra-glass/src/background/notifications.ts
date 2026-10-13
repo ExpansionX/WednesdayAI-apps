@@ -43,11 +43,24 @@ export function paginate(text: string, maxChars: number): string[] {
   const collapsed = text.replace(/\s+/g, " ").trim()
   if (!collapsed) return []
   // Hard-split any word longer than a page so every word fits on one line.
+  // Splits run on code points, so a surrogate pair never straddles pages;
+  // page length stays measured in UTF-16 units.
   const words: string[] = []
   for (const word of collapsed.split(" ")) {
-    for (let start = 0; start < word.length; start += maxChars) {
-      words.push(word.slice(start, start + maxChars))
+    if (word.length <= maxChars) {
+      words.push(word)
+      continue
     }
+    let chunk = ""
+    for (const symbol of Array.from(word)) {
+      if (chunk.length + symbol.length > maxChars) {
+        if (chunk) words.push(chunk)
+        chunk = symbol
+      } else {
+        chunk += symbol
+      }
+    }
+    if (chunk) words.push(chunk)
   }
   const pages: string[] = []
   let page = ""

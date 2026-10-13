@@ -79,6 +79,28 @@ describe("paginate", () => {
     const pages = paginate("x".repeat(400), 160)
     expect(pages.map((page) => page.length)).toEqual([160, 160, 80])
   })
+
+  it("keeps surrogate pairs whole when a long word straddles pages", () => {
+    const text = "a".repeat(159) + "😀b"
+    const pages = paginate(text, 160)
+    // The lone-surrogate shape neither page may contain.
+    const lone =
+      /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/
+    for (const page of pages) {
+      expect(page).not.toMatch(lone)
+      expect(page.length).toBeLessThanOrEqual(160)
+    }
+    expect(pages).toEqual(["a".repeat(159), "😀b"])
+    expect(pages.join("")).toBe(text)
+  })
+
+  it("hard-splits a long no-space CJK run into pages of at most maxChars", () => {
+    const text = "字".repeat(400)
+    const pages = paginate(text, 160)
+    for (const page of pages) expect(page.length).toBeLessThanOrEqual(160)
+    expect(pages.join("")).toBe(text)
+    expect(pages.map((page) => page.length)).toEqual([160, 160, 80])
+  })
 })
 
 describe("NotificationQueue", () => {
