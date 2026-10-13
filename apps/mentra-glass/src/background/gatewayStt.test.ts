@@ -5,6 +5,7 @@ import type {AudioChunkData} from "@mentra/miniapp/background"
 import {
   AUDIO_FLUSH_MS,
   GatewaySttCapture,
+  MAX_APPEND_BYTES,
   MAX_CAPTURE_MS,
   PREROLL_MS,
   STT_RESULT_TIMEOUT_MS,
@@ -274,7 +275,7 @@ describe("GatewaySttCapture", () => {
   })
 
   it("abort while opening closes the session once created", async () => {
-    const {requester, capture, open} = harness()
+    const {requester, capture} = harness()
     const create = deferred<unknown>()
     requester.respond("talk.session.create", () => create.promise)
     capture.begin("sk-1")
@@ -319,7 +320,7 @@ describe("GatewaySttCapture", () => {
   })
 
   it("dispose while opening closes the session once created", async () => {
-    const {requester, capture, open} = harness()
+    const {requester, capture} = harness()
     const create = deferred<unknown>()
     requester.respond("talk.session.create", () => create.promise)
     capture.begin("sk-1")
@@ -478,7 +479,7 @@ describe("GatewaySttCapture", () => {
     expect(await done).toBe("ok")
   })
 
-  it("an append failure that lands during closing resolves finish with null", async () => {
+  it("an append failure that lands while finish drains resolves finish with null", async () => {
     const {requester, capture, errors, open} = harness()
     const stuckAppend = deferred<unknown>()
     requester.respond("talk.session.appendAudio", () => stuckAppend.promise)
@@ -486,8 +487,10 @@ describe("GatewaySttCapture", () => {
     capture.pushChunk(chunkAt(1))
     await vi.advanceTimersByTimeAsync(250)
     const done = capture.finish()
+    expect(capture.active).toBe(false)
     await vi.advanceTimersByTimeAsync(0)
-    expect(capture.state).toBe("closing")
+    // finish waits for the in-flight append before it may close.
+    expect(capture.state).toBe("open")
     stuckAppend.reject(new Error("append rejected"))
     await vi.advanceTimersByTimeAsync(0)
     expect(capture.state).toBe("idle")
@@ -827,5 +830,147 @@ describe("GatewaySttCapture", () => {
     second.capture.onTalkEvent({type: "session.closed", sessionId: "s1"})
     second.capture.dispose()
     expect(second.requester.callsOf("talk.session.close")).toHaveLength(0)
+  })
+
+  // ── A-01: no periodic re-arm once finish starts ──────────────────────────
+
+  it("never appends after finish started, even with deferred acks and a late chunk", async () => {
+    const {requester, capture, errors, setNow, open} = harness()
+    const acks = [deferred<unknown>(), deferred<unknown>()]
+    let appendIndex = 0
+    requester.respond("talk.session.appendAudio", () => {
+      // The gateway rejects every append once close has been requested.
+      if (requester.callsOf("talk.session.close").length > 0) {
+        return Promise.reject(new Error("Unknown realtime relay session"))
+      }
+      const ack = acks[appendIndex]
+      appendIndex += 1
+      return ack ? ack.promise : Promise.resolve({})
+    })
+    await open()
+    setNow(100)
+    capture.pushChunk(chunkAt(1))
+    await vi.advanceTimersByTimeAsync(250)
+    // The periodic append is in flight when finish starts.
+    expect(requester.appends()).toHaveLength(1)
+    setNow(300)
+    capture.pushChunk(chunkAt(2))
+    const done = capture.finish()
+    await vi.advanceTimersByTimeAsync(0)
+    acks[0]!.resolve({})
+    await vi.advanceTimersByTimeAsync(0)
+    // The final drain waited for the periodic append and is now in flight.
+    expect(requester.appends()).toHaveLength(2)
+    expect(decoded(requester.appends()[1]!.params.audioBase64)).toEqual(preRollBytes(2, 2))
+    // A mic chunk arrives while the final append is still pending.
+    setNow(400)
+    capture.pushChunk(chunkAt(3))
+    acks[1]!.resolve({})
+    await vi.advanceTimersByTimeAsync(0)
+    // The final drain picked up the late chunk before closing.
+    expect(requester.appends()).toHaveLength(3)
+    expect(decoded(requester.appends()[2]!.params.audioBase64)).toEqual(preRollBytes(3, 3))
+    expect(requester.callsOf("talk.session.close")).toEqual([
+      {method: "talk.session.close", params: {sessionId: "s1"}},
+    ])
+    // The transcript lands long after any stray periodic timer would fire.
+    await vi.advanceTimersByTimeAsync(AUDIO_FLUSH_MS * 4)
+    capture.onTalkEvent({type: "transcript.done", sessionId: "s1", payload: {text: "answer"}})
+    expect(await done).toBe("answer")
+    expect(requester.appends()).toHaveLength(3)
+    expect(errors).toEqual([])
+    capture.dispose()
+  })
+
+  // ── A-02: stop appending once the server retires the session ─────────────
+
+  it("stops streaming when the server retires the session before finish", async () => {
+    const {requester, capture, errors, setNow, open} = harness()
+    const stuckAppend = deferred<unknown>()
+    requester.respond("talk.session.appendAudio", () => stuckAppend.promise)
+    await open()
+    setNow(100)
+    capture.pushChunk(chunkAt(1))
+    await vi.advanceTimersByTimeAsync(250)
+    expect(requester.appends()).toHaveLength(1)
+    // The provider fails and the server removes the session before finish.
+    capture.onTalkEvent({type: "session.error", sessionId: "s1", payload: {}})
+    capture.onTalkEvent({type: "session.closed", sessionId: "s1"})
+    // Mic chunks keep arriving for at least one flush interval.
+    setNow(400)
+    capture.pushChunk(chunkAt(4))
+    setNow(600)
+    capture.pushChunk(chunkAt(6))
+    await vi.advanceTimersByTimeAsync(AUDIO_FLUSH_MS * 3)
+    expect(requester.appends()).toHaveLength(1)
+    // The in-flight append then rejects (session removed server-side).
+    stuckAppend.reject(new Error("Unknown realtime relay session"))
+    await vi.advanceTimersByTimeAsync(0)
+    expect(errors).toEqual([])
+    expect(requester.callsOf("talk.session.close")).toHaveLength(0)
+    // finish() still resolves, from the cached terminal, without a close.
+    expect(await capture.finish()).toBeNull()
+    expect(requester.callsOf("talk.session.close")).toHaveLength(0)
+    // No needless fence: a new begin is not blocked by the retired session.
+    requester.respond("talk.session.create", () => ({sessionId: "s2", audio: CREATE_RESULT.audio}))
+    capture.begin("sk-2")
+    await vi.advanceTimersByTimeAsync(0)
+    expect(requester.callsOf("talk.session.create")).toHaveLength(2)
+    capture.dispose()
+  })
+
+  // ── A-03: bounded appends for the readiness backlog ──────────────────────
+
+  it("drains the readiness backlog in frames of at most MAX_APPEND_BYTES", async () => {
+    const {requester, capture, setNow} = harness()
+    requester.respond("talk.session.create", () => CREATE_RESULT)
+    capture.begin("sk-1")
+    await vi.advanceTimersByTimeAsync(0)
+    expect(capture.state).toBe("open")
+    expect(requester.appends()).toHaveLength(0)
+    // 130 chunks x 3200 bytes = 416000 decoded bytes (13 s at 16 kHz PCM16) —
+    // over the gateway's ~524288-character base64 frame limit in one frame.
+    const expected: number[] = []
+    for (let index = 0; index < 130; index += 1) {
+      const bytes = Array.from({length: 3200}, (_, offset) => (index + offset) % 256)
+      expected.push(...bytes)
+      setNow(index * 100)
+      capture.pushChunk({data: b64(bytes), format: "pcm_s16le", sampleRate: 16000})
+    }
+    expect(requester.appends()).toHaveLength(0)
+    capture.onTalkEvent({type: "session.ready", sessionId: "s1"})
+    await vi.advanceTimersByTimeAsync(0)
+    const appends = requester.appends()
+    expect(appends.length).toBeGreaterThan(1)
+    for (const append of appends) {
+      expect(decoded(append.params.audioBase64).length).toBeLessThanOrEqual(MAX_APPEND_BYTES)
+    }
+    expect(appends.flatMap((append) => decoded(append.params.audioBase64))).toEqual(expected)
+    capture.dispose()
+  })
+
+  // ── A-04: no create-failure report after finish settled ──────────────────
+
+  it("does not report a create error after finish already settled", async () => {
+    const {requester, capture, errors} = harness()
+    const create = deferred<unknown>()
+    requester.respond("talk.session.create", () => create.promise)
+    capture.begin("sk-1")
+    await vi.advanceTimersByTimeAsync(0)
+    const done = capture.finish()
+    await vi.advanceTimersByTimeAsync(STT_RESULT_TIMEOUT_MS)
+    expect(await done).toBeNull()
+    expect(capture.state).toBe("idle")
+    // The requester's own 30 s timeout lands after finish settled null.
+    create.reject(new Error("request timed out after 30000 ms"))
+    await vi.advanceTimersByTimeAsync(0)
+    expect(errors).toEqual([])
+    expect(capture.state).toBe("idle")
+    expect(capture.active).toBe(false)
+    expect(requester.callsOf("talk.session.close")).toHaveLength(0)
+    // The capture is not revived by the late rejection.
+    capture.pushChunk(chunkAt(1))
+    await vi.advanceTimersByTimeAsync(AUDIO_FLUSH_MS)
+    expect(requester.appends()).toHaveLength(0)
   })
 })

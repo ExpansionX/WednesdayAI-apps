@@ -6,35 +6,39 @@
  * allows exactly one transcription session per connection.
  *
  * The controller pushes every 16 kHz PCM16 mic chunk here while connected;
- * `begin()` opens a transcription session carrying the last PREROLL_MS of
- * audio, then live chunks flush every AUDIO_FLUSH_MS. The gateway returns
- * the session id before its provider connects, so nothing is appended until
- * the matching `talk.event` `session.ready` arrives; `finish()` called
- * before then waits for ready inside the same STT_RESULT_TIMEOUT_MS budget
- * measured from the finish call. `finish()` closes the session and awaits
- * the gateway transcript, resolving null on session.error, an empty
- * transcript, or that deadline.
+ * begin() opens a transcription session carrying the last PREROLL_MS of
+ * audio, then live chunks append through one ordered drain: at most one
+ * append in flight, at most MAX_APPEND_BYTES decoded bytes per frame. The
+ * gateway returns the session id before its provider connects, so nothing
+ * is appended until the matching `talk.event` `session.ready` arrives;
+ * `finish()` called before then waits for ready inside the same
+ * STT_RESULT_TIMEOUT_MS budget measured from the finish call. `finish()`
+ * closes the session and awaits the gateway transcript, resolving null on
+ * session.error, an empty transcript, or that deadline.
  *
  * Leak safety: every successful create ends in exactly one close — via
  * finish, abort (including the auto-abort at MAX_CAPTURE_MS), dispose, or a
  * create or append that lands after an abort/dispose; a capture that
  * reaches idle without having sent close sends it in settle(). A failed
  * append closes the session, reports once, and makes that utterance's
- * finish resolve null. After a close the capture is fenced until the
- * server's `session.closed` arrives (or the fence times out): begin is
- * ignored, because the gateway retires the drained session asynchronously
- * and a create in that window would fail with CONFLICT. The fence also
- * covers a create that was still in flight when the capture settled: it
- * holds until that create lands, its session (if any) is retired. A create
- * that lands after its utterance was cancelled or already finished is
- * stale: its session is closed exactly once and never opened. Once finish
- * starts the capture is no longer active, so a later question cannot
- * consume another utterance's transcript, and a terminal event that
- * arrived before finish settles it immediately from the cache. Continuations
- * resumed after an await re-check the utterance identity, so a stale
- * capture can never touch the fields or timers of its replacement. LC3 or
- * non-16 kHz chunks never reach appendAudio. `talk.event` payloads are
- * parsed defensively: anything without a string `type` and `sessionId`, or
+ * finish resolve null — unless the server already retired the session with
+ * session.error/session.closed, in which case streaming stops, no close is
+ * sent, and a later finish settles from the cached terminal. After a close
+ * the capture is fenced until the server's `session.closed` arrives (or
+ * the fence times out): begin is ignored, because the gateway retires the
+ * drained session asynchronously and a create in that window would fail
+ * with CONFLICT. The fence also covers a create that was still in flight
+ * when the capture settled: it holds until that create lands, its session
+ * (if any) is retired. A create that lands after its utterance was
+ * cancelled or already finished is stale: its session is closed exactly
+ * once and never opened. Once finish starts the capture is no longer
+ * active, so a later question cannot consume another utterance's
+ * transcript, and a terminal event that arrived before finish settles it
+ * immediately from the cache. Continuations resumed after an await
+ * re-check the utterance identity, so a stale capture can never touch the
+ * fields or timers of its replacement. LC3 or non-16 kHz chunks never
+ * reach appendAudio. `talk.event` payloads are parsed defensively:
+ * anything without a string `type` and `sessionId`, or
  * naming another session, is ignored.
  */
 
@@ -51,6 +55,9 @@ export const AUDIO_FLUSH_MS = 250
 export const STT_RESULT_TIMEOUT_MS = 6000
 /** Hard cap on one capture; exceeding it aborts the session. */
 export const MAX_CAPTURE_MS = 20000
+/** Max decoded PCM bytes per appendAudio frame: 3 s of PCM16@16 kHz, about a
+ * quarter of the gateway's 512 KiB base64 frame limit. */
+export const MAX_APPEND_BYTES = 96_000
 
 export interface SttRequester {
   request<T = unknown>(method: string, params?: unknown, timeoutMs?: number): Promise<T>
@@ -83,6 +90,8 @@ export class GatewaySttCapture {
   private utterance = 0
   private readonly ring: RingEntry[] = []
   private pending: string[] = []
+  /** Serializes appends: at most one in flight, drained in queue order. */
+  private appendChain: Promise<void> = Promise.resolve()
   private sessionId: string | null = null
   /** The session a close request was sent for; one close per session id. */
   private closedSessionId: string | null = null
@@ -138,7 +147,11 @@ export class GatewaySttCapture {
     this.ring.push({at, data: chunk.data})
     const cutoff = at - PREROLL_MS
     while (this.ring.length > 0 && this.ring[0].at < cutoff) this.ring.shift()
-    if (this.stateValue === "opening" || this.stateValue === "open") this.pending.push(chunk.data)
+    // A session the server retired (session.error/session.closed) collects
+    // no further audio; its cached terminal settles a later finish.
+    if ((this.stateValue === "opening" || this.stateValue === "open") && !this.terminalSeen) {
+      this.pending.push(chunk.data)
+    }
   }
 
   /** Open a transcription session seeded with the pre-roll. Ignored unless idle. */
@@ -255,6 +268,10 @@ export class GatewaySttCapture {
     } else if (type === "session.error" || type === "session.closed") {
       this.terminalSeen = true
       if (type === "session.closed") this.closedByServer = true
+      // The server removed the session: stop periodic streaming and drop
+      // buffered audio — appending again would only be rejected.
+      this.clearTimer("flushTimer")
+      this.pending = []
     } else {
       return
     }
@@ -281,6 +298,12 @@ export class GatewaySttCapture {
       )
   }
 
+  /** True while this utterance still owns the capture: not replaced,
+   * aborted, disposed, or already finished. */
+  private isCurrent(utterance: number): boolean {
+    return utterance === this.utterance && !this.abortRequested && !this.disposed && !this.finishSettled
+  }
+
   private onCreateOutcome(outcome: CreateOutcome, utterance: number): void {
     if (utterance !== this.utterance) {
       // Stale create (abort/dispose landed, or a newer begin won): still
@@ -294,11 +317,13 @@ export class GatewaySttCapture {
     // settled; a success fences its own session below, a failure has none.
     this.clearPendingFence()
     if (!outcome.ok) {
-      if (!this.abortRequested && !this.disposed) this.onError?.(outcome.message)
+      // A create landing after its finish already settled (the requester's
+      // own timeout) must not report: the question was answered long ago.
+      if (this.isCurrent(utterance)) this.onError?.(outcome.message)
       this.settle(null)
       return
     }
-    if (this.abortRequested || this.disposed || this.finishSettled) {
+    if (!this.isCurrent(utterance)) {
       // Cancelled while the create was in flight, or the utterance already
       // finished (deadline or otherwise): the create is stale — close the
       // fresh session exactly once and never stream audio into it.
@@ -335,6 +360,8 @@ export class GatewaySttCapture {
       await this.readyWaiter
       if (utterance !== this.utterance || this.finishPromise === null) return
     }
+    // One ordered drain: waits for any in-flight append, then appends the
+    // rest in bounded frames — nothing is sent after the close below.
     await this.flushOnce()
     if (utterance !== this.utterance || this.finishPromise === null) return
     this.stateValue = "closing"
@@ -372,32 +399,76 @@ export class GatewaySttCapture {
     if (this.terminalSeen) this.settle(null)
   }
 
-  /** Send the buffered audio as one append; clears the buffer up front. */
-  private async flushOnce(): Promise<void> {
+  /**
+   * Queue one bounded drain of the buffer behind any in-flight append. The
+   * returned promise resolves when this drain (and every append queued
+   * before it) has settled — finish awaits it, so close is only ever sent
+   * after all queued audio was appended.
+   */
+  private flushOnce(): Promise<void> {
+    if (this.sessionId === null) return this.appendChain
+    const run = this.appendChain.then(() => this.drainPending())
+    // drainPending handles its own failures; keep the shared chain alive.
+    this.appendChain = run.then(
+      () => undefined,
+      () => undefined,
+    )
+    return run
+  }
+
+  /** Send the buffered audio as ordered frames of at most MAX_APPEND_BYTES. */
+  private async drainPending(): Promise<void> {
     const utterance = this.utterance
     const sessionId = this.sessionId
-    if (sessionId === null || this.pending.length === 0) return
-    const audioBase64 = concatBase64(this.pending)
-    this.pending = []
-    try {
-      await this.requester.request("talk.session.appendAudio", {sessionId, audioBase64})
-    } catch (error) {
-      // A rejection from an utterance that already ended (abort/dispose/re-begin)
-      // must not touch the capture that replaced it.
-      if (utterance !== this.utterance || sessionId !== this.sessionId) return
-      // This utterance is broken: report once, close the session exactly once,
-      // and resolve any pending finish with null instead of a transcript.
-      this.requestClose(sessionId)
-      this.onError?.(error instanceof Error ? error.message : String(error))
-      this.settle(null)
+    if (sessionId === null || this.terminalSeen) return
+    while (this.pending.length > 0) {
+      // A settle (abort/dispose) or a terminal event invalidates this drain;
+      // never touch a replacement capture's buffer or a retired session.
+      if (utterance !== this.utterance || sessionId !== this.sessionId || this.terminalSeen) return
+      // Whole chunks only — a batch takes chunks until the byte budget is
+      // full; a lone chunk larger than the budget is never split.
+      const batch: string[] = []
+      let batchBytes = 0
+      while (this.pending.length > 0) {
+        const next = this.pending[0]
+        // Decoded byte count of canonical base64 (exact with or without padding).
+        const nextBytes = Math.floor((next.length * 3) / 4)
+        if (batch.length > 0 && batchBytes + nextBytes > MAX_APPEND_BYTES) break
+        batch.push(this.pending.shift()!)
+        batchBytes += nextBytes
+      }
+      try {
+        await this.requester.request("talk.session.appendAudio", {
+          sessionId,
+          audioBase64: concatBase64(batch),
+        })
+      } catch (error) {
+        // A rejection from an utterance that already ended (abort/dispose/re-begin)
+        // must not touch the capture that replaced it.
+        if (utterance !== this.utterance || sessionId !== this.sessionId) return
+        // A rejection for a session the server retired: its cached terminal
+        // settles a later finish — no close, no error, no fence.
+        if (this.terminalSeen) return
+        // This utterance is broken: report once, close the session exactly once,
+        // and resolve any pending finish with null instead of a transcript.
+        this.requestClose(sessionId)
+        this.onError?.(error instanceof Error ? error.message : String(error))
+        this.settle(null)
+        return
+      }
     }
   }
 
   private scheduleFlush(): void {
     this.flushTimer = setTimeout(() => {
+      // Finish owns appends once it starts; a timer armed before it must not
+      // flush (the final drain covers the buffer) nor re-arm afterwards.
+      if (this.finishPromise !== null) return
       const utterance = this.utterance
       void this.flushOnce().then(() => {
-        if (utterance === this.utterance && this.stateValue === "open") this.scheduleFlush()
+        if (utterance === this.utterance && this.stateValue === "open" && this.finishPromise === null) {
+          this.scheduleFlush()
+        }
       })
     }, AUDIO_FLUSH_MS)
   }
