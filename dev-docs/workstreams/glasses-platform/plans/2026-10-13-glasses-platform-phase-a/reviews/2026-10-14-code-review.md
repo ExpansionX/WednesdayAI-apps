@@ -54,22 +54,24 @@ All findings came from code added on this branch. Effort is the reviewer's estim
 | L-02 | Info | `gatewayStt.ts` (587 lines) has 4 states and 7 boolean flags; most of this review's STT findings came from overlapping guards. The reviewer proposes one record per question with explicit phases. | M | A refactor, not a bug. 49 regression tests now pin the behaviour, so it can be done safely as its own change. |
 | L-03 | Info | `AssistantController.ts` grew from 626 to 960 lines. Notification intake, seen-app persistence and STT wiring could become small collaborators. | M | A refactor, not a bug. |
 | L-04 | Info | The repo has no linter; Prettier style is matched by hand. | S | Adding a toolchain is a repo-wide decision. |
-| L-05 | Medium | `src/ui/App.tsx` has no tests; the package has no DOM test setup. | M | Belongs to the unit-test step. |
+| L-05 | Medium | `src/ui/App.tsx` has no tests; the package has no DOM test setup. | M | Resolved in `099fbc5`: `src/ui/App.test.tsx` adds 23 DOM tests under happy-dom (per-file environment; `@testing-library/react`, `@testing-library/dom`, `happy-dom`), and `src/ui/App.tsx` is in coverage at 100%. |
 | L-06 | Info | An audio chunk larger than `MAX_APPEND_BYTES` is sent alone, not split. | XS | Ruling: chunks are about 3.2 KB in practice. A chunk over the gateway limit (about 393 KB) would fall back to Mentra. |
 | L-07 | Info | When `finish()` is pending and `session.error` arrives, the capture sends `talk.session.close` before the following `session.closed`. The server may already have dropped the session, and the error reply is ignored. | XS | Kept from the earlier fix wave; the side effect is harmless. |
-| L-08 | Low | Existing code, not this branch: the controller test helper `flush()` drains a fixed 20 microtasks, so it depends on await depth. | S | Belongs to the unit-test step. |
+| L-08 | Low | Existing code, not this branch: the controller test helper `flush()` drains a fixed 20 microtasks, so it depends on await depth. | S | Resolved in `099fbc5`: `flush()` is now fake-timer only — `await vi.advanceTimersByTimeAsync(0)`, which throws under real timers; every test in the file installs fake timers in `beforeEach`. |
 
-## Coverage gaps to address in the unit-test step
+Resolution updates (unit-test step): L-05 and L-08 closed in `099fbc5`, which added the phone-UI test harness and the fake-timer-only `flush()`. A separate cleanup, `dabc8ba`, removed 7 unreachable guards and the write-only `currentQuery` field flagged during review — no behaviour change.
 
-Statement and branch gaps from `vitest --coverage` at the end of remediation, by file (line numbers are at that commit):
+## Coverage gaps (current state)
 
-- `src/background/AssistantController.ts`: uncovered statements 239, 240, 241, 453, 454, 548, 549, 672, 673; partially covered branches 163, 199, 209, 228, 238, 264, 320, 322, 337, 354, 364, 449, 462, 480, 504, 535, 537, 538, 540, 547, 611, 671, 678, 681, 692, 712, 716, 722, 732, 792, 852, 854, 918, 944, 948, 953
-- `src/background/gatewayStt.ts`: uncovered statements 280, 281; partially covered branches 190, 219, 241, 271, 279, 301, 343, 422, 470, 481, 508, 527
-- `src/background/glassesView.ts`: uncovered statements none; partially covered branches 194
-- `src/background/notificationPresenter.ts`: uncovered statements none; partially covered branches 73, 82, 95, 119, 131, 161, 162
-- `src/background/notifications.ts`: uncovered statements none; partially covered branches 108
-- `src/background/wake.ts`: uncovered statements none; partially covered branches 123, 132
-- `src/ui/App.tsx`: not in coverage collection (no UI test setup; see L-05).
+At `099fbc5`: 387 tests pass; v8 coverage is statements 99.96%, branches
+97.73%, functions 99.56%, lines 99.96% (thresholds 80%). `src/ui/App.tsx`
+is covered by `src/ui/App.test.tsx` (23 tests, 100%), closing L-05. All
+earlier statement gaps are covered; what remains uncovered are inert or
+TS-required guards (line numbers at this commit):
+
+- `src/background/AssistantController.ts`: 320, 337, 681
+- `src/background/gatewayStt.ts`: 219, 241, 418, 501
+- `src/background/notificationPresenter.ts`: 73, 82, 130, 160
 
 ## Verification
 
@@ -80,4 +82,4 @@ At `d7a4a3e`, from the repo root:
 - `tsc --noEmit --noUnusedLocals --noUnusedParameters`: clean.
 - Re-reviews: round 1 found three new defects (P1–P3) and partial fixes for A-02 and D4. Round 2 confirmed all six fixed. Round 3 cleared a leftover snapshot push. Final verdict: correct, no new breakage.
 
-Fix commits: `f5ee273`, `466e4a3`, `f4c6067`, `a991812`, `0d15d87`, `60be13d`, `aacfec0`, `d7a4a3e`.
+Fix commits: `f5ee273`, `466e4a3`, `f4c6067`, `a991812`, `0d15d87`, `60be13d`, `aacfec0`, `d7a4a3e`. Unit-test step and cleanup: `099fbc5` (L-05, L-08), `dabc8ba`.

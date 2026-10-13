@@ -5,12 +5,18 @@ sources:
   - package.json
   - miniapp.json
   - vitest.config.ts
+  - src/shared/channels.ts
   - src/gateway/constants.ts
   - src/gateway/setup-code.ts
   - src/background/AssistantController.ts
+  - src/background/tilt.ts
+  - src/background/glance.ts
+  - src/background/notifications.ts
+  - src/background/notificationPresenter.ts
+  - src/background/gatewayStt.ts
   - src/background/glassesView.ts
   - scripts/smoke-gateway.ts
-generated: 2026-10-13
+generated: 2026-10-14
 ---
 
 # MentraOS 显示眼镜上的 WednesdayAI
@@ -80,6 +86,7 @@ WednesdayAI 网关转写；如果网关无法转写，则使用 Mentra 的转写
 - 在手机菜单中勾选应用。
 - 通知一次显示一条，每条按 160 字符分页，每 4 秒翻一页，之后显示
   下一条。
+- 最多 20 条通知排队等待；超过后最早的一条会被丢弃。
 - 停用 Mentra Notify 以免重复显示。
 - 在 iOS 上由眼镜固件自行显示通知。
 
@@ -185,10 +192,13 @@ unavailable"，然后使用 Mentra 的转写结果。
 - `src/gateway/`：可移植的 WednesdayAI 网关客户端（配对、Ed25519 设备
   身份、v3 device-auth 签名、连接/退避、聊天 run 跟踪、session key
   路由）。纯 TypeScript；此处禁止 import `@mentra/*`。
-- `src/background/`：唤醒检测（`wake.ts`）、眼镜渲染
-  （`glassesView.ts`），以及把 SDK session 接到网关客户端上的
-  `AssistantController.ts`。
-- `src/ui/`：手机端设置菜单（配对、agent、唤醒 STT 模式、麦克风测试）。
+- `src/background/`：唤醒检测（`wake.ts`）、抬头速览（`tilt.ts`、
+  `glance.ts`）、通知队列与分页展示（`notifications.ts`、
+  `notificationPresenter.ts`）、网关问题转写（`gatewayStt.ts`）、眼镜渲染
+  （`glassesView.ts`），以及把 SDK session 接到网关客户端、并决定当前
+  由哪一帧（助手、通知、速览）占用眼镜的 `AssistantController.ts`。
+- `src/ui/`：手机端设置菜单（配对、agent、唤醒 STT 模式、问题转写
+  模式、通知应用、麦克风测试）。
 - `src/shared/channels.ts`：类型化的 UI <-> 后台通道。
 - `scripts/smoke-gateway.ts`：针对真实网关的免设备冒烟测试。
 
@@ -197,7 +207,7 @@ unavailable"，然后使用 Mentra 的转写结果。
 | 命令                                                             | 用途                                                                                                      |
 | ---------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------- |
 | `npm run glass:test`（仓库根目录）或 `npm test`                  | 单元测试（vitest）                                                                                        |
-| `npm run glass:coverage`（仓库根目录）或 `npm run test:coverage` | 带 v8 覆盖率的测试；`src/gateway` + `src/background` 阈值 80%（排除测试文件和 `src/background/index.ts`） |
+| `npm run glass:coverage`（仓库根目录）或 `npm run test:coverage` | 带 v8 覆盖率的测试；`src/gateway`、`src/background` 和 `src/ui/App.tsx` 阈值 80%（排除测试文件和 `src/background/index.ts`） |
 | `npm run glass:typecheck`（仓库根目录）或 `npm run typecheck`    | 对 `src/` 和 `scripts/` 运行 `tsc --noEmit`                                                               |
 | `bun run build`                                                  | 在 `dist/` 生成生产包                                                                                     |
 | `bun run dev`                                                    | 开发模式，打印侧载二维码                                                                                  |
@@ -206,6 +216,8 @@ unavailable"，然后使用 Mentra 的转写结果。
 
 冒烟测试的 setup code 用
 `wednesdayai qr --client openclaw-mentra-node --setup-code-only` 获取。
+加上 `--stt-pcm <文件>`（原始 PCM16 LE、16 kHz、单声道）时，工具还会把
+该文件通过网关转写并打印 `stt:` 转写结果，端到端验证 `talk.session.*`。
 工具会打印 `connected`、唤醒词、agents、每个流式分块一行 `delta`、
 回答的 `final:`（或 `error:`）以及 `pong=yes|no`，最后打印
 `reconnected via deviceToken`。退出码 0 验证的是配对、RPC 访问、聊天
@@ -220,9 +232,24 @@ unavailable"，然后使用 Mentra 的转写结果。
 进行（`src/background/wake.ts`）；匹配后通过 `GatewayConnection`
 （`src/gateway/connection.ts`）向 `src/gateway/sessions.ts` 解析出的会话
 发送 `chat.send`，聊天事件更新 `ChatRun`（`src/gateway/chat.ts`），并由
-`GlassesView`（`src/background/glassesView.ts`）渲染到眼镜。UI 与后台
-只通过 `src/shared/channels.ts` 中的类型化通道通信；后台在每次变更时
-推送状态快照。
+`GlassesView`（`src/background/glassesView.ts`）渲染到眼镜。
+
+问题转写选择网关（`querySttMode: "gateway"`）时，连接期间麦克风音频会
+流入 `GatewaySttCapture`（`src/background/gatewayStt.ts`）：它打开一个
+携带最近 1.5 秒预滚（pre-roll）的 `talk.session`，把实时音频按不超过
+`MAX_APPEND_BYTES`（96,000 字节解码后，约 16 kHz PCM16 的 3 秒）的有序
+帧追加，close 后最多等 6 秒拿转写结果，一次采集上限 20 秒。网关转写与
+Mentra 转写都到达时以网关为准；网关无法转写时每次 hello 只警告一次
+（"WednesdayAI transcription unavailable: …"），改用 Mentra 的转写
+结果。
+
+同一时刻只有一帧占用显示：助手帧优先于通知页，通知页优先于抬头速览
+（`tilt.ts`、`glance.ts` —— 抬头超过 25° 保持 300 毫秒显示，低头低于
+15° 隐藏）。被允许的通知进入 `NotificationPresenter` 队列
+（`notifications.ts`、`notificationPresenter.ts`：每页 160 字符，每页
+接受后显示 4 秒，队列 20 条），只在没有助手帧时显示。UI 与后台只通过
+`src/shared/channels.ts` 中的类型化通道通信（包括逐应用勾选通知白名单
+的 `notifications:allow`）；后台在每次变更时推送状态快照。
 
 ### 约束与已知限制
 
@@ -231,8 +258,13 @@ unavailable"，然后使用 Mentra 的转写结果。
   `crypto.subtle`、`crypto.randomUUID`、`URL`/`URLSearchParams`、Node
   内置模块或 `process`。Ed25519/SHA 来自 `@noble/ed25519` +
   `@noble/hashes`。
-- 测试与源码同目录，命名为 `src/**/*.test.ts`（vitest）。覆盖率排除
-  React UI（无 DOM 测试环境），阈值在 `vitest.config.ts` 中。
+- 测试与源码同目录，命名为 `src/**/*.test.ts(x)`（vitest），阈值在
+  `vitest.config.ts` 中。覆盖率包含 `src/ui/App.tsx`，由
+  `src/ui/App.test.tsx` 覆盖：该文件用 `@vitest-environment happy-dom`
+  注释按文件启用 happy-dom（依赖 `@testing-library/react`、
+  `@testing-library/dom`、`happy-dom`）。控制器测试只在假计时器下运行：
+  其 `flush()` 辅助函数就是 `vi.advanceTimersByTimeAsync(0)`，在真实
+  计时器下会抛错。
 - 存储键 `wai.identity.v1`、`wai.gateway.v1`、`wai.deviceAuth.v1`、
   `wai.settings.v1`、`wai.notificationApps.v1` 保存在普通 session
   storage 中（见管理员注意事项）。

@@ -5,12 +5,18 @@ sources:
   - package.json
   - miniapp.json
   - vitest.config.ts
+  - src/shared/channels.ts
   - src/gateway/constants.ts
   - src/gateway/setup-code.ts
   - src/background/AssistantController.ts
+  - src/background/tilt.ts
+  - src/background/glance.ts
+  - src/background/notifications.ts
+  - src/background/notificationPresenter.ts
+  - src/background/gatewayStt.ts
   - src/background/glassesView.ts
   - scripts/smoke-gateway.ts
-generated: 2026-10-13
+generated: 2026-10-14
 ---
 
 # WednesdayAI for MentraOS glasses
@@ -84,6 +90,8 @@ WednesdayAI gateway; if it cannot, Mentra's transcript is used.
 - Tick apps in the phone menu.
 - Notifications show one at a time, in 160-character pages that advance
   every 4 seconds, then the next.
+- Up to 20 notifications wait their turn; beyond that the oldest waiting
+  one is dropped.
 - Stop Mentra Notify to avoid duplicates.
 - On iOS the glasses firmware shows notifications itself.
 
@@ -201,10 +209,15 @@ existing connection.
   device identity, v3 device-auth signature, connection/backoff, chat run
   tracking, session-key routing). Pure TypeScript; never import `@mentra/*`
   here.
-- `src/background/`: wake detection (`wake.ts`), glasses rendering
-  (`glassesView.ts`), and `AssistantController.ts`, which wires the SDK
-  session to the gateway client.
-- `src/ui/`: phone settings menu (pairing, agent, wake STT mode, mic test).
+- `src/background/`: wake detection (`wake.ts`), the head-tilt glance
+  (`tilt.ts`, `glance.ts`), the notification queue and paged presenter
+  (`notifications.ts`, `notificationPresenter.ts`), gateway question
+  transcription (`gatewayStt.ts`), glasses rendering (`glassesView.ts`),
+  and `AssistantController.ts`, which wires the SDK session to the gateway
+  client and owns which frame (assistant, notification, glance) is on the
+  glasses.
+- `src/ui/`: phone settings menu (pairing, agent, wake STT mode, question
+  transcription mode, notification apps, mic test).
 - `src/shared/channels.ts`: typed UI <-> background channels.
 - `scripts/smoke-gateway.ts`: device-free smoke test against a real gateway.
 
@@ -213,7 +226,7 @@ existing connection.
 | Command                                                         | Purpose                                                                                                                    |
 | --------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
 | `npm run glass:test` (repo root) or `npm test`                  | unit tests (vitest)                                                                                                        |
-| `npm run glass:coverage` (repo root) or `npm run test:coverage` | tests with v8 coverage; 80% thresholds on `src/gateway` + `src/background` (excluding tests and `src/background/index.ts`) |
+| `npm run glass:coverage` (repo root) or `npm run test:coverage` | tests with v8 coverage; 80% thresholds on `src/gateway`, `src/background` and `src/ui/App.tsx` (excluding tests and `src/background/index.ts`) |
 | `npm run glass:typecheck` (repo root) or `npm run typecheck`    | `tsc --noEmit` for `src/` and `scripts/`                                                                                   |
 | `bun run build`                                                 | production bundles in `dist/`                                                                                              |
 | `bun run dev`                                                   | live development with sideload QR                                                                                          |
@@ -221,7 +234,10 @@ existing connection.
 | `bun run smoke:gateway -- --setup-code <code>`                  | device-free check: pairs, reads wake words and agents, sends `chat.send`, reconnects with the stored device token          |
 
 Get a setup code for the smoke test with
-`wednesdayai qr --client openclaw-mentra-node --setup-code-only`. The smoke
+`wednesdayai qr --client openclaw-mentra-node --setup-code-only`. With
+`--stt-pcm <file>` (raw PCM16 LE, 16 kHz, mono) the tool also streams the
+file through gateway transcription and prints the `stt:` transcript,
+exercising `talk.session.*` end to end. The smoke
 tool prints `connected`, the wake triggers, the agents, one `delta` line per
 stream chunk, `final:` (or `error:`) plus `pong=yes|no` for the reply, and
 finally `reconnected via deviceToken`. Exit 0 verifies pairing, RPC access,
@@ -237,8 +253,26 @@ Wake matching runs on the transcript (`src/background/wake.ts`); a match
 sends `chat.send` through `GatewayConnection` (`src/gateway/connection.ts`)
 to the session resolved by `src/gateway/sessions.ts`, and chat events update
 a `ChatRun` (`src/gateway/chat.ts`) rendered on the glasses via
-`GlassesView` (`src/background/glassesView.ts`). The UI and the background
-talk only through the typed channels in `src/shared/channels.ts`; the
+`GlassesView` (`src/background/glassesView.ts`).
+
+With question transcription on the gateway (`querySttMode: "gateway"`), mic
+audio streams into `GatewaySttCapture` (`src/background/gatewayStt.ts`)
+while connected: it opens a `talk.session` carrying the last 1.5 s of
+pre-roll, appends live audio in ordered frames of at most `MAX_APPEND_BYTES`
+(96,000 decoded bytes, about 3 s of PCM16 at 16 kHz), waits up to 6 s for
+the transcript after close, and aborts a capture at 20 s. The gateway
+transcript wins over Mentra's when both arrive; a gateway that cannot
+transcribe warns once per hello ("WednesdayAI transcription unavailable:
+…") and Mentra's transcript is used.
+
+One frame owns the display at a time: assistant frames outrank notification
+pages, which outrank the head-tilt glance (`tilt.ts`, `glance.ts` — tilt-up
+holds 300 ms above 25° to show, look-down below 15° to hide). Allowed
+notifications queue in `NotificationPresenter` (`notifications.ts`,
+`notificationPresenter.ts`: 160-character pages, 4 s per accepted page,
+queue of 20) and show only when no assistant frame is up. The UI and the
+background talk only through the typed channels in `src/shared/channels.ts`
+(including `notifications:allow` for per-app allowlist ticks); the
 background pushes a state snapshot on every change.
 
 ### Constraints and known limits
@@ -248,8 +282,13 @@ background pushes a state snapshot on every change.
   `crypto.randomUUID`, `URL`/`URLSearchParams`, Node built-ins or
   `process` in `src/background/` or `src/gateway/`. Ed25519/SHA come from
   `@noble/ed25519` + `@noble/hashes`.
-- Tests are colocated as `src/**/*.test.ts` (vitest). Coverage excludes the
-  React UI (no DOM test setup) and thresholds live in `vitest.config.ts`.
+- Tests are colocated as `src/**/*.test.ts(x)` (vitest); thresholds live in
+  `vitest.config.ts`. Coverage includes `src/ui/App.tsx` through
+  `src/ui/App.test.tsx`, which opts its file into happy-dom with a
+  `@vitest-environment happy-dom` comment (deps `@testing-library/react`,
+  `@testing-library/dom`, `happy-dom`). Controller tests run under fake
+  timers only: their `flush()` helper is `vi.advanceTimersByTimeAsync(0)`,
+  which throws under real timers.
 - Storage keys `wai.identity.v1`, `wai.gateway.v1`, `wai.deviceAuth.v1`,
   `wai.settings.v1`, `wai.notificationApps.v1` sit in plain session storage
   (see the admin caveat).

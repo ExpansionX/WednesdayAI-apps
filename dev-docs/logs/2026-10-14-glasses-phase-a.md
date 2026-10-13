@@ -29,6 +29,8 @@ Phase A of the glasses-platform roadmap ([plan](../workstreams/glasses-platform/
 - `apps/mentra-glass/miniapp.json`: `READ_NOTIFICATIONS` permission and optional `IMU` hardware.
 - `apps/mentra-glass/scripts/smoke-gateway.ts`: `--stt-pcm <file>` end-to-end transcription check.
 - `apps/mentra-glass/README.md`, `README.zh-CN.md`: glance, notifications, transcription, privacy and admin notes.
+- `apps/mentra-glass/src/ui/App.test.tsx` (`099fbc5`): phone UI tests under happy-dom (`@testing-library/react`, `@testing-library/dom`, `happy-dom`); coverage now includes `src/ui/App.tsx` (23 tests, 100%), and the controller tests' `flush()` helper is fake-timer only (`vi.advanceTimersByTimeAsync(0)`).
+- Cleanup (`dabc8ba`): removed 7 unreachable guards and the write-only `currentQuery` field; no behaviour change.
 
 ## Impact
 
