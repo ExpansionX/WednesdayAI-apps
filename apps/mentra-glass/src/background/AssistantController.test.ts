@@ -1472,4 +1472,69 @@ describe("AssistantController", () => {
     await flush()
     expect(lastSnapshot(session).queuedNotifications).toBe(0)
   })
+
+  it("pairing during a showing notification leaves it on the glasses", async () => {
+    const session = new FakeSession()
+    const connection = new FakeConnection()
+    connection.respond("chat.send", () => ({runId: "srv-run-1"}))
+    await startAssistant(session, connection)
+
+    session.uiMessage("settings:set", {notificationApps: ["com.google.android.apps.messaging"]})
+    await flush()
+
+    // A finished run lingers in currentRun after its frame auto-clears.
+    await ask(session, connection, "tell me a story")
+    connection.emitEvent("chat", {
+      runId: "srv-run-1",
+      state: "final",
+      message: {content: [{type: "text", text: "A story"}]},
+    })
+    await flush()
+    await vi.advanceTimersByTimeAsync(400)
+    await vi.advanceTimersByTimeAsync(15000)
+
+    session.notify({notificationId: "n1", title: "Alice", content: "word ".repeat(60).trim()})
+    await flush()
+    await vi.advanceTimersByTimeAsync(400)
+    expect(headerTexts(session).at(-1)).toBe("Messages · Alice (1/2)")
+
+    const setupCode = base64UrlEncode(
+      new TextEncoder().encode(JSON.stringify({url: "wss://other.example.ts.net", bootstrapToken: "boot"})),
+    )
+    session.uiMessage("pair:code", {code: setupCode})
+    await flush()
+
+    // The stale run must not retire a frame the notification owns.
+    expect(headerTexts(session).at(-1)).toBe("Messages · Alice (1/2)")
+    await vi.advanceTimersByTimeAsync(4000)
+    expect(headerTexts(session).at(-1)).toBe("Messages · Alice (2/2)")
+  })
+
+  it("unpaired does not clear a showing notification", async () => {
+    const session = new FakeSession()
+    const connection = new FakeConnection()
+    connection.respond("chat.send", () => {
+      throw new Error("queue full")
+    })
+    await startAssistant(session, connection)
+
+    session.uiMessage("settings:set", {notificationApps: ["com.google.android.apps.messaging"]})
+    await flush()
+
+    // A rejected send leaves its live run in currentRun; the error frame
+    // auto-clears and the notification takes the display.
+    await ask(session, connection, "tell me a joke")
+    await vi.advanceTimersByTimeAsync(400)
+    await vi.advanceTimersByTimeAsync(15000)
+
+    session.notify({notificationId: "n1", title: "Alice", content: "Lunch?"})
+    await flush()
+    await vi.advanceTimersByTimeAsync(400)
+    expect(headerTexts(session).at(-1)).toBe("Messages · Alice")
+
+    connection.setState("unpaired")
+    await flush()
+    expect(headerTexts(session).at(-1)).toBe("Messages · Alice")
+    expect(bodyTexts(session).at(-1)).toBe("Lunch?")
+  })
 })

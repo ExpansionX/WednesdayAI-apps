@@ -364,8 +364,14 @@ export class AssistantController {
   /**
    * Give the display back: clear the glasses and let a queued notification
    * step in. Every assistant-side hide of a live frame goes through here.
+   * A showing notification keeps the display: the presenter owns that frame,
+   * so stale assistant state — a finished or failed run still held in
+   * currentRun, a connection drop mid-pages — must not cut it off. Its page
+   * timer would keep advancing with nothing on the glasses, and pump() could
+   * not restore a frame the presenter still considers showing.
    */
   private releaseDisplay(): void {
+    if (this.displayOwner === "notification") return
     this.displayOwner = null
     this.view.hide()
     this.notifications.pump()
