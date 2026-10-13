@@ -145,7 +145,6 @@ export class AssistantController {
   /** Controller-side notice; preferred over the connection's lastError. */
   private notice: string | null = null
   private currentRun: ChatRun | null = null
-  private currentQuery = ""
   private micTestEnabled = false
 
   constructor(session: MiniappSession<Channels>, options: AssistantControllerOptions = {}) {
@@ -593,7 +592,6 @@ export class AssistantController {
       await this.sendQuery(mentraQuery)
       return
     }
-    this.currentQuery = mentraQuery
     // Retire the previous run the way sendQuery replaces it: its late deltas
     // and terminal event must not repaint over this question's frame while
     // the transcript is awaited.
@@ -620,7 +618,6 @@ export class AssistantController {
     const idempotencyKey = uuidV4()
     const run = startRun(idempotencyKey)
     this.currentRun = run
-    this.currentQuery = query
     this.showFrame({phase: "thinking", agentLabel: this.agentLabel(), body: query})
     let result: ChatSendResult
     try {
@@ -668,9 +665,7 @@ export class AssistantController {
   private showRun(run: ChatRun): void {
     const agentLabel = this.agentLabel()
     switch (run.state) {
-      case "thinking":
-        this.showFrame({phase: "thinking", agentLabel, body: this.currentQuery})
-        return
+      // No "thinking" case: applyChatEvent never produces that state.
       case "streaming":
         this.showFrame({phase: "streaming", agentLabel, body: run.text})
         return
@@ -678,6 +673,8 @@ export class AssistantController {
         this.showFrame({phase: "final", agentLabel, body: run.text || "(no reply)"})
         return
       case "error":
+        // run.error is `string | null` and TS cannot see applyChatEvent's
+        // guarantee of a non-empty message, so the fallback stays.
         this.showFrame({phase: "error", agentLabel, body: run.error || "Request failed"})
         return
       case "aborted":
@@ -709,7 +706,8 @@ export class AssistantController {
   }
 
   private onChatEvent(payload: unknown): void {
-    if (this.disposed) return
+    // Disposal is handled by onGatewayEvent's guard; a post-dispose currentRun
+    // is null regardless.
     const run = this.currentRun
     if (!run) return
     const updated = applyChatEvent(run, payload)
@@ -788,8 +786,8 @@ export class AssistantController {
   }
 
   private armMicTestTimer(): void {
+    // Every caller guarantees the mic test is enabled.
     this.stopMicTestTimer()
-    if (!this.micTestEnabled) return
     this.micTestTimer = setTimeout(() => {
       this.micTestTimer = null
       if (this.micTestEnabled && this.settings.wakeSttMode === "local") {
@@ -894,7 +892,6 @@ export class AssistantController {
     this.awaitingTranscript = false
     this.stt.abort()
     this.currentRun = null
-    this.currentQuery = ""
     this.listeningFrameUp = false
     if (hadFrame) this.releaseDisplay()
   }

@@ -116,7 +116,6 @@ export class NotificationPresenter {
     if (this.disposed || !this.isShowing || this.current === null || this.timer !== null) return
     this.timer = setTimeout(() => {
       this.timer = null
-      if (!this.current) return
       if (this.pageIndex + 1 < this.pages.length) {
         this.pageIndex += 1
         this.showPage()

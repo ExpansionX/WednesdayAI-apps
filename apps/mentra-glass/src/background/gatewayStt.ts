@@ -337,10 +337,6 @@ export class GatewaySttCapture {
     }
     this.sessionId = outcome.sessionId
     this.stateValue = "open"
-    // The gateway discards audio until the provider connects; hold the
-    // pre-roll until its session.ready event arrives. (Defensive: ready
-    // cannot normally outrun the create response on one connection.)
-    if (this.readySeen) this.startStreaming(utterance)
   }
 
   private async runFinish(utterance: number): Promise<void> {
@@ -476,9 +472,6 @@ export class GatewaySttCapture {
 
   private scheduleFlush(): void {
     this.flushTimer = setTimeout(() => {
-      // Finish owns appends once it starts, and a session the server retired
-      // must not flush: a timer armed earlier does neither.
-      if (this.finishPromise !== null || this.terminalSeen) return
       const utterance = this.utterance
       void this.flushOnce().then(() => {
         if (
@@ -524,7 +517,6 @@ export class GatewaySttCapture {
   /** Fence begin until the in-flight create settles (or the timeout). */
   private armPendingFence(): void {
     this.pendingCreateFence = true
-    if (this.pendingFenceTimer !== null) clearTimeout(this.pendingFenceTimer)
     this.pendingFenceTimer = setTimeout(() => {
       this.pendingFenceTimer = null
       this.pendingCreateFence = false
