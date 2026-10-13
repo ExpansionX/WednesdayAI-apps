@@ -297,4 +297,24 @@ describe("GlassesView glance and notification frames", () => {
     await vi.advanceTimersByTimeAsync(20000)
     expect(onAutoClear).not.toHaveBeenCalled()
   })
+
+  it("reports accepted renders through onShown and skips blocked ones", async () => {
+    const host = new FakeDisplayHost()
+    const shown: string[] = []
+    host.elementStatus = "blocked"
+    const view = new GlassesView(asSession(host), {onShown: (vm) => shown.push(vm.phase)})
+    view.show({phase: "notification", agentLabel: "", header: "Messages · Alice", body: "hi"})
+    await vi.advanceTimersByTimeAsync(0)
+    expect(host.calls).toHaveLength(1)
+    // Blocked by the host's display lock: nothing is reported yet.
+    expect(shown).toEqual([])
+    host.elementStatus = "displayed"
+    await vi.advanceTimersByTimeAsync(1000)
+    expect(shown).toEqual(["notification"])
+    // Live-frame heartbeats report every accepted render too.
+    view.show({phase: "thinking", agentLabel: "default", body: "q"})
+    await vi.advanceTimersByTimeAsync(400)
+    expect(shown).toEqual(["notification", "thinking"])
+    view.dispose()
+  })
 })

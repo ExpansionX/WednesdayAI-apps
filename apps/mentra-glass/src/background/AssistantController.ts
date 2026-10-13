@@ -148,7 +148,12 @@ export class AssistantController {
     this.session = session
     // SimpleStorage's get/set/delete satisfy the portable KeyValueStore shape.
     this.store = session.storage
-    this.view = new GlassesView(session, {onAutoClear: () => this.onDisplayAutoClear()})
+    this.view = new GlassesView(session, {
+      onAutoClear: () => this.onDisplayAutoClear(),
+      onShown: (vm) => {
+        if (vm.phase === "notification") this.notifications.onShown()
+      },
+    })
     this.notifications = new NotificationPresenter(
       {
         canShow: () => this.displayOwner === null || this.displayOwner === "glance",
@@ -435,7 +440,14 @@ export class AssistantController {
 
   /** A terminal frame auto-cleared itself: the display is free again. */
   private onDisplayAutoClear(): void {
+    const wasNotification = this.displayOwner === "notification"
     this.displayOwner = null
+    if (wasNotification) {
+      // The host gave up on the notification's frame (blocked past its
+      // window) before its pages finished: requeue it at the front so it is
+      // shown again rather than lost, and let it restart right away.
+      this.notifications.interrupt()
+    }
     this.notifications.pump()
   }
 
@@ -836,8 +848,14 @@ export class AssistantController {
     }
     // Pairing replaces the gateway socket: a run bound to the old gateway
     // can never finish, and its live frame would heartbeat the 10 s display
-    // lock forever. Retire it before the new connection takes over.
-    const hadFrame = this.currentRun !== null || this.listeningFrameUp
+    // lock forever. Retire it before the new connection takes over. A painted
+    // query awaiting its gateway transcript is a live Thinking frame too:
+    // stale its send token, abort its capture, and free the display with
+    // the rest — no run or listening timer would otherwise clear it.
+    const hadFrame = this.currentRun !== null || this.listeningFrameUp || this.awaitingTranscript
+    this.sendToken += 1
+    if (this.awaitingTranscript) this.awaitingTranscript = false
+    this.stt.abort()
     this.currentRun = null
     this.currentQuery = ""
     this.listeningFrameUp = false

@@ -2,8 +2,13 @@
  * Paged presenter for phone notifications on the glasses display.
  *
  * Shows one notification at a time: its body is split into pages of at most
- * NOTIFICATION_PAGE_CHARS that advance every NOTIFICATION_PAGE_MS, then the
- * next queued notification starts, or the surface hides when none waits.
+ * NOTIFICATION_PAGE_CHARS. A page's NOTIFICATION_PAGE_MS reading interval
+ * starts only when the host accepts the frame — the surface reports that
+ * through onShown(), fed from GlassesView's render result — so a notification
+ * held by MentraOS's display lock stays on its page (GlassesView retries the
+ * blocked render) instead of being advanced or dropped sight unseen.
+ * When the page interval ends the next page shows, then the next queued
+ * notification starts, or the surface hides when none waits.
  * When the surface is busy (canShow() false) new notifications wait in the
  * queue; pump() retries. interrupt() requeues the on-screen notification at
  * the front without hiding, so an assistant frame can take the display and
@@ -11,7 +16,7 @@
  * on-screen copy as is and replaces a waiting copy in place. dispose() stops
  * the page timer and ignores further work; it never calls surface.hide().
  * Every queue-size change reports through onChange so the controller can
- * push state to the phone.
+ * push state to the phone — and only actual changes do.
  */
 
 import type {GlassesViewModel} from "./glassesView"
@@ -26,7 +31,6 @@ export interface NotificationSurface {
   show(vm: GlassesViewModel): void
   hide(): void
 }
-
 /** Global `setTimeout` handle; the runtime is the owner of this shape. */
 type TimerHandle = ReturnType<typeof setTimeout>
 
@@ -75,12 +79,14 @@ export class NotificationPresenter {
 
   retain(keep: (item: QueuedNotification) => boolean): void {
     if (this.disposed) return
+    const before = this.queue.size
     this.queue.retain(keep)
+    const removed = this.queue.size !== before
     if (this.isShowing && this.current && !keep(this.current)) {
       this.advance()
       return
     }
-    this.onChange?.()
+    if (removed) this.onChange?.()
   }
 
   /** Requeue the on-screen notification at the front without hiding. */
@@ -98,6 +104,25 @@ export class NotificationPresenter {
   /** Start the next notification when idle and the surface is free. */
   pump(): void {
     if (this.tryStart()) this.onChange?.()
+  }
+
+  /**
+   * The host accepted the on-screen frame (GlassesView render status
+   * "displayed"): start its reading interval. While the host reports the
+   * render blocked, nothing runs here and the page simply stays.
+   */
+  onShown(): void {
+    if (this.disposed || !this.isShowing || this.current === null || this.timer !== null) return
+    this.timer = setTimeout(() => {
+      this.timer = null
+      if (!this.current) return
+      if (this.pageIndex + 1 < this.pages.length) {
+        this.pageIndex += 1
+        this.showPage()
+        return
+      }
+      this.advance()
+    }, NOTIFICATION_PAGE_MS)
   }
 
   /** Stop everything and drop all state; the surface is left as is. */
@@ -136,17 +161,9 @@ export class NotificationPresenter {
     const page = this.pages[this.pageIndex] ?? ""
     let header = item.content && item.title ? `${item.app} · ${item.title}` : item.app
     if (this.pages.length > 1) header += ` (${this.pageIndex + 1}/${this.pages.length})`
+    // No timer here: onShown() starts the page interval once the host
+    // accepts this render.
     this.surface.show({phase: "notification", agentLabel: "", header, body: page})
-    this.timer = setTimeout(() => {
-      this.timer = null
-      if (!this.current) return
-      if (this.pageIndex + 1 < this.pages.length) {
-        this.pageIndex += 1
-        this.showPage()
-        return
-      }
-      this.advance()
-    }, NOTIFICATION_PAGE_MS)
   }
 
   /** The current item is done: start the next queued one, or hide when none waits. */

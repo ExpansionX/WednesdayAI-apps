@@ -321,6 +321,19 @@ async function flush(): Promise<void> {
   }
 }
 
+type Deferred<T> = {promise: Promise<T>; resolve: (value: T) => void; reject: (error: unknown) => void}
+
+/** The app's TS lib is ES2022 — no Promise.withResolvers. */
+function deferred<T>(): Deferred<T> {
+  let resolve!: (value: T) => void
+  let reject!: (error: unknown) => void
+  const pending = new Promise<T>((res, rej) => {
+    resolve = res
+    reject = rej
+  })
+  return {promise: pending, resolve, reject}
+}
+
 /**
  * Starts a controller against the fake gateway. The stored settings are
  * seeded with `querySttMode: "mentra"` unless overridden — keeping existing
@@ -1626,6 +1639,29 @@ describe("AssistantController", () => {
     expect(bodyTexts(session).at(-1)).toBe("Lunch?")
   })
 
+  it("holds a blocked notification page until the host accepts the frame", async () => {
+    const session = new FakeSession()
+    const connection = new FakeConnection()
+    await startAssistant(session, connection)
+
+    session.uiMessage("settings:set", {notificationApps: ["com.google.android.apps.messaging"]})
+    await flush()
+    // Another background app holds the display lock: the frame renders but
+    // is dropped until the sixth attempt.
+    session.renderStatuses.push("blocked", "blocked", "blocked", "blocked", "blocked", "displayed")
+    session.notify({notificationId: "n1", title: "Alice", content: "Lunch?"})
+    await flush()
+    await vi.advanceTimersByTimeAsync(4400)
+    // Four seconds in, still blocked: the page must not advance or drop.
+    expect(bodyTexts(session).at(-1)).toBe("Lunch?")
+
+    // Accepted on the retry: only now does the reading interval run out.
+    await vi.advanceTimersByTimeAsync(1000)
+    expect(headerTexts(session).at(-1)).toBe("Messages · Alice")
+    await vi.advanceTimersByTimeAsync(8000)
+    expect(bodyTexts(session).at(-1)).toBe("")
+  })
+
   describe("gateway question transcription", () => {
     it("streams audio after the wake word and sends the gateway transcript", async () => {
       const session = new FakeSession()
@@ -1645,6 +1681,10 @@ describe("AssistantController", () => {
         transport: "gateway-relay",
         brain: "none",
       })
+
+      // The provider connects while the user keeps talking; audio flows then.
+      connection.emitEvent("talk.event", {type: "session.ready", sessionId: "s1"})
+      await flush()
 
       session.transcript("hey wednesday what is the weather in paris", true)
       await flush()
@@ -1839,6 +1879,9 @@ describe("AssistantController", () => {
         payload: {text: "what is one plus one"},
       })
       await flush()
+      // The server retires the first session, freeing the next capture.
+      connection.emitEvent("talk.event", {type: "session.closed", sessionId: "s1"})
+      await flush()
       await vi.advanceTimersByTimeAsync(400)
       connection.emitEvent("chat", {
         runId: "srv-run-1",
@@ -1885,6 +1928,81 @@ describe("AssistantController", () => {
       const secondSend = connection.requests.filter((request) => request.method === "chat.send")[1]
       expect(recordParams(secondSend?.params).message).toBe("what is two plus two")
       expect(bodyTexts(session).at(-1)).not.toBe("Two and a half")
+    })
+
+    it("retires the awaited transcription frame when re-pairing", async () => {
+      const session = new FakeSession()
+      const connection = new FakeConnection()
+      const create = deferred<unknown>()
+      connection.respond("talk.session.create", () => create.promise)
+      connection.respond("talk.session.appendAudio", () => ({}))
+      connection.respond("talk.session.close", () => ({}))
+      connection.respond("chat.send", () => ({runId: "srv-run-1"}))
+      await startAssistant(session, connection, {querySttMode: "gateway"})
+
+      session.transcript("hey wednesday", false)
+      await flush()
+      session.transcript("hey wednesday what is the weather in paris", true)
+      await flush()
+      await vi.advanceTimersByTimeAsync(400)
+      expect(headerTexts(session).at(-1)).toContain("Thinking")
+
+      // Re-pair while the gateway transcript is awaited.
+      const setupCode = base64UrlEncode(
+        new TextEncoder().encode(JSON.stringify({url: "wss://other.example.ts.net", bootstrapToken: "boot"})),
+      )
+      session.uiMessage("pair:code", {code: setupCode})
+      await flush()
+      connection.setState("connecting")
+      await flush()
+      // The pending-transcript Thinking frame is retired with the rest.
+      expect(session.renders.at(-1)).toEqual([])
+
+      // The old gateway's session outlives the socket: its transcript must
+      // not send chat or paint anything.
+      create.resolve({sessionId: "s1", audio: {}})
+      await flush()
+      connection.emitEvent("talk.event", {type: "session.ready", sessionId: "s1"})
+      await flush()
+      connection.emitEvent("talk.event", {
+        type: "transcript.done",
+        sessionId: "s1",
+        payload: {text: "what is the weather in paris"},
+      })
+      await flush()
+      await vi.advanceTimersByTimeAsync(8000)
+      expect(connection.requests.some((request) => request.method === "chat.send")).toBe(false)
+      expect(session.renders.at(-1)).toEqual([])
+    })
+
+    it("a question asked while the previous capture is fenced falls back to Mentra without a warning", async () => {
+      const session = new FakeSession()
+      const connection = new FakeConnection()
+      stubTalkSession(connection, "s1")
+      connection.respond("chat.send", () => ({runId: "srv-run-1"}))
+      await startAssistant(session, connection, {querySttMode: "gateway"})
+
+      // First utterance is cancelled; the server keeps draining its session.
+      session.transcript("hey wednesday", false)
+      await flush()
+      session.transcript("hey wendy", true)
+      await flush()
+      expect(connection.requests.filter((request) => request.method === "talk.session.close")).toHaveLength(1)
+
+      // A new question immediately after: begin stays fenced (no second
+      // create, no CONFLICT warning) and the Mentra query goes out.
+      session.transcript("hey wednesday", false)
+      await flush()
+      await vi.advanceTimersByTimeAsync(400)
+      expect(headerTexts(session).at(-1)).toContain("Listening")
+      session.transcript("hey wednesday what is two plus two", true)
+      await flush()
+      await vi.advanceTimersByTimeAsync(400)
+
+      expect(connection.requests.filter((request) => request.method === "talk.session.create")).toHaveLength(1)
+      const send = connection.requests.find((request) => request.method === "chat.send")
+      expect(recordParams(send?.params).message).toBe("what is two plus two")
+      expect(errorMessages(session)).toEqual([])
     })
   })
 })

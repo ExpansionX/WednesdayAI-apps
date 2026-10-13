@@ -62,6 +62,13 @@ export const NOTIFICATION_HIDE_MS = 6000
 export interface GlassesViewOptions {
   /** Called right after a terminal frame auto-clears itself. */
   onAutoClear?: () => void
+  /**
+   * Called when the host accepted a render of the current frame (status
+   * "displayed"). Blocked renders — another background app holds the display
+   * lock — are not reported; the retry that gets accepted is. Lets a caller
+   * time something to the frame actually being on the glasses.
+   */
+  onShown?: (vm: GlassesViewModel) => void
 }
 /** Global `setTimeout` handle; the runtime is the owner of this shape. */
 type TimerHandle = ReturnType<typeof setTimeout>
@@ -82,10 +89,12 @@ export class GlassesView {
   private frameShownAt = 0
   private current: GlassesViewModel | null = null
   private readonly onAutoClear?: () => void
+  private readonly onShown?: (vm: GlassesViewModel) => void
 
   constructor(session: MiniappSession, options: GlassesViewOptions = {}) {
     this.session = session
     this.onAutoClear = options.onAutoClear
+    this.onShown = options.onShown
   }
 
   /** Show a frame (throttled) and schedule its heartbeat or auto-clear. */
@@ -126,6 +135,8 @@ export class GlassesView {
     this.lastRenderAt = Date.now()
     const result = await this.session.display.render(this.elements(vm))
     if (generation !== this.generation) return
+    // The host accepted the frame: it is actually on the glasses now.
+    if (result.status !== "blocked") this.onShown?.(vm)
 
     if (vm.phase === "listening" || vm.phase === "thinking" || vm.phase === "streaming") {
       // The heartbeat re-renders the same frame, which also retries a
