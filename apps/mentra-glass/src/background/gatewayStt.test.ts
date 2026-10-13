@@ -18,6 +18,20 @@ function b64(bytes: number[]): string {
   return btoa(String.fromCharCode(...bytes))
 }
 
+/**
+ * Canonical base64 for `byteCount` deterministic bytes. Slices stay 3-byte
+ * aligned so no padding lands mid-string; only the final slice may pad.
+ */
+function largeB64(byteCount: number): string {
+  let text = ""
+  for (let offset = 0; offset < byteCount; offset += 32760) {
+    const size = Math.min(32760, byteCount - offset)
+    const bytes = Array.from({length: size}, (_, index) => (offset + index) % 256)
+    text += btoa(String.fromCharCode(...bytes))
+  }
+  return text
+}
+
 /** Decode an appended audioBase64 payload back to bytes. */
 function decoded(audioBase64: string): number[] {
   return [...atob(audioBase64)].map((char) => char.charCodeAt(0))
@@ -1092,5 +1106,125 @@ describe("GatewaySttCapture", () => {
     expect(requester.callsOf("talk.session.close")).toEqual([
       {method: "talk.session.close", params: {sessionId: "s2"}},
     ])
+  })
+
+  // ── residual branch and boundary coverage ────────────────────────────────
+
+  it("a second finish returns the same promise and closes once", async () => {
+    const {requester, capture, open} = harness()
+    await open()
+    const first = capture.finish()
+    expect(capture.finish()).toBe(first)
+    capture.onTalkEvent({type: "transcript.done", sessionId: "s1", payload: {text: "answer"}})
+    expect(await first).toBe("answer")
+    expect(requester.callsOf("talk.session.close")).toEqual([
+      {method: "talk.session.close", params: {sessionId: "s1"}},
+    ])
+  })
+
+  it("keeps chunks that land exactly on MAX_APPEND_BYTES in one frame", async () => {
+    const {requester, capture} = harness()
+    requester.respond("talk.session.create", () => CREATE_RESULT)
+    capture.begin("sk-1")
+    await vi.advanceTimersByTimeAsync(0)
+    const half = largeB64(MAX_APPEND_BYTES / 2)
+    capture.pushChunk({data: half, format: "pcm_s16le", sampleRate: 16000})
+    capture.pushChunk({data: half, format: "pcm_s16le", sampleRate: 16000})
+    capture.onTalkEvent({type: "session.ready", sessionId: "s1"})
+    await vi.advanceTimersByTimeAsync(0)
+    const appends = requester.appends()
+    expect(appends).toHaveLength(1)
+    expect(atob(appends[0]!.params.audioBase64).length).toBe(MAX_APPEND_BYTES)
+    capture.dispose()
+  })
+
+  it("starts a new frame when a chunk would push the batch past MAX_APPEND_BYTES", async () => {
+    const {requester, capture} = harness()
+    requester.respond("talk.session.create", () => CREATE_RESULT)
+    capture.begin("sk-1")
+    await vi.advanceTimersByTimeAsync(0)
+    capture.pushChunk({data: largeB64(MAX_APPEND_BYTES / 2), format: "pcm_s16le", sampleRate: 16000})
+    capture.pushChunk({data: largeB64(MAX_APPEND_BYTES / 2 + 1), format: "pcm_s16le", sampleRate: 16000})
+    capture.onTalkEvent({type: "session.ready", sessionId: "s1"})
+    await vi.advanceTimersByTimeAsync(0)
+    const appends = requester.appends()
+    expect(appends.map((append) => atob(append.params.audioBase64).length)).toEqual([
+      MAX_APPEND_BYTES / 2,
+      MAX_APPEND_BYTES / 2 + 1,
+    ])
+    capture.dispose()
+  })
+
+  it("prunes stale pre-roll with the default wall clock", async () => {
+    const requester = new FakeRequester()
+    const errors: string[] = []
+    requester.respond("talk.session.create", () => CREATE_RESULT)
+    const capture = new GatewaySttCapture({requester, onError: (message) => errors.push(message)})
+    capture.pushChunk(chunkAt(0))
+    // The un-injected now() is the fake wall clock: advancing it ages the
+    // chunk out of the 1.5 s pre-roll window before begin seeds the capture.
+    await vi.advanceTimersByTimeAsync(2000)
+    capture.begin("sk-1")
+    await vi.advanceTimersByTimeAsync(0)
+    capture.pushChunk(chunkAt(1))
+    capture.onTalkEvent({type: "session.ready", sessionId: "s1"})
+    await vi.advanceTimersByTimeAsync(0)
+    const appends = requester.appends()
+    expect(appends).toHaveLength(1)
+    expect(decoded(appends[0]!.params.audioBase64)).toEqual(preRollBytes(1, 1))
+    expect(errors).toEqual([])
+    capture.dispose()
+  })
+
+  it("a transcript.done without a string text is ignored until a real one lands", async () => {
+    const {capture, open} = harness()
+    await open()
+    const done = capture.finish()
+    await vi.advanceTimersByTimeAsync(0)
+    capture.onTalkEvent({type: "transcript.done", sessionId: "s1", payload: {text: 42}})
+    capture.onTalkEvent({type: "transcript.done", sessionId: "s1"})
+    expect(capture.state).toBe("closing")
+    capture.onTalkEvent({type: "transcript.done", sessionId: "s1", payload: {text: "real answer"}})
+    expect(await done).toBe("real answer")
+  })
+
+  it("an unknown event type for the current session does not settle the capture", async () => {
+    const {capture, open} = harness()
+    await open()
+    const done = capture.finish()
+    await vi.advanceTimersByTimeAsync(0)
+    capture.onTalkEvent({type: "transcript.partial", sessionId: "s1", payload: {text: "partial"}})
+    expect(capture.state).toBe("closing")
+    capture.onTalkEvent({type: "transcript.done", sessionId: "s1", payload: {text: "final"}})
+    expect(await done).toBe("final")
+  })
+
+  it("a create rejection carrying a non-error reports its string form", async () => {
+    const {requester, capture, errors} = harness()
+    const create = deferred<unknown>()
+    requester.respond("talk.session.create", () => create.promise)
+    capture.begin("sk-1")
+    await vi.advanceTimersByTimeAsync(0)
+    create.reject("gateway busy")
+    await vi.advanceTimersByTimeAsync(0)
+    expect(errors).toEqual(["gateway busy"])
+    expect(await capture.finish()).toBeNull()
+    expect(capture.state).toBe("idle")
+  })
+
+  it("an append rejection carrying a non-error reports its string form", async () => {
+    const {requester, capture, errors, setNow, open} = harness()
+    await open()
+    setNow(100)
+    capture.pushChunk(chunkAt(1))
+    requester.respond("talk.session.appendAudio", () => Promise.reject("relay reset"))
+    const done = capture.finish()
+    await vi.advanceTimersByTimeAsync(0)
+    expect(errors).toEqual(["relay reset"])
+    expect(await done).toBeNull()
+    expect(requester.callsOf("talk.session.close")).toEqual([
+      {method: "talk.session.close", params: {sessionId: "s1"}},
+    ])
+    expect(capture.state).toBe("idle")
   })
 })

@@ -292,4 +292,88 @@ describe("NotificationPresenter", () => {
     expect(presenter.queued).toBe(0)
     expect(presenter.showing).toBe(false)
   })
+
+  it("interrupt is a no-op when nothing is on screen or after dispose", () => {
+    const surface = new RecordingSurface()
+    let changes = 0
+    const presenter = makePresenter(surface, () => {
+      changes += 1
+    })
+    presenter.interrupt()
+    expect(changes).toBe(0)
+    expect(presenter.queued).toBe(0)
+    expect(presenter.showing).toBe(false)
+    expect(surface.hideCalls).toBe(0)
+    presenter.dispose()
+    presenter.interrupt()
+    expect(changes).toBe(0)
+    expect(presenter.queued).toBe(0)
+  })
+
+  it("pump with an empty queue stays silent", () => {
+    const surface = new RecordingSurface()
+    let changes = 0
+    const presenter = makePresenter(surface, () => {
+      changes += 1
+    })
+    presenter.pump()
+    expect(changes).toBe(0)
+    expect(surface.shown).toHaveLength(0)
+    expect(surface.hideCalls).toBe(0)
+  })
+
+  it("pump reports a change when it starts a waiting item", () => {
+    const surface = new RecordingSurface()
+    surface.allowed = false
+    let changes = 0
+    const presenter = makePresenter(surface, () => {
+      changes += 1
+    })
+    presenter.add(entry("a", "hello"))
+    expect(changes).toBe(0)
+    surface.allowed = true
+    presenter.pump()
+    expect(changes).toBe(1)
+    expect(surface.shown).toHaveLength(1)
+    expect(presenter.showing).toBe(true)
+  })
+
+  it("interrupt reports the requeue as a change", () => {
+    const surface = new RecordingSurface()
+    let changes = 0
+    const presenter = makePresenter(surface, () => {
+      changes += 1
+    })
+    presenter.add(entry("a", "hello"))
+    presenter.add(entry("b", "from b"))
+    expect(changes).toBe(0)
+    presenter.interrupt()
+    expect(changes).toBe(1)
+    expect(presenter.queued).toBe(2)
+    expect(presenter.showing).toBe(false)
+    expect(surface.hideCalls).toBe(0)
+  })
+
+  it("retain reports a change when queued items were dropped but the on-screen one stayed", () => {
+    const surface = new RecordingSurface()
+    let changes = 0
+    const presenter = makePresenter(surface, () => {
+      changes += 1
+    })
+    presenter.add(entry("a", "hello"))
+    presenter.add(entry("b", "from b"))
+    presenter.retain((kept) => kept.id === "a")
+    expect(changes).toBe(1)
+    expect(presenter.showing).toBe(true)
+    expect(surface.shown).toHaveLength(1)
+    expect(presenter.queued).toBe(0)
+  })
+
+  it("renders an all-empty notification as an empty body page", () => {
+    const surface = new RecordingSurface()
+    const presenter = makePresenter(surface)
+    presenter.add({id: "e1", app: "Messages", packageName: "com.m", title: "", content: ""})
+    expect(surface.shown).toHaveLength(1)
+    expect(surface.shown[0]).toMatchObject({phase: "notification", header: "Messages", body: ""})
+  })
 })

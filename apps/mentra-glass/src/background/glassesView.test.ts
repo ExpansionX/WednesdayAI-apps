@@ -115,6 +115,41 @@ describe("GlassesView", () => {
     view.dispose()
   })
 
+  it("auto-hides a displayed offline frame after 4 s", async () => {
+    const host = new FakeDisplayHost()
+    const view = new GlassesView(asSession(host))
+    view.show({phase: "offline", agentLabel: "default", body: "Connection lost"})
+    await vi.advanceTimersByTimeAsync(0)
+    expect(host.calls).toHaveLength(1)
+    await vi.advanceTimersByTimeAsync(3999)
+    expect(host.calls).toHaveLength(1)
+    await vi.advanceTimersByTimeAsync(1)
+    expect(host.calls.at(-1)).toBe("clear")
+    view.dispose()
+  })
+
+  it("a replacement shown from onShown outlives the previous frame's auto-clear", async () => {
+    const host = new FakeDisplayHost()
+    let view: GlassesView | null = null
+    view = new GlassesView(asSession(host), {
+      onShown: (vm) => {
+        // The controller reacts to the final frame landing by taking the
+        // display with a live frame, mid-renderFrame of the final one.
+        if (vm.phase === "final") {
+          view!.show({phase: "thinking", agentLabel: "default", body: "Working on it"})
+        }
+      },
+    })
+    view.show(finalFrame("Answer"))
+    await vi.advanceTimersByTimeAsync(0)
+    // The final frame's renderFrame armed its 15 s auto-clear after the
+    // replacement took over: that stale timer must not wipe the live frame.
+    await vi.advanceTimersByTimeAsync(FINAL_HIDE_MS + 6000)
+    expect(host.calls).not.toContain("clear")
+    expect(host.lastBodyText()).toBe("Working on it")
+    view!.dispose()
+  })
+
   it("retries blocked terminal frames and keeps the auto-hide deadline fixed", async () => {
     const host = new FakeDisplayHost()
     host.elementStatus = "blocked"

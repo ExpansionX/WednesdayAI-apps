@@ -249,6 +249,7 @@ class FakeConnection {
   }
 
   readonly startCalls: number[] = []
+  readonly stopCalls: number[] = []
 
   async start(): Promise<void> {
     this.startCalls.push(1)
@@ -267,7 +268,9 @@ class FakeConnection {
     this.state = "unpaired"
     if (this.forgetError) throw this.forgetError
   }
-  stop(): void {}
+  stop(): void {
+    this.stopCalls.push(1)
+  }
 
   // ── Test drivers ────────────────────────────────────────────────────────
 
@@ -315,10 +318,15 @@ function makeController(session: FakeSession, connection = new FakeConnection())
   })
 }
 
+/**
+ * Drain pending async work to a macrotask boundary: the microtask queue runs
+ * to completion whatever the await depth, and any due zero-delay timers fire
+ * (later timers are left for the test's explicit advances). Fake timers only:
+ * `advanceTimersByTimeAsync` throws under real timers, and every test in this
+ * file installs them in beforeEach.
+ */
 async function flush(): Promise<void> {
-  for (let index = 0; index < 20; index += 1) {
-    await Promise.resolve()
-  }
+  await vi.advanceTimersByTimeAsync(0)
 }
 
 type Deferred<T> = {promise: Promise<T>; resolve: (value: T) => void; reject: (error: unknown) => void}
@@ -2266,6 +2274,501 @@ describe("AssistantController", () => {
       const send = connection.requests.find((request) => request.method === "chat.send")
       expect(recordParams(send?.params).message).toBe("what is two plus two")
       expect(errorMessages(session)).toEqual([])
+    })
+  })
+
+  describe("failure, disposal, and display-ownership edges", () => {
+    it("starts at most once: a repeated start() registers nothing new", async () => {
+      const session = new FakeSession()
+      const connection = new FakeConnection()
+      stubGateway(connection)
+      const controller = makeController(session, connection)
+      await controller.start()
+      await controller.start()
+
+      expect(session.transcriptSubscriptions()).toHaveLength(1)
+      expect(session.disconnectHandlers).toHaveLength(1)
+      expect(connection.startCalls).toHaveLength(1)
+      expect(session.uiSends.filter((send) => send.channel === "state")).toHaveLength(1)
+    })
+
+    it("does not subscribe or connect when the disconnect lands during the initial seen-apps read", async () => {
+      let releaseSeenApps: ((value: string | null) => void) | undefined
+      const pendingSeenApps = new Promise<string | null>((resolve) => {
+        releaseSeenApps = resolve
+      })
+      const store: KeyValueStore = {
+        get: (key) => (key === NOTIFICATION_APPS_STORAGE_KEY ? pendingSeenApps : Promise.resolve(null)),
+        set: async () => {},
+        delete: async () => {},
+      }
+      const session = new FakeSession(undefined, store)
+      const connection = new FakeConnection()
+
+      const starting = makeController(session, connection).start()
+      // start() is parked on the seen-apps read: the settings read has
+      // resolved and the disconnect lands during the second one.
+      await flush()
+      for (const handler of [...session.disconnectHandlers]) handler()
+      releaseSeenApps?.(null)
+      await flush()
+      await starting
+
+      expect(session.transcriptSubscriptions()).toEqual([])
+      expect(connection.startCalls).toEqual([])
+      expect(session.uiSends).toEqual([])
+    })
+
+    it("drops the mic audio subscription when disposal lands during gateway transcription", async () => {
+      const session = new FakeSession()
+      const connection = new FakeConnection()
+      await startAssistant(session, connection, {querySttMode: "gateway"})
+      expect(session.audioSubscriptions()).toBe(1)
+
+      for (const handler of [...session.disconnectHandlers]) handler()
+      await flush()
+
+      expect(session.audioSubscriptions()).toBe(0)
+    })
+
+    it("tears the connection down once when the disconnect hook fires twice", async () => {
+      const session = new FakeSession()
+      const connection = new FakeConnection()
+      await startAssistant(session, connection)
+
+      for (const handler of [...session.disconnectHandlers]) handler()
+      for (const handler of [...session.disconnectHandlers]) handler()
+
+      expect(connection.stopCalls).toHaveLength(1)
+    })
+
+    // The session's emitters dispatch over a captured listener array: a
+    // co-registered listener that disposes the controller mid-dispatch does
+    // not stop the controller's own callback from running afterwards. These
+    // tests pin that the disposed guards hold in that window.
+    it("ignores an accelerometer sample when a co-listener disposes mid-dispatch", async () => {
+      const session = new FakeSession()
+      const connection = new FakeConnection()
+      let disposeNow = false
+      session.imu.onAccel(() => {
+        if (disposeNow) for (const handler of [...session.disconnectHandlers]) handler()
+      })
+      await startAssistant(session, connection)
+
+      // Prime the tilt detector without firing it.
+      for (const ts of [0, 100, 200]) session.accel(30, ts)
+      const rendersBefore = session.renders.length
+
+      // The firing sample arrives with the controller already disposed.
+      disposeNow = true
+      session.accel(30, 300)
+      await flush()
+      await vi.advanceTimersByTimeAsync(400)
+
+      expect(session.renders.length).toBe(rendersBefore)
+    })
+
+    it("ignores a phone notification when a co-listener disposes mid-dispatch", async () => {
+      const session = new FakeSession()
+      const connection = new FakeConnection()
+      let disposeNow = false
+      session.phone.notifications.on(() => {
+        if (disposeNow) for (const handler of [...session.disconnectHandlers]) handler()
+      })
+      await startAssistant(session, connection)
+      session.uiMessage("settings:set", {notificationApps: ["com.google.android.apps.messaging"]})
+      await flush()
+      const rendersBefore = session.renders.length
+      const storageBefore = await session.storage.get(NOTIFICATION_APPS_STORAGE_KEY)
+
+      disposeNow = true
+      session.notify({notificationId: "n1", title: "Alice", content: "Lunch?"})
+      await flush()
+      await vi.advanceTimersByTimeAsync(400)
+
+      expect(session.renders.length).toBe(rendersBefore)
+      expect(await session.storage.get(NOTIFICATION_APPS_STORAGE_KEY)).toBe(storageBefore)
+    })
+
+    it("neither sends nor paints a wake query when a co-listener disposes mid-dispatch", async () => {
+      const session = new FakeSession()
+      const connection = new FakeConnection()
+      connection.respond("chat.send", () => ({runId: "srv-run-1"}))
+      let disposeNow = false
+      session.transcription.on(() => {
+        if (disposeNow) for (const handler of [...session.disconnectHandlers]) handler()
+      })
+      await startAssistant(session, connection)
+      const rendersBefore = session.renders.length
+      const sendsBefore = connection.requests.length
+
+      // Mentra-mode STT is inactive, so the query would go straight to
+      // chat.send: the mid-dispatch disposal must stop both the send and the
+      // thinking frame.
+      disposeNow = true
+      session.transcript("hey wednesday what time is it", true)
+      await flush()
+      await vi.advanceTimersByTimeAsync(400)
+
+      expect(connection.requests.length).toBe(sendsBefore)
+      expect(session.renders.length).toBe(rendersBefore)
+    })
+
+    it("lets an allowlisted notification take the display from a head-tilt glance", async () => {
+      const session = new FakeSession()
+      const connection = new FakeConnection()
+      await startAssistant(session, connection)
+      vi.setSystemTime(new Date(2026, 9, 13, 14, 5))
+      session.uiMessage("settings:set", {notificationApps: ["com.google.android.apps.messaging"]})
+      await flush()
+
+      for (const ts of [0, 100, 200, 300]) session.accel(30, ts)
+      await vi.advanceTimersByTimeAsync(400)
+      expect(bodyTexts(session).at(-1)).toBe("14:05\nReady")
+
+      session.notify({notificationId: "n1", title: "Alice", content: "Lunch?"})
+      await vi.advanceTimersByTimeAsync(400)
+
+      expect(headerTexts(session).at(-1)).toBe("Messages · Alice")
+      expect(bodyTexts(session).at(-1)).toBe("Lunch?")
+      expect(lastSnapshot(session).queuedNotifications).toBe(0)
+    })
+
+    it("re-shows a notification whose blocked frame was auto-cleared past its window", async () => {
+      const session = new FakeSession()
+      const connection = new FakeConnection()
+      await startAssistant(session, connection)
+      session.uiMessage("settings:set", {notificationApps: ["com.google.android.apps.messaging"]})
+      await flush()
+
+      // The host holds the display lock: every attempt is dropped, so the
+      // frame's 6 s window expires with the page unread.
+      session.renderStatuses = [
+        "blocked",
+        "blocked",
+        "blocked",
+        "blocked",
+        "blocked",
+        "blocked",
+        "blocked",
+        "blocked",
+      ]
+      session.notify({notificationId: "n1", title: "Alice", content: "Lunch?"})
+      await vi.advanceTimersByTimeAsync(6000)
+      // The clear fires at the 6 s deadline and its re-show schedules a
+      // 0 ms render on that same tick; the tick boundary needs a nudge.
+      await vi.advanceTimersByTimeAsync(1)
+
+      // The auto-clear requeued the notification at the front: it restarts
+      // on the glasses instead of being lost with the cleared frame.
+      expect(session.renders).toContainEqual([])
+      expect(headerTexts(session).at(-1)).toBe("Messages · Alice")
+      expect(bodyTexts(session).at(-1)).toBe("Lunch?")
+      expect(lastSnapshot(session).queuedNotifications).toBe(0)
+    })
+
+    it("caps the seen-app list at 50 as notifications arrive", async () => {
+      const session = new FakeSession()
+      const connection = new FakeConnection()
+      await startAssistant(session, connection)
+
+      for (let index = 0; index < 55; index += 1) {
+        session.notify({
+          notificationId: `n${index}`,
+          title: "T",
+          content: "C",
+          packageName: `com.app${index}`,
+          app: `App${index}`,
+        })
+      }
+      await flush()
+
+      const seen = lastSnapshot(session).seenNotificationApps
+      expect(seen).toHaveLength(50)
+      expect(seen[0]).toEqual({packageName: "com.app54", app: "App54"})
+      expect(seen[49]).toEqual({packageName: "com.app5", app: "App5"})
+      const stored = JSON.parse((await session.storage.get(NOTIFICATION_APPS_STORAGE_KEY)) ?? "[]") as unknown[]
+      expect(stored).toHaveLength(50)
+    })
+
+    it("loads seen apps from storage, skipping malformed entries", async () => {
+      const stored = [
+        42,
+        null,
+        "nope",
+        {packageName: "", app: "Empty"},
+        {packageName: "com.a"},
+        {packageName: "com.b", app: ""},
+        {packageName: "com.a", app: "AppA"},
+        {packageName: "com.b", app: "AppB"},
+      ]
+      const session = new FakeSession({[NOTIFICATION_APPS_STORAGE_KEY]: JSON.stringify(stored)})
+      const connection = new FakeConnection()
+      await startAssistant(session, connection)
+
+      expect(lastSnapshot(session).seenNotificationApps).toEqual([
+        {packageName: "com.a", app: "AppA"},
+        {packageName: "com.b", app: "AppB"},
+      ])
+    })
+
+    it("caps seen apps loaded from storage at 50", async () => {
+      const stored = Array.from({length: 55}, (_, index) => ({packageName: `com.app${index}`, app: `App${index}`}))
+      const session = new FakeSession({[NOTIFICATION_APPS_STORAGE_KEY]: JSON.stringify(stored)})
+      const connection = new FakeConnection()
+      await startAssistant(session, connection)
+
+      const seen = lastSnapshot(session).seenNotificationApps
+      expect(seen).toHaveLength(50)
+      expect(seen[49]).toEqual({packageName: "com.app49", app: "App49"})
+    })
+
+    it("starts with an empty seen list when the stored seen apps cannot be parsed", async () => {
+      const session = new FakeSession({[NOTIFICATION_APPS_STORAGE_KEY]: "not json"})
+      const connection = new FakeConnection()
+      await startAssistant(session, connection)
+
+      expect(lastSnapshot(session).seenNotificationApps).toEqual([])
+    })
+
+    it("honours a stored cloud wake STT mode after a restart", async () => {
+      const session = new FakeSession({[SETTINGS_STORAGE_KEY]: JSON.stringify({wakeSttMode: "cloud"})})
+      const connection = new FakeConnection()
+      await startAssistant(session, connection)
+
+      expect(session.transcriptSubscriptions().at(-1)).toEqual({forceLocal: false})
+    })
+
+    it("shows (no reply) when the gateway final event carries no text", async () => {
+      const session = new FakeSession()
+      const connection = new FakeConnection()
+      connection.respond("chat.send", () => ({runId: "srv-run-1"}))
+      await startAssistant(session, connection)
+
+      await ask(session, connection, "what is two plus two")
+      connection.emitEvent("chat", {runId: "srv-run-1", state: "final", message: {content: []}})
+      await flush()
+      await vi.advanceTimersByTimeAsync(400)
+
+      expect(bodyTexts(session).at(-1)).toBe("(no reply)")
+    })
+
+    it("ignores chat events that belong to no active run", async () => {
+      const session = new FakeSession()
+      const connection = new FakeConnection()
+      connection.respond("chat.send", () => ({runId: "srv-run-1"}))
+      await startAssistant(session, connection)
+
+      await ask(session, connection, "what is two plus two")
+      await vi.advanceTimersByTimeAsync(0)
+      const rendersAtThinking = session.renders.length
+
+      connection.emitEvent("chat", {
+        runId: "srv-run-other",
+        state: "delta",
+        message: {content: [{type: "text", text: "hijacked"}]},
+      })
+      await flush()
+      // The render throttle holds 400 ms: a hijacking repaint would only
+      // surface after this advance.
+      await vi.advanceTimersByTimeAsync(400)
+      expect(session.renders.length).toBe(rendersAtThinking)
+      expect(bodyTexts(session).at(-1)).toBe("what is two plus two")
+      expect(headerTexts(session).at(-1)).toContain("Thinking")
+
+      // The live run still owns the frame: its own final paints normally.
+      connection.emitEvent("chat", {
+        runId: "srv-run-1",
+        state: "final",
+        message: {content: [{type: "text", text: "Four"}]},
+      })
+      await flush()
+      await vi.advanceTimersByTimeAsync(400)
+      expect(bodyTexts(session).at(-1)).toBe("Four")
+    })
+
+    it("uses no triggers when voicewake.get returns a malformed trigger list", async () => {
+      const session = new FakeSession()
+      const connection = new FakeConnection()
+      connection.respond("voicewake.get", () => ({triggers: "wednesday"}))
+      connection.respond("agents.list", () => ({
+        defaultId: "main",
+        mainKey: "main",
+        scope: "per-sender" as const,
+        agents: [{id: "main", name: "Main"}],
+      }))
+      await makeController(session, connection).start()
+      connection.hello("agent:main:main")
+      await flush()
+
+      expect(lastSnapshot(session).triggers).toEqual([])
+
+      // A malformed list is no list: speech stays idle.
+      connection.respond("chat.send", () => ({runId: "srv-run-1"}))
+      session.transcript("hey wednesday what time is it", true)
+      await flush()
+      expect(connection.requests.some((request) => request.method === "chat.send")).toBe(false)
+    })
+
+    it("hydrates nothing when the gateway hello arrives after disposal", async () => {
+      const session = new FakeSession()
+      const connection = new FakeConnection()
+      stubGateway(connection)
+      const controller = makeController(session, connection)
+      await controller.start()
+      const sendsAtDispose = session.uiSends.length
+
+      for (const handler of [...session.disconnectHandlers]) handler()
+      // A hello from the dying socket lands after disposal: no hydration at all.
+      connection.hello("agent:main:main")
+      await flush()
+
+      expect(connection.requests).toEqual([])
+      expect(session.uiSends.length).toBe(sendsAtDispose)
+    })
+
+    it("applies nothing when a settings change settles after disposal", async () => {
+      const gate = deferred<void>()
+      let gateWrites = false
+      const base = memoryStore()
+      const store: KeyValueStore = {
+        get: (key) => base.get(key),
+        set: async (key, value) => {
+          if (gateWrites && key === SETTINGS_STORAGE_KEY) await gate.promise
+          await base.set(key, value)
+        },
+        delete: (key) => base.delete(key),
+      }
+      const session = new FakeSession(undefined, store)
+      const connection = new FakeConnection()
+      await startAssistant(session, connection)
+
+      gateWrites = true
+      session.uiMessage("settings:set", {wakeSttMode: "cloud"})
+      await flush()
+      for (const handler of [...session.disconnectHandlers]) handler()
+      gateWrites = false
+      gate.resolve()
+      await flush()
+
+      // The save finished while disposed: the mode change must not
+      // re-subscribe transcription on a dead session.
+      expect(session.transcriptSubscriptions()).toEqual([])
+    })
+
+    it("drops the mic subscription when query transcription moves off the gateway", async () => {
+      const session = new FakeSession()
+      const connection = new FakeConnection()
+      await startAssistant(session, connection, {querySttMode: "gateway"})
+      expect(session.audioSubscriptions()).toBe(1)
+
+      session.uiMessage("settings:set", {querySttMode: "mentra"})
+      await flush()
+
+      expect(session.audioSubscriptions()).toBe(0)
+    })
+
+    it("ignores a notifications:allow intent with a blank package name", async () => {
+      const session = new FakeSession()
+      const connection = new FakeConnection()
+      await startAssistant(session, connection)
+      const statesBefore = session.uiSends.filter((send) => send.channel === "state").length
+
+      session.uiMessage("notifications:allow", {packageName: "   ", enabled: true})
+      await flush()
+
+      const stored = JSON.parse((await session.storage.get(SETTINGS_STORAGE_KEY)) ?? "{}") as {
+        notificationApps?: string[]
+      }
+      expect(stored.notificationApps).toBeUndefined()
+      expect(session.uiSends.filter((send) => send.channel === "state").length).toBe(statesBefore)
+      expect(lastSnapshot(session).settings.notificationApps).toEqual([])
+    })
+
+    it("ignores a notifications:allow intent that matches the current setting", async () => {
+      const session = new FakeSession()
+      const connection = new FakeConnection()
+      await startAssistant(session, connection)
+      session.uiMessage("notifications:allow", {packageName: "com.a", enabled: true})
+      await flush()
+      const statesBefore = session.uiSends.filter((send) => send.channel === "state").length
+
+      session.uiMessage("notifications:allow", {packageName: "com.a", enabled: true})
+      await flush()
+
+      const stored = JSON.parse((await session.storage.get(SETTINGS_STORAGE_KEY)) ?? "{}") as {
+        notificationApps?: string[]
+      }
+      expect(stored.notificationApps).toEqual(["com.a"])
+      expect(session.uiSends.filter((send) => send.channel === "state").length).toBe(statesBefore)
+    })
+
+    it("stays silent when an unpair and late connection churn arrive after disposal", async () => {
+      const session = new FakeSession()
+      const connection = new FakeConnection()
+      let settleForget: ((error: unknown) => void) | undefined
+      connection.forget = () =>
+        new Promise<void>((_resolve, reject) => {
+          settleForget = reject
+        })
+      await startAssistant(session, connection)
+
+      session.uiMessage("pair:forget", {})
+      await flush()
+      for (const handler of [...session.disconnectHandlers]) handler()
+      const sendsAtDispose = session.uiSends.length
+      const rendersAtDispose = session.renders.length
+
+      settleForget?.(new Error("socket gone"))
+      connection.setState("offline", "late drop")
+      connection.emitEvent("voicewake.changed", {triggers: ["late"]})
+      connection.emitEvent("chat", {
+        runId: "x",
+        state: "delta",
+        message: {content: [{type: "text", text: "late"}]},
+      })
+      await flush()
+
+      expect(session.uiSends.length).toBe(sendsAtDispose)
+      expect(session.renders.length).toBe(rendersAtDispose)
+      expect(errorMessages(session)).toEqual([])
+    })
+
+    it("stays silent when a pairing fails after disposal", async () => {
+      const session = new FakeSession()
+      const connection = new FakeConnection()
+      let failPair: ((error: unknown) => void) | undefined
+      connection.pair = () =>
+        new Promise((_resolve, reject) => {
+          failPair = reject
+        })
+      await startAssistant(session, connection)
+      const setupCode = base64UrlEncode(
+        new TextEncoder().encode(JSON.stringify({url: "wss://late.example.ts.net", bootstrapToken: "boot"})),
+      )
+
+      session.uiMessage("pair:code", {code: setupCode})
+      await flush()
+      for (const handler of [...session.disconnectHandlers]) handler()
+      const sendsAtDispose = session.uiSends.length
+
+      failPair?.(new Error("late pairing failure"))
+      await flush()
+
+      expect(session.uiSends.length).toBe(sendsAtDispose)
+      expect(errorMessages(session)).toEqual([])
+    })
+
+    it("reports the raw gateway URL when it cannot be parsed", async () => {
+      const session = new FakeSession()
+      const connection = new FakeConnection()
+      await startAssistant(session, connection)
+      connection.gatewayUrl = "twilight-zone"
+
+      session.uiMessage("state:get", {})
+      await flush()
+
+      expect(lastSnapshot(session).gatewayHost).toBe("twilight-zone")
     })
   })
 })

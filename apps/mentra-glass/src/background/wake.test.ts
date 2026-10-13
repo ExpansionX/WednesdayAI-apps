@@ -118,6 +118,15 @@ describe("findWake", () => {
   it("prefers the longest trigger at the earliest match position", () => {
     expect(findWake("ok wednesday prime go", ["wednesday", "wednesday prime"])).toEqual({query: "go"})
   })
+
+  it("returns null for an empty or punctuation-only transcript", () => {
+    expect(findWake("", TRIGGERS)).toBeNull()
+    expect(findWake("?! ... ?", TRIGGERS)).toBeNull()
+  })
+
+  it("ignores triggers with no word characters", () => {
+    expect(findWake("hey there", ["!!!", ""])).toBeNull()
+  })
 })
 
 describe("WakeTracker", () => {

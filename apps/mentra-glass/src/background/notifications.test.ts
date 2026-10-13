@@ -75,6 +75,18 @@ describe("paginate", () => {
     expect(pages.join(" ")).toBe(text)
   })
 
+  it("keeps an exact maxChars fit on one page and splits one character over", () => {
+    // Two words joining to exactly maxChars stay together; a single word of
+    // exactly maxChars stays whole; one more character starts a new page.
+    const exact = `${"a".repeat(79)} ${"b".repeat(80)}`
+    expect(paginate(exact, 160)).toEqual([exact])
+    expect(paginate("c".repeat(160), 160)).toEqual(["c".repeat(160)])
+    expect(paginate(`${"a".repeat(79)} ${"b".repeat(81)}`, 160)).toEqual([
+      "a".repeat(79),
+      "b".repeat(81),
+    ])
+  })
+
   it("hard-splits a word longer than maxChars", () => {
     const pages = paginate("x".repeat(400), 160)
     expect(pages.map((page) => page.length)).toEqual([160, 160, 80])
@@ -131,6 +143,18 @@ describe("NotificationQueue", () => {
     expect(queue.shift()?.content).toBe("B2")
     expect(queue.shift()?.id).toBe("a")
     expect(queue.shift()?.id).toBe("c")
+  })
+
+  it("unshift at the cap drops the newest waiting item", () => {
+    const queue = new NotificationQueue()
+    for (let index = 1; index <= NOTIFICATION_QUEUE_LIMIT; index += 1) queue.enqueue(item(`n${index}`))
+    queue.unshift(item("fresh"))
+    expect(queue.size).toBe(NOTIFICATION_QUEUE_LIMIT)
+    expect(queue.shift()?.id).toBe("fresh")
+    for (let index = 1; index < NOTIFICATION_QUEUE_LIMIT; index += 1) {
+      expect(queue.shift()?.id).toBe(`n${index}`)
+    }
+    expect(queue.shift()).toBeNull()
   })
 
   it("remove returns false for unknown ids", () => {
