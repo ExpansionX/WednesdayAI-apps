@@ -1,10 +1,10 @@
 ---
 workstream: glasses-platform
 title: "Glasses platform: owned Even Hub on Even G2 via MentraOS"
-status: planned
+status: in-progress
 owner: unassigned
 staging_pointers: []
-updated: 2026-10-13
+updated: 2026-10-14
 ---
 
 # Glasses platform
@@ -13,6 +13,9 @@ Intent: an "owned Even Hub" on Even G2 (iOS phone). WednesdayAI provides the AI,
 
 - Plan: [plans/2026-10-13-glasses-platform-exploration/plan.md](plans/2026-10-13-glasses-platform-exploration/plan.md)
 - Options and evidence: [options.md](plans/2026-10-13-glasses-platform-exploration/options.md)
+- Phase A implementation plan: [plans/2026-10-13-glasses-platform-phase-a/plan.md](plans/2026-10-13-glasses-platform-phase-a/plan.md)
+- Phase A code review: [reviews/2026-10-14-code-review.md](plans/2026-10-13-glasses-platform-phase-a/reviews/2026-10-14-code-review.md)
+- Phase A dev log: [dev-docs/logs/2026-10-14-glasses-phase-a.md](../../logs/2026-10-14-glasses-phase-a.md)
 
 Findings (`ExpansionX/WednesdayAI-apps`):
 
