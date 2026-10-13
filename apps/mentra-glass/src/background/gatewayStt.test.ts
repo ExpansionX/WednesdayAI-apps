@@ -396,17 +396,27 @@ describe("GatewaySttCapture", () => {
     const finishA = capture.finish()
     capture.abort()
     expect(await finishA).toBeNull()
+    // The aborted create is still in flight: B is fenced until it settles
+    // and its session retires.
     const createB = deferred<unknown>()
     requester.respond("talk.session.create", () => createB.promise)
     capture.begin("sk-2")
-    const finishB = capture.finish()
     await vi.advanceTimersByTimeAsync(0)
+    expect(requester.callsOf("talk.session.create")).toHaveLength(1)
     createA.resolve(CREATE_RESULT)
     await vi.advanceTimersByTimeAsync(0)
-    expect(capture.state).toBe("opening")
+    expect(capture.state).toBe("idle")
     expect(requester.callsOf("talk.session.close")).toEqual([
       {method: "talk.session.close", params: {sessionId: "s1"}},
     ])
+    // The fence holds until the server retires s1.
+    capture.begin("sk-2")
+    await vi.advanceTimersByTimeAsync(0)
+    expect(requester.callsOf("talk.session.create")).toHaveLength(1)
+    capture.onTalkEvent({type: "session.closed", sessionId: "s1"})
+    capture.begin("sk-2")
+    const finishB = capture.finish()
+    await vi.advanceTimersByTimeAsync(0)
     createB.resolve({sessionId: "s2", audio: CREATE_RESULT.audio})
     await vi.advanceTimersByTimeAsync(0)
     capture.onTalkEvent({type: "session.ready", sessionId: "s2"})
@@ -643,6 +653,110 @@ describe("GatewaySttCapture", () => {
     expect(requester.callsOf("talk.session.create")).toHaveLength(1)
     capture.onTalkEvent({type: "session.closed", sessionId: "s1"})
     capture.begin("sk-2")
+    await vi.advanceTimersByTimeAsync(0)
+    expect(requester.callsOf("talk.session.create")).toHaveLength(2)
+    capture.dispose()
+  })
+
+  // ── residual round: R-A late create, R-B terminal before finish, R-C pending fence ──
+
+  it("a create landing after the finish deadline is stale: closed once, never opened", async () => {
+    const {requester, capture} = harness()
+    const create = deferred<unknown>()
+    requester.respond("talk.session.create", () => create.promise)
+    capture.begin("sk-1")
+    await vi.advanceTimersByTimeAsync(0)
+    const done = capture.finish()
+    await vi.advanceTimersByTimeAsync(STT_RESULT_TIMEOUT_MS)
+    expect(await done).toBeNull()
+    expect(capture.state).toBe("idle")
+    // The late create resolves now: close its session exactly once, never
+    // transition to open, never flush.
+    create.resolve(CREATE_RESULT)
+    await vi.advanceTimersByTimeAsync(0)
+    expect(capture.state).toBe("idle")
+    expect(capture.active).toBe(false)
+    expect(requester.callsOf("talk.session.close")).toEqual([
+      {method: "talk.session.close", params: {sessionId: "s1"}},
+    ])
+    expect(requester.appends()).toHaveLength(0)
+    capture.pushChunk(chunkAt(1))
+    await vi.advanceTimersByTimeAsync(250)
+    expect(requester.appends()).toHaveLength(0)
+  })
+
+  it("resolves finish immediately when a terminal failure arrived before it", async () => {
+    const {requester, capture, errors} = harness()
+    requester.respond("talk.session.create", () => CREATE_RESULT)
+    capture.begin("sk-1")
+    await vi.advanceTimersByTimeAsync(0)
+    // The provider fails and the server retires the session before finish.
+    capture.onTalkEvent({type: "session.closed", sessionId: "s1"})
+    const done = capture.finish()
+    // No readiness wait, no deadline: the outcome is already known.
+    expect(capture.state).toBe("idle")
+    expect(await done).toBeNull()
+    expect(errors).toEqual([])
+    // The server already retired the session: no close request goes out.
+    expect(requester.callsOf("talk.session.close")).toHaveLength(0)
+  })
+
+  it("resolves finish with a transcript that arrived before it", async () => {
+    const {requester, capture} = harness()
+    requester.respond("talk.session.create", () => CREATE_RESULT)
+    capture.begin("sk-1")
+    await vi.advanceTimersByTimeAsync(0)
+    capture.onTalkEvent({type: "transcript.done", sessionId: "s1", payload: {text: "  early  "}})
+    const done = capture.finish()
+    expect(capture.state).toBe("idle")
+    expect(await done).toBe("early")
+    // The session still gets closed exactly once.
+    expect(requester.callsOf("talk.session.close")).toEqual([
+      {method: "talk.session.close", params: {sessionId: "s1"}},
+    ])
+  })
+
+  it("an aborted pending create fences begin until the create retires", async () => {
+    const {requester, capture, errors} = harness()
+    const create = deferred<unknown>()
+    requester.respond("talk.session.create", () => create.promise)
+    capture.begin("sk-1")
+    await vi.advanceTimersByTimeAsync(0)
+    capture.abort()
+    expect(capture.state).toBe("idle")
+    // The first create is still in flight: a second create now would CONFLICT.
+    capture.begin("sk-2")
+    await vi.advanceTimersByTimeAsync(0)
+    expect(requester.callsOf("talk.session.create")).toHaveLength(1)
+    expect(errors).toEqual([])
+    // The create lands: its session is closed and the fence keeps holding.
+    create.resolve(CREATE_RESULT)
+    await vi.advanceTimersByTimeAsync(0)
+    expect(requester.callsOf("talk.session.close")).toEqual([
+      {method: "talk.session.close", params: {sessionId: "s1"}},
+    ])
+    capture.begin("sk-2")
+    await vi.advanceTimersByTimeAsync(0)
+    expect(requester.callsOf("talk.session.create")).toHaveLength(1)
+    capture.onTalkEvent({type: "session.closed", sessionId: "s1"})
+    capture.begin("sk-2")
+    await vi.advanceTimersByTimeAsync(0)
+    expect(requester.callsOf("talk.session.create")).toHaveLength(2)
+    capture.dispose()
+  })
+
+  it("the pending-create fence lifts after the timeout when the create never settles", async () => {
+    const {requester, capture} = harness()
+    const create = deferred<unknown>()
+    requester.respond("talk.session.create", () => create.promise)
+    capture.begin("sk-1")
+    await vi.advanceTimersByTimeAsync(0)
+    capture.abort()
+    await vi.advanceTimersByTimeAsync(STT_RESULT_TIMEOUT_MS - 1)
+    capture.begin("sk-2")
+    expect(requester.callsOf("talk.session.create")).toHaveLength(1)
+    await vi.advanceTimersByTimeAsync(1)
+    capture.begin("sk-3")
     await vi.advanceTimersByTimeAsync(0)
     expect(requester.callsOf("talk.session.create")).toHaveLength(2)
     capture.dispose()

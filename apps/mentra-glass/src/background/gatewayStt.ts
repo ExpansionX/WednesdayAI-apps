@@ -23,14 +23,19 @@
  * finish resolve null. After a close the capture is fenced until the
  * server's `session.closed` arrives (or the fence times out): begin is
  * ignored, because the gateway retires the drained session asynchronously
- * and a create in that window would fail with CONFLICT. Once finish starts
- * the capture is no longer active, so a later question cannot consume
- * another utterance's transcript. Continuations resumed after an await
- * re-check the utterance identity, so a stale capture can never touch the
- * fields or timers of its replacement. LC3 or non-16 kHz chunks never reach
- * appendAudio. `talk.event` payloads are parsed defensively: anything
- * without a string `type` and `sessionId`, or naming another session, is
- * ignored.
+ * and a create in that window would fail with CONFLICT. The fence also
+ * covers a create that was still in flight when the capture settled: it
+ * holds until that create lands, its session (if any) is retired. A create
+ * that lands after its utterance was cancelled or already finished is
+ * stale: its session is closed exactly once and never opened. Once finish
+ * starts the capture is no longer active, so a later question cannot
+ * consume another utterance's transcript, and a terminal event that
+ * arrived before finish settles it immediately from the cache. Continuations
+ * resumed after an await re-check the utterance identity, so a stale
+ * capture can never touch the fields or timers of its replacement. LC3 or
+ * non-16 kHz chunks never reach appendAudio. `talk.event` payloads are
+ * parsed defensively: anything without a string `type` and `sessionId`, or
+ * naming another session, is ignored.
  */
 
 import type {AudioChunkData} from "@mentra/miniapp/background"
@@ -91,7 +96,11 @@ export class GatewaySttCapture {
   private closedByServer = false
   /** A closed session awaiting the server's asynchronous drain (fence on begin). */
   private fencedSessionId: string | null = null
+  /** A create was in flight when the capture settled: fence begin until it retires. */
+  private fencePending = false
   private fenceTimer: TimerHandle | null = null
+  /** This utterance's finish ran and settled; its late create is stale. */
+  private finishSettled = false
   private createPromise: Promise<CreateOutcome> | null = null
   private finishPromise: Promise<string | null> | null = null
   private resolveFinish: ((value: string | null) => void) | null = null
@@ -135,11 +144,13 @@ export class GatewaySttCapture {
   /** Open a transcription session seeded with the pre-roll. Ignored unless idle. */
   begin(sessionKey: string): void {
     // A fenced capture means the server is still draining the previous
-    // session; a create now would fail with CONFLICT.
-    if (this.disposed || this.fencedSessionId !== null || this.stateValue !== "idle") return
+    // session — or its create is still in flight; a create now would fail
+    // with CONFLICT.
+    if (this.disposed || this.fencePending || this.fencedSessionId !== null || this.stateValue !== "idle") return
     this.utterance += 1
     const utterance = this.utterance
     this.abortRequested = false
+    this.finishSettled = false
     this.readySeen = false
     this.readyWaiter = null
     this.signalReady = null
@@ -160,9 +171,19 @@ export class GatewaySttCapture {
   finish(): Promise<string | null> {
     if (this.finishPromise) return this.finishPromise
     if (this.stateValue === "idle") return Promise.resolve(null)
-    this.finishPromise = new Promise<string | null>((resolve) => {
+    const promise = new Promise<string | null>((resolve) => {
       this.resolveFinish = resolve
     })
+    this.finishPromise = promise
+    if (this.terminalSeen || this.transcriptText !== null) {
+      // A terminal event already landed (provider failure, server close, or
+      // an early transcript): the outcome is known — no readiness wait, no
+      // final flush, no deadline. settle() skips the close when the server
+      // already retired the session. (Return the local: settle nulls the
+      // field on its way out.)
+      this.trySettleFromTerminal()
+      return promise
+    }
     // The transcript budget starts here — including any wait for
     // session.ready — so it is armed before runFinish's first await. The
     // timeout also closes: an utterance that never became ready still owns
@@ -267,12 +288,15 @@ export class GatewaySttCapture {
     this.createPromise = null
     if (!outcome.ok) {
       if (!this.abortRequested && !this.disposed) this.onError?.(outcome.message)
+      // No session exists: a pending fence has nothing left to wait for.
+      this.clearFence()
       this.settle(null)
       return
     }
-    if (this.abortRequested || this.disposed) {
-      // Cancelled while the create was in flight: close the fresh session
-      // exactly once and never stream audio into it.
+    if (this.abortRequested || this.disposed || this.finishSettled) {
+      // Cancelled while the create was in flight, or the utterance already
+      // finished (deadline or otherwise): the create is stale — close the
+      // fresh session exactly once and never stream audio into it.
       this.requestClose(outcome.sessionId)
       this.settle(null)
       return
@@ -378,10 +402,19 @@ export class GatewaySttCapture {
     this.closedSessionId = sessionId
     // The close ack races the server's transcription drain, which keeps the
     // session until commitInput finishes: fence begin until session.closed.
-    this.clearFence()
+    this.armFence()
     this.fencedSessionId = sessionId
-    this.fenceTimer = setTimeout(() => this.clearFence(), STT_RESULT_TIMEOUT_MS)
     void this.requester.request("talk.session.close", {sessionId}).catch(() => {})
+  }
+
+  /** Fence begin until session.closed (or the timeout); the id may still be unknown. */
+  private armFence(): void {
+    if (this.fenceTimer !== null) clearTimeout(this.fenceTimer)
+    this.fenceTimer = setTimeout(() => {
+      this.fenceTimer = null
+      this.fencedSessionId = null
+      this.fencePending = false
+    }, STT_RESULT_TIMEOUT_MS)
   }
 
   private clearFence(): void {
@@ -390,11 +423,13 @@ export class GatewaySttCapture {
       this.fenceTimer = null
     }
     this.fencedSessionId = null
+    this.fencePending = false
   }
 
   /** End the utterance: clear every timer and field, resolve finish, go idle. */
   private settle(value: string | null): void {
     const resolve = this.resolveFinish
+    if (resolve !== null) this.finishSettled = true
     this.clearTimer("flushTimer")
     this.clearTimer("maxTimer")
     this.clearTimer("terminalTimer")
@@ -406,6 +441,12 @@ export class GatewaySttCapture {
     this.signalReady = null
     this.readyWaiter = null
     signal?.()
+    if (this.createPromise !== null && !this.disposed) {
+      // The create is still in flight: fence the next begin until it settles
+      // and its session (if any) retires — racing it would fail with CONFLICT.
+      this.fencePending = true
+      this.armFence()
+    }
     this.pending = []
     this.sessionId = null
     this.closedSessionId = null
