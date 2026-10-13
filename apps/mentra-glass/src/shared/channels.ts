@@ -61,6 +61,8 @@ export interface Channels {
   "pair:forget": Record<string, never>
   /** Patch settings; omitted fields stay unchanged. */
   "settings:set": Partial<GlassSettings>
+  /** Enable or disable one Android app in the notification allowlist. */
+  "notifications:allow": {packageName: string; enabled: boolean}
   /** Enable or disable the microphone test. */
   "mictest:set": {enabled: boolean}
 

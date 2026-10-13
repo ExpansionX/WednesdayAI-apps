@@ -193,23 +193,25 @@ describe("NotificationPresenter", () => {
     const presenter = makePresenter(surface, () => {
       changes += 1
     })
-    presenter.add(entry("a", "hello"))
-    presenter.add(entry("b", "from b"))
-    presenter.add(entry("c", "from c"))
+    // add() reports through its return value (the controller pushes a
+    // single snapshot per intake); removals and advances report onChange.
+    expect(presenter.add(entry("a", "hello"))).toBe(true)
+    expect(presenter.add(entry("b", "from b"))).toBe(true)
+    expect(presenter.add(entry("c", "from c"))).toBe(true)
     expect(presenter.queued).toBe(2)
-    expect(changes).toBe(3)
+    expect(changes).toBe(0)
     vi.advanceTimersByTime(NOTIFICATION_PAGE_MS)
-    expect(changes).toBe(4)
+    expect(changes).toBe(1)
     presenter.dismiss("c")
-    expect(changes).toBe(5)
+    expect(changes).toBe(2)
   })
 
   it("a repost of the showing notification does not restart it", () => {
     const surface = new RecordingSurface()
     const presenter = makePresenter(surface)
-    presenter.add(entry("a", "hello"))
+    expect(presenter.add(entry("a", "hello"))).toBe(true)
     expect(surface.shown).toHaveLength(1)
-    presenter.add({...entry("a", "updated"), title: "A2"})
+    expect(presenter.add({...entry("a", "updated"), title: "A2"})).toBe(false)
     expect(surface.shown).toHaveLength(1)
     expect(presenter.queued).toBe(0)
     expect(presenter.showing).toBe(true)

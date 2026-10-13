@@ -122,6 +122,8 @@ export class AssistantController {
   private readonly tilt = new TiltDetector()
   private readonly notifications: NotificationPresenter
   private seenApps: NotificationAppOption[] = []
+  /** JSON of the last successfully persisted seen-app list. */
+  private seenAppsPersisted: string | null = null
   /** Gateway transcription of the spoken question; Mentra's transcript is the fallback. */
   private readonly stt: GatewaySttCapture
   /** One "transcription unavailable" warning per gateway hello. */
@@ -476,31 +478,36 @@ export class AssistantController {
     if (this.disposed) return
     const item = notificationFromEvent(data)
     if (!item) return
-    this.recordSeenApp(item)
-    if (this.settings.notificationApps.includes(item.packageName)) this.notifications.add(item)
-    this.pushState()
+    const seenChanged = this.recordSeenApp(item)
+    // At most one state push per intake: add() reports its change instead
+    // of pushing through onChange.
+    const queueChanged =
+      this.settings.notificationApps.includes(item.packageName) && this.notifications.add(item)
+    if (seenChanged || queueChanged) this.pushState()
   }
 
-  /** Move the app to the front of the seen list, cap it, and persist changes. */
-  private recordSeenApp(item: QueuedNotification): void {
+  /**
+   * Move the app to the front of the seen list, cap it; true when the list
+   * differs from the last successfully persisted one, which is also what
+   * decides the write: a failed write stays un-persisted, so the next
+   * notification from the same app retries it.
+   */
+  private recordSeenApp(item: QueuedNotification): boolean {
     const entry: NotificationAppOption = {packageName: item.packageName, app: item.app}
     const rest = this.seenApps.filter((seen) => seen.packageName !== entry.packageName)
     const next = [entry, ...rest]
     if (next.length > MAX_SEEN_APPS) next.length = MAX_SEEN_APPS
-    const changed =
-      next.length !== this.seenApps.length ||
-      next.some(
-        (seen, index) =>
-          seen.app !== this.seenApps[index]?.app || seen.packageName !== this.seenApps[index]?.packageName,
-      )
     this.seenApps = next
-    if (!changed) return
-    void this.saveSeenApps()
+    const snapshot = JSON.stringify(next)
+    if (snapshot === this.seenAppsPersisted) return false
+    void this.saveSeenApps(snapshot)
+    return true
   }
 
-  private async saveSeenApps(): Promise<void> {
+  private async saveSeenApps(snapshot: string): Promise<void> {
     try {
-      await this.store.set(NOTIFICATION_APPS_STORAGE_KEY, JSON.stringify(this.seenApps))
+      await this.store.set(NOTIFICATION_APPS_STORAGE_KEY, snapshot)
+      this.seenAppsPersisted = snapshot
     } catch (err) {
       this.pushError(errorMessage(err, "Could not save notification apps"))
     }
@@ -522,6 +529,9 @@ export class AssistantController {
         if (apps.length >= MAX_SEEN_APPS) break
       }
       this.seenApps = apps
+      // Storage holds this list already: an unchanged repost must not
+      // rewrite it.
+      this.seenAppsPersisted = JSON.stringify(apps)
     } catch {
       this.seenApps = []
     }
@@ -801,6 +811,10 @@ export class AssistantController {
     )
     this.unsubs.push(
       this.session.ui.on("pair:forget", () => {
+        // Unpairing tears the gateway socket down the same way re-pairing
+        // replaces it: retire any live frame first, or a pending
+        // transcription falls back to a send on a dead one.
+        this.retireAssistantFrame()
         void Promise.resolve(this.connection.forget()).then(
           () => this.pushState(),
           (err: unknown) => {
@@ -813,6 +827,21 @@ export class AssistantController {
     this.unsubs.push(
       this.session.ui.on("settings:set", (patch) => {
         void this.updateSettings(patch)
+      }),
+    )
+    this.unsubs.push(
+      this.session.ui.on("notifications:allow", ({packageName, enabled}) => {
+        // One app per intent: checkboxes build on the background's own list,
+        // so a snapshot racing a tick can never drop another app's choice.
+        const name = packageName.trim()
+        if (!name) return
+        const has = this.settings.notificationApps.includes(name)
+        if (enabled === has) return
+        void this.updateSettings({
+          notificationApps: enabled
+            ? [...this.settings.notificationApps, name]
+            : this.settings.notificationApps.filter((existing) => existing !== name),
+        })
       }),
     )
     this.unsubs.push(this.session.ui.on("mictest:set", ({enabled}) => this.setMicTest(enabled)))
@@ -837,6 +866,24 @@ export class AssistantController {
     await this.pairWithCode(result.data)
   }
 
+  /**
+   * Retire any live assistant frame before the gateway socket is replaced
+   * (re-pairing) or torn down (unpair): a run or painted query bound to the
+   * old socket can never finish — its live frame would heartbeat the 10 s
+   * display lock forever — and a pending transcription must not fall back
+   * to a chat.send on a dead one.
+   */
+  private retireAssistantFrame(): void {
+    const hadFrame = this.currentRun !== null || this.listeningFrameUp || this.awaitingTranscript
+    this.sendToken += 1
+    this.awaitingTranscript = false
+    this.stt.abort()
+    this.currentRun = null
+    this.currentQuery = ""
+    this.listeningFrameUp = false
+    if (hadFrame) this.releaseDisplay()
+  }
+
   private async pairWithCode(code: string): Promise<void> {
     let setup
     try {
@@ -846,20 +893,8 @@ export class AssistantController {
       this.pushState()
       return
     }
-    // Pairing replaces the gateway socket: a run bound to the old gateway
-    // can never finish, and its live frame would heartbeat the 10 s display
-    // lock forever. Retire it before the new connection takes over. A painted
-    // query awaiting its gateway transcript is a live Thinking frame too:
-    // stale its send token, abort its capture, and free the display with
-    // the rest — no run or listening timer would otherwise clear it.
-    const hadFrame = this.currentRun !== null || this.listeningFrameUp || this.awaitingTranscript
-    this.sendToken += 1
-    if (this.awaitingTranscript) this.awaitingTranscript = false
-    this.stt.abort()
-    this.currentRun = null
-    this.currentQuery = ""
-    this.listeningFrameUp = false
-    if (hadFrame) this.releaseDisplay()
+    // Pairing replaces the gateway socket: retire the live frame first.
+    this.retireAssistantFrame()
     try {
       await this.connection.pair(setup)
     } catch (err) {
