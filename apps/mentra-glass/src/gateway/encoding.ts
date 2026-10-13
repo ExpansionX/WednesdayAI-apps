@@ -21,6 +21,11 @@ export function base64UrlDecode(value: string): Uint8Array {
   return bytes
 }
 
+/** Decode-join-re-encode: one binary concatenation, one encode, no padding seams. */
+export function concatBase64(chunks: string[]): string {
+  return btoa(chunks.map((chunk) => atob(chunk)).join(""))
+}
+
 export function randomHex(byteCount: number): string {
   const bytes = crypto.getRandomValues(new Uint8Array(byteCount))
   return [...bytes].map((byte) => byte.toString(16).padStart(2, "0")).join("")

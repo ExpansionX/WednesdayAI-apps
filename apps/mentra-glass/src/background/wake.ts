@@ -100,9 +100,39 @@ export function matchWake(text: string, triggers: string[]): {query: string} | n
     }
     if (start < 0) continue
 
-    const consumed = start + triggerTokens.length
-    const query = text.slice(tokens[consumed - 1].end).replace(/^[\s\p{P}]+/u, "")
-    return {query}
+    return {query: queryAfterToken(tokens, text, start + triggerTokens.length)}
+  }
+  return null
+}
+
+/** Cut the query from the original text right after the last matched token,
+ * dropping the leading run of whitespace and punctuation. */
+function queryAfterToken(tokens: SourceToken[], text: string, consumed: number): string {
+  return text.slice(tokens[consumed - 1].end).replace(/^[\s\p{P}]+/u, "")
+}
+
+/**
+ * Like `matchWake`, but the trigger may start at any token, not just the
+ * first (or after one greeting). The earliest start position wins; at the
+ * same position the longest trigger wins, so "wednesday prime" beats
+ * "wednesday" when both are configured. Returns null when no trigger
+ * matches anywhere.
+ */
+export function findWake(text: string, triggers: string[]): {query: string} | null {
+  const tokens = tokenizeWithEndOffsets(text)
+  if (tokens.length === 0) return null
+
+  // Same tokenizer as the transcript, so casing context matches exactly.
+  // Longest trigger first so "wednesday prime" wins over "wednesday".
+  const tokenized = triggers
+    .map((trigger) => tokenizeWithEndOffsets(trigger).map(({token}) => token))
+    .sort((a, b) => b.length - a.length)
+  for (let start = 0; start < tokens.length; start++) {
+    for (const triggerTokens of tokenized) {
+      if (triggerTokens.length === 0) continue
+      if (!startsWithAt(tokens, triggerTokens, start)) continue
+      return {query: queryAfterToken(tokens, text, start + triggerTokens.length)}
+    }
   }
   return null
 }

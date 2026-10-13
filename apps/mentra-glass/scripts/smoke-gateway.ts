@@ -1,15 +1,17 @@
 /**
  * Device-free smoke test against a real WednesdayAI gateway.
  *
- *   bun run smoke:gateway -- --setup-code <code>
+ *   bun run smoke:gateway -- --setup-code <code> [--stt-pcm <file>]
  *
  * Get a code with `wednesdayai qr --client openclaw-mentra-node --setup-code-only`.
  * Pairs with the bootstrap token, reads wake words and agents, sends one chat
- * turn, then reconnects with the stored device token. Exits 1 on the first
- * failing step.
+ * turn, optionally transcribes a raw PCM file over a gateway talk session
+ * (--stt-pcm: PCM16 LE, 16 kHz, mono), then reconnects with the stored device
+ * token. Exits 1 on the first failing step.
  */
 
 import manifest from "../miniapp.json"
+import {GatewaySttCapture} from "../src/background/gatewayStt"
 import {applyChatEvent, bindServerRunId, startRun} from "../src/gateway/chat"
 import type {ChatRun} from "../src/gateway/chat"
 import {GatewayConnection} from "../src/gateway/connection"
@@ -22,11 +24,19 @@ import type {ConnectionState, KeyValueStore} from "../src/gateway/types"
 
 const STEP_TIMEOUT_MS = 20_000
 const CHAT_TIMEOUT_MS = 120_000
+const STT_TIMEOUT_MS = 60_000
 
 const codeIndex = process.argv.indexOf("--setup-code")
 const setupCode = codeIndex === -1 ? undefined : process.argv[codeIndex + 1]
 if (!setupCode) {
-  console.error("usage: bun run smoke:gateway -- --setup-code <code>")
+  console.error("usage: bun run smoke:gateway -- --setup-code <code> [--stt-pcm <file>]")
+  process.exit(2)
+}
+
+const sttPcmIndex = process.argv.indexOf("--stt-pcm")
+const sttPcmPath = sttPcmIndex === -1 ? undefined : process.argv[sttPcmIndex + 1]
+if (sttPcmIndex !== -1 && !sttPcmPath) {
+  console.error("usage: --stt-pcm requires a path to a raw PCM16 LE, 16 kHz, mono file")
   process.exit(2)
 }
 
@@ -86,6 +96,8 @@ function openConnection(handlers: Pick<GatewayConnectionOptions, "onEvent">) {
 let run: ChatRun | null = null
 const chatDone = Promise.withResolvers<ChatRun>()
 let deltaCount = 0
+/** Set during the talk-transcription step so talk.event frames reach the capture. */
+let talkEventHandler: ((payload: unknown) => void) | null = null
 
 try {
   const setup = parseSetupInput(setupCode)
@@ -93,6 +105,7 @@ try {
   step = "pair"
   const first = openConnection({
     onEvent: (event, payload) => {
+      if (event === "talk.event" && talkEventHandler) talkEventHandler(payload)
       if (event !== "chat" || !run) return
       const next = applyChatEvent(run, payload)
       if (!next) return
@@ -135,6 +148,33 @@ try {
     console.log(`pong=${/\bpong\b/i.test(finished.text) ? "yes" : "no"}`)
   } else if (finished.state === "error") console.log(`error: ${finished.error}`)
   else fail(`run ended ${finished.state}`)
+
+  if (sttPcmPath) {
+    step = "talk transcription"
+    const pcm = new Uint8Array(await Bun.file(sttPcmPath).arrayBuffer())
+    if (pcm.byteLength % 2 !== 0) {
+      console.error("usage: --stt-pcm file must be raw PCM16 LE, 16 kHz, mono (even byte length)")
+      process.exit(2)
+    }
+    const capture = new GatewaySttCapture({requester: first.connection})
+    talkEventHandler = (payload) => capture.onTalkEvent(payload)
+    capture.begin(sessionKey)
+    const sliceBytes = 3200
+    for (let offset = 0; offset < pcm.byteLength; offset += sliceBytes) {
+      const slice = pcm.subarray(offset, Math.min(offset + sliceBytes, pcm.byteLength))
+      let binary = ""
+      for (let index = 0; index < slice.length; index += 1) binary += String.fromCharCode(slice[index]!)
+      capture.pushChunk({data: btoa(binary), format: "pcm_s16le", sampleRate: 16000})
+      const sleep = Promise.withResolvers<void>()
+      setTimeout(sleep.resolve, 100)
+      await sleep.promise
+    }
+    const transcript = await withTimeout(capture.finish(), STT_TIMEOUT_MS, "gateway transcript")
+    talkEventHandler = null
+    capture.dispose()
+    if (!transcript) fail("gateway transcription returned nothing")
+    console.log(`stt: ${transcript}`)
+  }
 
   step = "reconnect"
   first.connection.stop()
