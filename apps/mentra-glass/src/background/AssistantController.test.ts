@@ -1794,5 +1794,97 @@ describe("AssistantController", () => {
       // Only the offline frame's own auto-clear happened after it.
       expect(bodyTexts(session).slice(offlineIndex + 1)).toEqual([""])
     })
+
+    it("cancel during the transcript wait drops the pending question without a fallback send", async () => {
+      const session = new FakeSession()
+      const connection = new FakeConnection()
+      stubTalkSession(connection, "s1")
+      await startAssistant(session, connection, {querySttMode: "gateway"})
+
+      await askViaGateway(session, connection, "what is the weather in paris")
+
+      // A fresh wake phrase while the transcript is awaited opens no second
+      // session, then the user changes their mind.
+      session.transcript("hey wednesday", false)
+      await flush()
+      await vi.advanceTimersByTimeAsync(400)
+      expect(headerTexts(session).at(-1)).toContain("Listening")
+      expect(connection.requests.filter((request) => request.method === "talk.session.create")).toHaveLength(1)
+
+      session.transcript("hey wendy", true)
+      await flush()
+      await vi.advanceTimersByTimeAsync(7000)
+
+      expect(connection.requests.some((request) => request.method === "chat.send")).toBe(false)
+      // The cancel's clear is the last render: no fallback thinking frame.
+      expect(session.renders.at(-1)).toEqual([])
+    })
+
+    it("rejects the previous run's chat events while a new transcript is awaited", async () => {
+      const session = new FakeSession()
+      const connection = new FakeConnection()
+      stubTalkSession(connection, "s1")
+      let sendCount = 0
+      connection.respond("chat.send", () => ({runId: `srv-run-${(sendCount += 1)}`}))
+      await startAssistant(session, connection, {querySttMode: "gateway"})
+
+      // The first question streams its answer.
+      session.transcript("hey wednesday", false)
+      await flush()
+      session.transcript("hey wednesday what is one plus one", true)
+      await flush()
+      connection.emitEvent("talk.event", {
+        type: "transcript.done",
+        sessionId: "s1",
+        payload: {text: "what is one plus one"},
+      })
+      await flush()
+      await vi.advanceTimersByTimeAsync(400)
+      connection.emitEvent("chat", {
+        runId: "srv-run-1",
+        state: "delta",
+        message: {content: [{type: "text", text: "Two"}]},
+      })
+      await flush()
+      await vi.advanceTimersByTimeAsync(400)
+      expect(bodyTexts(session).at(-1)).toBe("Two")
+
+      // A second question takes the display while that answer is streaming.
+      session.transcript("hey wednesday", false)
+      await flush()
+      session.transcript("hey wednesday what is two plus two", true)
+      await flush()
+      await vi.advanceTimersByTimeAsync(400)
+      expect(headerTexts(session).at(-1)).toContain("Thinking")
+
+      // The old run's late delta and final must not repaint over the wait.
+      connection.emitEvent("chat", {
+        runId: "srv-run-1",
+        state: "delta",
+        message: {content: [{type: "text", text: "Two and a half"}]},
+      })
+      await flush()
+      await vi.advanceTimersByTimeAsync(400)
+      connection.emitEvent("chat", {
+        runId: "srv-run-1",
+        state: "final",
+        message: {content: [{type: "text", text: "Two and a half"}]},
+      })
+      await flush()
+      await vi.advanceTimersByTimeAsync(400)
+      expect(bodyTexts(session).at(-1)).not.toBe("Two and a half")
+
+      // The new transcript completes and sends its own question.
+      connection.emitEvent("talk.event", {
+        type: "transcript.done",
+        sessionId: "s1",
+        payload: {text: "what is two plus two"},
+      })
+      await flush()
+      await vi.advanceTimersByTimeAsync(400)
+      const secondSend = connection.requests.filter((request) => request.method === "chat.send")[1]
+      expect(recordParams(secondSend?.params).message).toBe("what is two plus two")
+      expect(bodyTexts(session).at(-1)).not.toBe("Two and a half")
+    })
   })
 })

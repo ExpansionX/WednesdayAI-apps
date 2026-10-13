@@ -388,6 +388,9 @@ export class AssistantController {
       case "cancel":
         this.listeningFrameUp = false
         this.stopListeningTimer()
+        // Cancellation must not turn a pending transcript wait into a
+        // Mentra-fallback send: stale the await before the abort settles it.
+        this.sendToken += 1
         this.stt.abort()
         this.releaseDisplay()
         return
@@ -521,6 +524,8 @@ export class AssistantController {
       // clear the glasses if the listening frame still owns them; a newer
       // frame (a run, offline, …) survives this timeout.
       this.tracker.cancelAwait()
+      // Same as cancel: a stale pending wait must not fall back to a send.
+      this.sendToken += 1
       this.stt.abort()
       if (this.listeningFrameUp) {
         this.listeningFrameUp = false
@@ -552,6 +557,10 @@ export class AssistantController {
       return
     }
     this.currentQuery = mentraQuery
+    // Retire the previous run the way sendQuery replaces it: its late deltas
+    // and terminal event must not repaint over this question's frame while
+    // the transcript is awaited.
+    this.currentRun = null
     this.showFrame({phase: "thinking", agentLabel: this.agentLabel(), body: mentraQuery})
     this.awaitingTranscript = true
     const text = await this.stt.finish()
