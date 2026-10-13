@@ -5,7 +5,8 @@
  * Renders are throttled to ≥400 ms apart; live phases (listening, thinking,
  * streaming) re-render the same frame every 5 s to hold the 10 s background
  * display lock (MentraOS LocalDisplayManager renews the lock on every
- * render); final/error/offline frames auto-clear via render([]). A host that
+ * render); final/error/offline/glance/notification frames auto-clear via
+ * render([]). A host that
  * drops a terminal frame ("blocked": another background app owns the display
  * lock) gets retries every 1 s inside the frame's visibility window; the
  * auto-hide deadline is anchored at the frame's first show() so retries never
@@ -15,12 +16,22 @@
 
 import type {MiniappSession, RenderElement} from "@mentra/miniapp/background"
 
-export type GlassesPhase = "listening" | "thinking" | "streaming" | "final" | "error" | "offline"
+export type GlassesPhase =
+  | "listening"
+  | "thinking"
+  | "streaming"
+  | "final"
+  | "error"
+  | "offline"
+  | "glance"
+  | "notification"
 
 export interface GlassesViewModel {
   phase: GlassesPhase
   agentLabel: string
   body: string
+  /** When set, replaces the whole header text instead of the built one. */
+  header?: string
 }
 
 const STATUS_BY_PHASE: Record<GlassesPhase, string> = {
@@ -30,6 +41,8 @@ const STATUS_BY_PHASE: Record<GlassesPhase, string> = {
   final: "",
   error: "Error",
   offline: "Offline",
+  glance: "",
+  notification: "",
 }
 
 const FALLBACK_WIDTH = 576
@@ -41,6 +54,15 @@ const LIVE_HEARTBEAT_MS = 5000
 /** Visibility of final/error frames; also their retry window when blocked. */
 export const FINAL_HIDE_MS = 15000
 const OFFLINE_HIDE_MS = 4000
+/** Visibility of a head-tilt glance frame. */
+export const GLANCE_HIDE_MS = 5000
+/** Visibility of a notification frame. */
+export const NOTIFICATION_HIDE_MS = 6000
+
+export interface GlassesViewOptions {
+  /** Called right after a terminal frame auto-clears itself. */
+  onAutoClear?: () => void
+}
 /** Global `setTimeout` handle; the runtime is the owner of this shape. */
 type TimerHandle = ReturnType<typeof setTimeout>
 /** Retry cadence for terminal frames the host reports as "blocked". */
@@ -59,9 +81,11 @@ export class GlassesView {
   /** When the current frame's show() ran; anchors its auto-hide deadline. */
   private frameShownAt = 0
   private current: GlassesViewModel | null = null
+  private readonly onAutoClear?: () => void
 
-  constructor(session: MiniappSession) {
+  constructor(session: MiniappSession, options: GlassesViewOptions = {}) {
     this.session = session
+    this.onAutoClear = options.onAutoClear
   }
 
   /** Show a frame (throttled) and schedule its heartbeat or auto-clear. */
@@ -114,7 +138,14 @@ export class GlassesView {
     // "blocked" (another background app owns the lock and drops the frame),
     // retry inside that window instead of losing the answer.
     if (this.clearTimer === null) {
-      const hideMs = vm.phase === "offline" ? OFFLINE_HIDE_MS : FINAL_HIDE_MS
+      const hideMs =
+        vm.phase === "offline"
+          ? OFFLINE_HIDE_MS
+          : vm.phase === "glance"
+            ? GLANCE_HIDE_MS
+            : vm.phase === "notification"
+              ? NOTIFICATION_HIDE_MS
+              : FINAL_HIDE_MS
       this.clearDeadline = this.frameShownAt + hideMs
       this.scheduleClear(generation, Math.max(0, this.clearDeadline - Date.now()))
     }
@@ -138,6 +169,7 @@ export class GlassesView {
       this.clearTimer = null
       this.clearDeadline = 0
       void this.session.display.render([])
+      this.onAutoClear?.()
     }, delayMs)
   }
 
@@ -165,22 +197,29 @@ export class GlassesView {
     const width = display?.width ?? FALLBACK_WIDTH
     const height = display?.height ?? FALLBACK_HEIGHT
     const status = STATUS_BY_PHASE[vm.phase]
+    const header =
+      vm.header ?? `WednesdayAI · ${vm.agentLabel}${status ? " — " + status : ""}`
     const elements: RenderElement[] = [
       {
         type: "text",
         id: "wai-header",
         box: {x: 0, y: 0, w: width, h: HEADER_HEIGHT},
-        text: `WednesdayAI · ${vm.agentLabel}${status ? " — " + status : ""}`,
+        text: header,
         style: {maxLines: 1, overflow: "ellipsis"},
       },
     ]
     if (vm.body) {
+      const windowsFromStart = vm.phase === "glance" || vm.phase === "notification"
       elements.push({
         type: "text",
         id: "wai-body",
         box: {x: 0, y: BODY_TOP, w: width, h: Math.max(1, height - BODY_TOP)},
         text: vm.body,
-        style: {textWindow: "end", overflow: "clip", breakMode: "word"},
+        style: {
+          textWindow: windowsFromStart ? "start" : "end",
+          overflow: "clip",
+          breakMode: "word",
+        },
       })
     }
     return elements

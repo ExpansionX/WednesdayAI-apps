@@ -217,3 +217,84 @@ describe("GlassesView", () => {
     view.dispose()
   })
 })
+
+describe("GlassesView glance and notification frames", () => {
+  beforeEach(() => {
+    vi.useFakeTimers()
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it("glance frame auto-clears after 5 s and reports onAutoClear once", async () => {
+    const host = new FakeDisplayHost()
+    const onAutoClear = vi.fn()
+    const view = new GlassesView(asSession(host), {onAutoClear})
+    view.show({phase: "glance", agentLabel: "Main", body: "14:05\nReady"})
+    await vi.advanceTimersByTimeAsync(0)
+    expect(host.calls).toHaveLength(1)
+    await vi.advanceTimersByTimeAsync(4999)
+    expect(host.calls).not.toContain("clear")
+    await vi.advanceTimersByTimeAsync(1)
+    expect(host.calls.at(-1)).toBe("clear")
+    expect(onAutoClear).toHaveBeenCalledTimes(1)
+    view.dispose()
+  })
+
+  it("notification frame auto-clears after 6 s", async () => {
+    const host = new FakeDisplayHost()
+    const onAutoClear = vi.fn()
+    const view = new GlassesView(asSession(host), {onAutoClear})
+    view.show({phase: "notification", agentLabel: "", header: "Messages · Alice", body: "hi"})
+    await vi.advanceTimersByTimeAsync(0)
+    await vi.advanceTimersByTimeAsync(5999)
+    expect(host.calls).not.toContain("clear")
+    await vi.advanceTimersByTimeAsync(1)
+    expect(host.calls.at(-1)).toBe("clear")
+    expect(onAutoClear).toHaveBeenCalledTimes(1)
+    view.dispose()
+  })
+
+  it("header override replaces the default header", async () => {
+    const host = new FakeDisplayHost()
+    const view = new GlassesView(asSession(host))
+    view.show({phase: "notification", agentLabel: "", header: "Messages · Alice", body: "hi"})
+    await vi.advanceTimersByTimeAsync(0)
+    const frame = host.calls[0] as RenderElement[]
+    const header = frame.find((element) => "id" in element && element.id === "wai-header")
+    expect(header && "text" in header && header.text).toBe("Messages · Alice")
+    view.dispose()
+  })
+
+  it("glance and notification bodies window from the start, final from the end", async () => {
+    const host = new FakeDisplayHost()
+    const view = new GlassesView(asSession(host))
+    for (const phase of ["glance", "notification"] as const) {
+      view.show({phase, agentLabel: "x", body: "b"})
+      await vi.advanceTimersByTimeAsync(400)
+      const frame = host.calls.at(-1) as RenderElement[]
+      const body = frame.find((element) => "id" in element && element.id === "wai-body")
+      const window = body && "style" in body && body.style
+      expect(window && "textWindow" in window && window.textWindow).toBe("start")
+    }
+    view.show(finalFrame())
+    await vi.advanceTimersByTimeAsync(400)
+    const frame = host.calls.at(-1) as RenderElement[]
+    const body = frame.find((element) => "id" in element && element.id === "wai-body")
+    const window = body && "style" in body && body.style
+    expect(window && "textWindow" in window && window.textWindow).toBe("end")
+    view.dispose()
+  })
+
+  it("hide() does not report onAutoClear", async () => {
+    const host = new FakeDisplayHost()
+    const onAutoClear = vi.fn()
+    const view = new GlassesView(asSession(host), {onAutoClear})
+    view.show(finalFrame())
+    await vi.advanceTimersByTimeAsync(0)
+    view.hide()
+    await vi.advanceTimersByTimeAsync(20000)
+    expect(onAutoClear).not.toHaveBeenCalled()
+  })
+})
