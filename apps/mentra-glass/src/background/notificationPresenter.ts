@@ -65,6 +65,17 @@ export class NotificationPresenter {
     if (this.disposed) return false
     // A repost of the notification on screen keeps it as is; no restart.
     if (this.isShowing && this.current?.id === item.id) return false
+    // An identical queued repost changes nothing the state snapshot exposes.
+    const queued = this.queue.find(item.id)
+    if (
+      queued &&
+      queued.app === item.app &&
+      queued.packageName === item.packageName &&
+      queued.title === item.title &&
+      queued.content === item.content
+    ) {
+      return false
+    }
     this.queue.enqueue(item)
     this.tryStart()
     return true

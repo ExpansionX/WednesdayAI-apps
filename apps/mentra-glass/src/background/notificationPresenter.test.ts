@@ -228,6 +228,17 @@ describe("NotificationPresenter", () => {
     expect(surface.shown[surface.shown.length - 1]).toMatchObject({header: "Messages · B", body: "new content"})
   })
 
+  it("an identical repost of a queued notification changes nothing", () => {
+    const surface = new RecordingSurface()
+    const presenter = makePresenter(surface)
+    expect(presenter.add(entry("a", "hello"))).toBe(true)
+    expect(presenter.add(entry("b", "from b"))).toBe(true)
+    expect(presenter.add(entry("b", "from b"))).toBe(false)
+    expect(presenter.add({...entry("b", "from b"), title: "B2"})).toBe(true)
+    expect(presenter.queued).toBe(1)
+    expect(surface.shown).toHaveLength(1)
+  })
+
   it("retain drops queued items and the on-screen item failing the filter", () => {
     const surface = new RecordingSurface()
     const presenter = makePresenter(surface)

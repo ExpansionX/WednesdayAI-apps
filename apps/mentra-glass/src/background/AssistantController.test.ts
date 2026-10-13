@@ -1568,6 +1568,80 @@ describe("AssistantController", () => {
     ])
   })
 
+  it("retries a failed seen-app write without pushing an unchanged snapshot", async () => {
+    let failSeenAppWrites = true
+    const base = memoryStore()
+    const store: KeyValueStore = {
+      get: (key) => base.get(key),
+      set: async (key, value) => {
+        if (failSeenAppWrites && key === NOTIFICATION_APPS_STORAGE_KEY) throw new Error("storage busy")
+        await base.set(key, value)
+      },
+      delete: (key) => base.delete(key),
+    }
+    const session = new FakeSession(undefined, store)
+    const connection = new FakeConnection()
+    await startAssistant(session, connection)
+
+    session.notify({notificationId: "n1", title: "Alice", content: "Lunch?"})
+    await flush()
+    expect(errorMessages(session)).toEqual(["storage busy"])
+    const statesAfterFailure = session.uiSends.filter((send) => send.channel === "state").length
+
+    // The retry reports on the error channel only: nothing the snapshot
+    // exposes changed.
+    failSeenAppWrites = false
+    session.notify({notificationId: "n2", title: "Alice", content: "Lunch?"})
+    await flush()
+    expect(session.uiSends.filter((send) => send.channel === "state").length).toBe(statesAfterFailure)
+    const stored = JSON.parse((await base.get(NOTIFICATION_APPS_STORAGE_KEY)) ?? "[]") as unknown
+    expect(stored).toEqual([{packageName: "com.google.android.apps.messaging", app: "Messages"}])
+  })
+
+  it("re-writes and re-pushes a seen-app change that lands while a write is pending", async () => {
+    const base = memoryStore()
+    const gate = deferred<void>()
+    let gateWrites = false
+    const store: KeyValueStore = {
+      get: (key) => base.get(key),
+      set: async (key, value) => {
+        if (gateWrites && key === NOTIFICATION_APPS_STORAGE_KEY) await gate.promise
+        await base.set(key, value)
+      },
+      delete: (key) => base.delete(key),
+    }
+    const session = new FakeSession(undefined, store)
+    const connection = new FakeConnection()
+    await startAssistant(session, connection)
+
+    // Persist [B, A].
+    session.notify({notificationId: "n1", title: "B msg", packageName: "com.b", app: "AppB"})
+    await flush()
+    session.notify({notificationId: "n2", title: "A msg", packageName: "com.a", app: "AppA"})
+    await flush()
+
+    // B moves back to the front; its write stalls in the fake store.
+    gateWrites = true
+    session.notify({notificationId: "n3", title: "B msg", packageName: "com.b", app: "AppB"})
+    await flush()
+
+    // A reclaims the front while that write is still pending: the snapshot
+    // must correct itself and the write must be re-requested.
+    session.notify({notificationId: "n4", title: "A msg", packageName: "com.a", app: "AppA"})
+    await flush()
+    expect(lastSnapshot(session).seenNotificationApps.map((seen) => seen.packageName)).toEqual([
+      "com.a",
+      "com.b",
+    ])
+
+    gate.resolve()
+    await flush()
+    const stored = JSON.parse((await base.get(NOTIFICATION_APPS_STORAGE_KEY)) ?? "[]") as Array<{
+      packageName: string
+    }>
+    expect(stored.map((seen) => seen.packageName)).toEqual(["com.a", "com.b"])
+  })
+
   it("pushes one state snapshot per notification intake and none when nothing changed", async () => {
     const session = new FakeSession()
     const connection = new FakeConnection()

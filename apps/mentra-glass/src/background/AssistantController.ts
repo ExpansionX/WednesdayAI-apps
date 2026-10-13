@@ -122,8 +122,10 @@ export class AssistantController {
   private readonly tilt = new TiltDetector()
   private readonly notifications: NotificationPresenter
   private seenApps: NotificationAppOption[] = []
-  /** JSON of the last successfully persisted seen-app list. */
-  private seenAppsPersisted: string | null = null
+  /** JSON of the seen-app list in the last pushed state snapshot. */
+  private seenAppsPushed: string | null = null
+  /** JSON of the most recently requested seen-app write; a failure resets it. */
+  private seenAppsWriteRequested: string | null = null
   /** Gateway transcription of the spoken question; Mentra's transcript is the fallback. */
   private readonly stt: GatewaySttCapture
   /** One "transcription unavailable" warning per gateway hello. */
@@ -488,9 +490,11 @@ export class AssistantController {
 
   /**
    * Move the app to the front of the seen list, cap it; true when the list
-   * differs from the last successfully persisted one, which is also what
-   * decides the write: a failed write stays un-persisted, so the next
-   * notification from the same app retries it.
+   * differs from the last pushed snapshot, which is what decides the state
+   * push. The write compares against the most recently requested one — a
+   * failed write resets that marker — so a repost retries a failed write
+   * without pushing an unchanged snapshot, and a change that lands while an
+   * older write is pending is both pushed and re-requested.
    */
   private recordSeenApp(item: QueuedNotification): boolean {
     const entry: NotificationAppOption = {packageName: item.packageName, app: item.app}
@@ -499,16 +503,22 @@ export class AssistantController {
     if (next.length > MAX_SEEN_APPS) next.length = MAX_SEEN_APPS
     this.seenApps = next
     const snapshot = JSON.stringify(next)
-    if (snapshot === this.seenAppsPersisted) return false
-    void this.saveSeenApps(snapshot)
+    if (snapshot !== this.seenAppsWriteRequested) {
+      this.seenAppsWriteRequested = snapshot
+      void this.saveSeenApps(snapshot)
+    }
+    if (snapshot === this.seenAppsPushed) return false
+    this.seenAppsPushed = snapshot
     return true
   }
 
   private async saveSeenApps(snapshot: string): Promise<void> {
     try {
       await this.store.set(NOTIFICATION_APPS_STORAGE_KEY, snapshot)
-      this.seenAppsPersisted = snapshot
     } catch (err) {
+      // Reset only if no newer write superseded this one: the next
+      // notification then retries it.
+      if (this.seenAppsWriteRequested === snapshot) this.seenAppsWriteRequested = null
       this.pushError(errorMessage(err, "Could not save notification apps"))
     }
   }
@@ -516,25 +526,29 @@ export class AssistantController {
   private async loadSeenApps(): Promise<void> {
     try {
       const raw = await this.store.get(NOTIFICATION_APPS_STORAGE_KEY)
-      if (!raw) return
-      const parsed: unknown = JSON.parse(raw)
-      if (!Array.isArray(parsed)) return
-      const apps: NotificationAppOption[] = []
-      for (const entry of parsed) {
-        if (typeof entry !== "object" || entry === null) continue
-        const candidate = entry as {packageName?: unknown; app?: unknown}
-        if (typeof candidate.packageName !== "string" || !candidate.packageName) continue
-        if (typeof candidate.app !== "string" || !candidate.app) continue
-        apps.push({packageName: candidate.packageName, app: candidate.app})
-        if (apps.length >= MAX_SEEN_APPS) break
+      if (raw) {
+        const parsed: unknown = JSON.parse(raw)
+        if (Array.isArray(parsed)) {
+          const apps: NotificationAppOption[] = []
+          for (const entry of parsed) {
+            if (typeof entry !== "object" || entry === null) continue
+            const candidate = entry as {packageName?: unknown; app?: unknown}
+            if (typeof candidate.packageName !== "string" || !candidate.packageName) continue
+            if (typeof candidate.app !== "string" || !candidate.app) continue
+            apps.push({packageName: candidate.packageName, app: candidate.app})
+            if (apps.length >= MAX_SEEN_APPS) break
+          }
+          this.seenApps = apps
+          // Storage already holds this list: no write is pending for it.
+          this.seenAppsWriteRequested = JSON.stringify(apps)
+        }
       }
-      this.seenApps = apps
-      // Storage holds this list already: an unchanged repost must not
-      // rewrite it.
-      this.seenAppsPersisted = JSON.stringify(apps)
     } catch {
       this.seenApps = []
     }
+    // start() pushes this list right after the load: intake compares
+    // against that snapshot.
+    this.seenAppsPushed = JSON.stringify(this.seenApps)
   }
 
   private armListeningWindow(): void {
