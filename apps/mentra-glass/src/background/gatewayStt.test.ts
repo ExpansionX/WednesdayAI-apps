@@ -90,6 +90,8 @@ function harness() {
     requester.respond("talk.session.create", () => CREATE_RESULT)
     capture.begin(sessionKey)
     await vi.advanceTimersByTimeAsync(0)
+    capture.onTalkEvent({type: "session.ready", sessionId: "s1"})
+    await vi.advanceTimersByTimeAsync(0)
   }
   return {requester, errors, capture, setNow: (ms: number) => void (nowMs = ms), open}
 }
@@ -407,6 +409,8 @@ describe("GatewaySttCapture", () => {
     ])
     createB.resolve({sessionId: "s2", audio: CREATE_RESULT.audio})
     await vi.advanceTimersByTimeAsync(0)
+    capture.onTalkEvent({type: "session.ready", sessionId: "s2"})
+    await vi.advanceTimersByTimeAsync(0)
     // finishB is pending, so B's own flow closes its session and waits for the transcript.
     expect(capture.state).toBe("closing")
     capture.onTalkEvent({type: "transcript.done", sessionId: "s2", payload: {text: "fresh"}})
@@ -425,6 +429,8 @@ describe("GatewaySttCapture", () => {
     capture.abort()
     // B's own flushes succeed; only A's in-flight append is left stuck.
     requester.respond("talk.session.appendAudio", () => ({}))
+    // The server retires A's session, lifting the begin fence.
+    capture.onTalkEvent({type: "session.closed", sessionId: "s1"})
     const createB = deferred<unknown>()
     requester.respond("talk.session.create", () => createB.promise)
     capture.begin("sk-2")
@@ -476,6 +482,169 @@ describe("GatewaySttCapture", () => {
     await vi.advanceTimersByTimeAsync(250)
     expect(requester.appends()).toHaveLength(1)
     expect(decoded(requester.appends()[0]!.params.audioBase64)).toEqual(preRollBytes(21, 21))
+    capture.dispose()
+  })
+
+  // ── session.ready gating (F1) ────────────────────────────────────────────
+
+  it("buffers audio until session.ready, then flushes pre-roll and live chunks", async () => {
+    const {requester, capture, setNow} = harness()
+    for (let index = 0; index <= 10; index += 1) {
+      setNow(index * 100)
+      capture.pushChunk(chunkAt(index))
+    }
+    setNow(1000)
+    requester.respond("talk.session.create", () => CREATE_RESULT)
+    capture.begin("sk-1")
+    await vi.advanceTimersByTimeAsync(0)
+    // The gateway returns the session id before the provider connects.
+    expect(capture.state).toBe("open")
+    expect(requester.appends()).toHaveLength(0)
+    setNow(1100)
+    capture.pushChunk(chunkAt(11))
+    await vi.advanceTimersByTimeAsync(1000)
+    expect(requester.appends()).toHaveLength(0)
+    capture.onTalkEvent({type: "session.ready", sessionId: "s1"})
+    await vi.advanceTimersByTimeAsync(0)
+    const appends = requester.appends()
+    expect(appends).toHaveLength(1)
+    expect(decoded(appends[0]!.params.audioBase64)).toEqual(preRollBytes(0, 11))
+    capture.dispose()
+  })
+
+  it("finish before session.ready waits for ready, then flushes and closes", async () => {
+    const {requester, capture, setNow} = harness()
+    setNow(0)
+    capture.pushChunk(chunkAt(0))
+    setNow(100)
+    requester.respond("talk.session.create", () => CREATE_RESULT)
+    capture.begin("sk-1")
+    await vi.advanceTimersByTimeAsync(0)
+    const done = capture.finish()
+    await vi.advanceTimersByTimeAsync(100)
+    expect(capture.state).toBe("open")
+    expect(requester.callsOf("talk.session.close")).toHaveLength(0)
+    capture.onTalkEvent({type: "session.ready", sessionId: "s1"})
+    await vi.advanceTimersByTimeAsync(0)
+    expect(requester.appends()).toHaveLength(1)
+    expect(decoded(requester.appends()[0]!.params.audioBase64)).toEqual(preRollBytes(0, 0))
+    expect(requester.callsOf("talk.session.close")).toEqual([
+      {method: "talk.session.close", params: {sessionId: "s1"}},
+    ])
+    capture.onTalkEvent({type: "transcript.done", sessionId: "s1", payload: {text: " ready now "}})
+    expect(await done).toBe("ready now")
+  })
+
+  it("closes the session and resolves null when session.ready never arrives", async () => {
+    const {requester, capture, errors} = harness()
+    requester.respond("talk.session.create", () => CREATE_RESULT)
+    capture.begin("sk-1")
+    await vi.advanceTimersByTimeAsync(0)
+    const done = capture.finish()
+    await vi.advanceTimersByTimeAsync(STT_RESULT_TIMEOUT_MS)
+    expect(await done).toBeNull()
+    expect(errors).toEqual([])
+    expect(requester.callsOf("talk.session.close")).toEqual([
+      {method: "talk.session.close", params: {sessionId: "s1"}},
+    ])
+    expect(capture.state).toBe("idle")
+  })
+
+  it("resolves null when the session closes before becoming ready, without a close request", async () => {
+    const {requester, capture} = harness()
+    requester.respond("talk.session.create", () => CREATE_RESULT)
+    capture.begin("sk-1")
+    await vi.advanceTimersByTimeAsync(0)
+    const done = capture.finish()
+    await vi.advanceTimersByTimeAsync(0)
+    capture.onTalkEvent({type: "session.closed", sessionId: "s1"})
+    expect(await done).toBeNull()
+    expect(capture.state).toBe("idle")
+    expect(requester.callsOf("talk.session.close")).toHaveLength(0)
+  })
+
+  // ── finishing excludes the capture from new questions (F3) ───────────────
+
+  it("is no longer active once finish starts, even while the create is in flight", async () => {
+    const {requester, capture} = harness()
+    const create = deferred<unknown>()
+    requester.respond("talk.session.create", () => create.promise)
+    capture.begin("sk-1")
+    await vi.advanceTimersByTimeAsync(0)
+    expect(capture.active).toBe(true)
+    const done = capture.finish()
+    expect(capture.active).toBe(false)
+    create.resolve(CREATE_RESULT)
+    await vi.advanceTimersByTimeAsync(0)
+    expect(capture.active).toBe(false)
+    capture.onTalkEvent({type: "transcript.done", sessionId: "s1", payload: {text: "hi"}})
+    expect(await done).toBe("hi")
+    expect(capture.active).toBe(false)
+  })
+
+  // ── capture deadline vs transcript deadline (F5) ─────────────────────────
+
+  it("a finish near the capture limit is not cut off by the 20 s deadline", async () => {
+    const {requester, capture, open} = harness()
+    await open()
+    await vi.advanceTimersByTimeAsync(MAX_CAPTURE_MS - 1000)
+    const done = capture.finish()
+    await vi.advanceTimersByTimeAsync(0)
+    expect(capture.state).toBe("closing")
+    await vi.advanceTimersByTimeAsync(2000)
+    capture.onTalkEvent({type: "transcript.done", sessionId: "s1", payload: {text: "late but valid"}})
+    expect(await done).toBe("late but valid")
+    expect(requester.callsOf("talk.session.close")).toHaveLength(1)
+  })
+
+  // ── server-session fence after abort (F6) ────────────────────────────────
+
+  it("fences begin until session.closed arrives after an abort", async () => {
+    const {requester, capture, errors, open} = harness()
+    await open()
+    capture.abort()
+    expect(capture.state).toBe("idle")
+    capture.begin("sk-2")
+    await vi.advanceTimersByTimeAsync(0)
+    // The server still owns the drained session: a create now would CONFLICT.
+    expect(requester.callsOf("talk.session.create")).toHaveLength(1)
+    expect(errors).toEqual([])
+    capture.onTalkEvent({type: "session.closed", sessionId: "s1"})
+    capture.begin("sk-2")
+    await vi.advanceTimersByTimeAsync(0)
+    expect(requester.callsOf("talk.session.create")).toHaveLength(2)
+    capture.dispose()
+  })
+
+  it("lifts the fence when the post-abort drain times out", async () => {
+    const {requester, capture, open} = harness()
+    await open()
+    capture.abort()
+    await vi.advanceTimersByTimeAsync(STT_RESULT_TIMEOUT_MS - 1)
+    capture.begin("sk-2")
+    await vi.advanceTimersByTimeAsync(0)
+    expect(requester.callsOf("talk.session.create")).toHaveLength(1)
+    await vi.advanceTimersByTimeAsync(1)
+    capture.begin("sk-3")
+    await vi.advanceTimersByTimeAsync(0)
+    expect(requester.callsOf("talk.session.create")).toHaveLength(2)
+    capture.dispose()
+  })
+
+  it("a fenced begin after finish waits for session.closed too", async () => {
+    const {requester, capture, open} = harness()
+    await open()
+    const done = capture.finish()
+    capture.onTalkEvent({type: "transcript.done", sessionId: "s1", payload: {text: "answer"}})
+    expect(await done).toBe("answer")
+    expect(capture.state).toBe("idle")
+    capture.begin("sk-2")
+    await vi.advanceTimersByTimeAsync(0)
+    expect(requester.callsOf("talk.session.create")).toHaveLength(1)
+    capture.onTalkEvent({type: "session.closed", sessionId: "s1"})
+    capture.begin("sk-2")
+    await vi.advanceTimersByTimeAsync(0)
+    expect(requester.callsOf("talk.session.create")).toHaveLength(2)
     capture.dispose()
   })
 })
