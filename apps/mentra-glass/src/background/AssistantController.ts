@@ -29,7 +29,25 @@ import {WakeTracker} from "./wake"
 import type {WakeAction} from "./wake"
 
 const CLIENT_VERSION = manifest.version
-const DEFAULT_SETTINGS: GlassSettings = {wakeSttMode: "local", agentId: null}
+const DEFAULT_SETTINGS: GlassSettings = {
+  wakeSttMode: "local",
+  agentId: null,
+  querySttMode: "gateway",
+  notificationApps: [],
+}
+
+/** Trimmed, non-empty, de-duplicated package names in first-seen order. */
+function sanitizeNotificationApps(value: unknown): string[] {
+  if (!Array.isArray(value)) return []
+  const seen = new Set<string>()
+  for (const entry of value) {
+    if (typeof entry !== "string") continue
+    const name = entry.trim()
+    if (!name || seen.has(name)) continue
+    seen.add(name)
+  }
+  return [...seen]
+}
 /** How long the listening frame stays up when no query follows the wake word. */
 const LISTENING_WINDOW_MS = 8000
 /** Mic test: silence window before the on-device model hint is shown. */
@@ -209,6 +227,8 @@ export class AssistantController {
       this.settings = {
         wakeSttMode: parsed.wakeSttMode === "cloud" ? "cloud" : "local",
         agentId: typeof parsed.agentId === "string" ? parsed.agentId : null,
+        querySttMode: parsed.querySttMode === "mentra" ? "mentra" : "gateway",
+        notificationApps: sanitizeNotificationApps(parsed.notificationApps),
       }
     } catch {
       this.settings = {...DEFAULT_SETTINGS}
@@ -223,9 +243,12 @@ export class AssistantController {
     if (this.disposed) return
     const modeChanged = patch.wakeSttMode !== undefined && patch.wakeSttMode !== this.settings.wakeSttMode
     const agentChanged = patch.agentId !== undefined
+    const appsChanged = patch.notificationApps !== undefined
     this.settings = {
       wakeSttMode: patch.wakeSttMode ?? this.settings.wakeSttMode,
       agentId: patch.agentId !== undefined ? patch.agentId : this.settings.agentId,
+      querySttMode: patch.querySttMode ?? this.settings.querySttMode,
+      notificationApps: appsChanged ? sanitizeNotificationApps(patch.notificationApps) : this.settings.notificationApps,
     }
     try {
       await this.saveSettings()
@@ -597,7 +620,7 @@ export class AssistantController {
       agents: this.agents.map((agent) => ({...agent})),
       defaultAgentId: this.agentsInfo?.defaultId ?? null,
       sessionScope: this.agentsInfo?.scope ?? null,
-      settings: {...this.settings},
+      settings: {...this.settings, notificationApps: [...this.settings.notificationApps]},
       micTestEnabled: this.micTestEnabled,
       lastError: this.notice ?? this.connection.lastError,
     }

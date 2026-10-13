@@ -15,6 +15,14 @@ import type {MentraTyped} from "@mentra/miniapp/ui"
 export interface GlassSettings {
   wakeSttMode: "local" | "cloud"
   agentId: string | null
+  querySttMode: "gateway" | "mentra"
+  notificationApps: string[]
+}
+
+/** An Android app from which a notification has been seen on the glasses. */
+export interface NotificationAppOption {
+  packageName: string
+  app: string
 }
 
 export interface AgentOption {
@@ -48,7 +56,7 @@ export interface Channels {
   /** Forget the gateway pairing (the identity key is kept). */
   "pair:forget": Record<string, never>
   /** Patch settings; omitted fields stay unchanged. */
-  "settings:set": {wakeSttMode?: "local" | "cloud"; agentId?: string | null}
+  "settings:set": Partial<GlassSettings>
   /** Enable or disable the microphone test. */
   "mictest:set": {enabled: boolean}
 

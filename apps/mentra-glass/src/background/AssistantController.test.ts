@@ -783,7 +783,12 @@ describe("AssistantController", () => {
     await startAssistant(session, connection)
 
     expect(session.transcriptSubscriptions().at(-1)).toEqual({forceLocal: true})
-    expect(lastSnapshot(session).settings).toEqual({wakeSttMode: "local", agentId: null})
+    expect(lastSnapshot(session).settings).toEqual({
+      wakeSttMode: "local",
+      agentId: null,
+      querySttMode: "gateway",
+      notificationApps: [],
+    })
   })
 
   it("warns when settings cannot be saved but still applies them", async () => {
@@ -802,7 +807,12 @@ describe("AssistantController", () => {
     await flush()
 
     expect(errorMessages(session)).toEqual(["disk full"])
-    expect(lastSnapshot(session).settings).toEqual({wakeSttMode: "cloud", agentId: null})
+    expect(lastSnapshot(session).settings).toEqual({
+      wakeSttMode: "cloud",
+      agentId: null,
+      querySttMode: "gateway",
+      notificationApps: [],
+    })
     expect(session.transcriptSubscriptions().at(-1)).toEqual({forceLocal: false})
   })
 
@@ -817,6 +827,51 @@ describe("AssistantController", () => {
     expect(session.transcriptSubscriptions().at(-1)).toEqual({forceLocal: false})
     const stored = JSON.parse((await session.storage.get(SETTINGS_STORAGE_KEY)) ?? "{}") as {wakeSttMode?: string}
     expect(stored.wakeSttMode).toBe("cloud")
+  })
+
+  it("defaults query transcription to the gateway and no notification apps", async () => {
+    const session = new FakeSession()
+    const connection = new FakeConnection()
+    await startAssistant(session, connection)
+
+    const settings = lastSnapshot(session).settings
+    expect(settings.querySttMode).toBe("gateway")
+    expect(settings.notificationApps).toEqual([])
+  })
+
+  it("persists querySttMode and notificationApps", async () => {
+    const session = new FakeSession()
+    const connection = new FakeConnection()
+    await startAssistant(session, connection)
+
+    session.uiMessage("settings:set", {querySttMode: "mentra", notificationApps: ["com.whatsapp"]})
+    await flush()
+
+    const stored = JSON.parse((await session.storage.get(SETTINGS_STORAGE_KEY)) ?? "{}") as {
+      querySttMode?: string
+      notificationApps?: string[]
+    }
+    expect(stored.querySttMode).toBe("mentra")
+    expect(stored.notificationApps).toEqual(["com.whatsapp"])
+
+    const restarted = new FakeSession(undefined, session.storage)
+    await startAssistant(restarted, connection)
+    const settings = lastSnapshot(restarted).settings
+    expect(settings.querySttMode).toBe("mentra")
+    expect(settings.notificationApps).toEqual(["com.whatsapp"])
+  })
+
+  it("sanitizes stored settings", async () => {
+    const store = memoryStore({
+      [SETTINGS_STORAGE_KEY]: JSON.stringify({querySttMode: "bogus", notificationApps: [1, "a", "a", ""]}),
+    })
+    const session = new FakeSession(undefined, store)
+    const connection = new FakeConnection()
+    await startAssistant(session, connection)
+
+    const settings = lastSnapshot(session).settings
+    expect(settings.querySttMode).toBe("gateway")
+    expect(settings.notificationApps).toEqual(["a"])
   })
 
   it("routes to the selected agent, shows its name, and persists the choice", async () => {

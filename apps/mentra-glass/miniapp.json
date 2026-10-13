@@ -16,6 +16,10 @@
     {
       "type": "MICROPHONE",
       "description": "Listens for your WednesdayAI wake word and spoken questions"
+    },
+    {
+      "type": "READ_NOTIFICATIONS",
+      "description": "Shows notifications from the apps you choose on the glasses"
     }
   ],
   "hardwareRequirements": [
@@ -28,6 +32,11 @@
       "type": "MICROPHONE",
       "level": "REQUIRED",
       "description": "Hears the wake word and your question"
+    },
+    {
+      "type": "IMU",
+      "level": "OPTIONAL",
+      "description": "Shows a glance when you tilt your head up"
     }
   ]
 }
