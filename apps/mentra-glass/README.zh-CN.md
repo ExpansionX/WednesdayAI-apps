@@ -34,6 +34,7 @@ Translation 等）同时运行，只在回答期间占用显示。
   `wss://`（例如 Tailscale Serve）或 tailnet IP 访问。
 - 若使用本机（on-device）唤醒监听：需要在
   Mentra App -> Settings -> Transcription 下载离线语音模型。
+- 使用眼镜通知：需要 Android 通知权限。
 
 ### 安装（侧载）
 
@@ -64,7 +65,23 @@ bun run release        # 独立安装：打印 miniapp://release 二维码
 自动清除（显示 **Offline** 时为 4 秒）。如果只说唤醒词，小应用会监听
 8 秒等待后续问题。
 
-唤醒词来自网关，管理员修改后会实时更新。
+唤醒词来自网关，管理员修改后会实时更新。唤醒词之后的问题由你的
+WednesdayAI 网关转写；如果网关无法转写，则使用 Mentra 的转写结果。
+
+### 抬头速览
+
+- 抬头会显示时间、连接状态和排队通知数，持续 5 秒；低头即隐藏。
+- 它不会遮挡回答。
+- 眼镜自带的抬头仪表盘也可能出现；MentraOS 无法关闭它。
+
+### 眼镜通知
+
+- 仅支持 Android。
+- 在手机菜单中勾选应用。
+- 通知一次显示一条，每条按 160 字符分页，每 4 秒翻一页，之后显示
+  下一条。
+- 停用 Mentra Notify 以免重复显示。
+- 在 iOS 上由眼镜固件自行显示通知。
 
 ### 设置
 
@@ -72,12 +89,18 @@ bun run release        # 独立安装：打印 miniapp://release 二维码
   全局会话时不可选。
 - **Wake listening**：本机（私密，需要离线模型）或 Mentra 云
   （更准确）。
+- **Question transcription**：WednesdayAI 网关或 Mentra。若网关无法
+  转写，则使用 Mentra 的转写结果。
+- **Glasses notifications**：选择哪些 Android 应用可以在眼镜上显示
+  通知。
 - **Mic test**：显示最近的转写内容，检查唤醒检测听到了什么。
 
 ### 故障排查
 
 - **"Mentra AI answers instead"（Mentra AI 抢先回答）** — 在 Mentra App
   中停用 Mentra AI，保证只有一个助手监听。
+- 不要把 WednesdayAI 固定在眼镜菜单中：在菜单里选择它会停止助手
+  （#16）。
 - **"No speech heard in 10 s. On-device mode needs the offline model: Mentra
   App → Settings → Transcription."** — 下载离线语音模型，或将唤醒监听
   切换到 Mentra 云。
@@ -96,6 +119,10 @@ bun run release        # 独立安装：打印 miniapp://release 二维码
 配对状态、设备令牌和设置保存在小应用的 session storage 中，当前宿主
 使用未加密的 MMKV，而不是手机 Keychain/Keystore。网关 URL 必须是
 `wss://`，`ws://` 仅限 localhost/loopback 或 Tailscale 网段。
+
+开启网关转写后，手机在连接期间会在内存中保留最近 1.5 秒的麦克风
+音频。只有从唤醒词到问题结束的音频会发送到你的网关。通知文本不会
+离开手机。
 
 ## For Administrators（管理员）
 
@@ -121,6 +148,10 @@ wednesdayai qr --client openclaw-mentra-node
 这是宽泛的 operator 权限，不是最小授权：覆盖聊天、会话读取、agents、
 唤醒词以及其他 operator 读写方法（比 user client 的窄会话权限更宽）。
 不授予 admin、pairing、approvals、`talk.secrets`，也没有 node 角色。
+
+问题转写使用现有 `operator.write` 权限下的 `talk.session.*`。它需要
+网关上有转写 provider；否则用户会看到一次 "WednesdayAI transcription
+unavailable"，然后使用 Mentra 的转写结果。
 
 ### 管理设备与唤醒词
 
@@ -203,7 +234,8 @@ wednesdayai qr --client openclaw-mentra-node
 - 测试与源码同目录，命名为 `src/**/*.test.ts`（vitest）。覆盖率排除
   React UI（无 DOM 测试环境），阈值在 `vitest.config.ts` 中。
 - 存储键 `wai.identity.v1`、`wai.gateway.v1`、`wai.deviceAuth.v1`、
-  `wai.settings.v1` 保存在普通 session storage 中（见管理员注意事项）。
+  `wai.settings.v1`、`wai.notificationApps.v1` 保存在普通 session
+  storage 中（见管理员注意事项）。
 - 仅支持侧载分发（MentraOS 3.0 不对 Miniapp SDK 应用提供商店分发）。
 - 已知限制以 `[finding]` issue 形式记录在
-  `ExpansionX/WednesdayAI-apps`（#1–#9）。
+  `ExpansionX/WednesdayAI-apps`（#1–#16）。

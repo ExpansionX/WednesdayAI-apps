@@ -34,6 +34,7 @@ It is a background Mentra miniapp, so it runs alongside your other miniapps
   phone over `wss://` (for example Tailscale Serve) or the tailnet IP.
 - For on-device wake listening: the offline speech model, downloaded in
   Mentra App -> Settings -> Transcription.
+- For glasses notifications: Android notification access.
 
 ### Install (sideload)
 
@@ -66,7 +67,25 @@ miniapp shows **Offline**). If you say just the wake word, the miniapp
 listens for 8 seconds for the question to follow.
 
 Wake words come from the gateway and update live when your administrator
-changes them.
+changes them. After the wake word, the question is transcribed by your
+WednesdayAI gateway; if it cannot, Mentra's transcript is used.
+
+### Head-tilt glance
+
+- Tilting your head up shows the time, the connection status and the number
+  of queued notifications for 5 seconds; it hides when you look down.
+- It never covers an answer.
+- The glasses' own tilt dashboard may also appear; MentraOS cannot turn it
+  off.
+
+### Glasses notifications
+
+- Android only.
+- Tick apps in the phone menu.
+- Notifications show one at a time, in 160-character pages that advance
+  every 4 seconds, then the next.
+- Stop Mentra Notify to avoid duplicates.
+- On iOS the glasses firmware shows notifications itself.
 
 ### Settings
 
@@ -74,6 +93,10 @@ changes them.
   when the gateway uses one global session.
 - **Wake listening**: on-device (private, needs the offline model) or Mentra
   cloud (more accurate).
+- **Question transcription**: WednesdayAI gateway or Mentra. If the gateway
+  cannot transcribe, Mentra's transcript is used.
+- **Glasses notifications**: choose which Android apps may show
+  notifications on the glasses.
 - **Mic test**: shows the last transcripts so you can check what the wake
   detector hears.
 
@@ -81,6 +104,8 @@ changes them.
 
 - **"Mentra AI answers instead"** — stop Mentra AI in the Mentra App so only
   one assistant listens.
+- Do not pin WednesdayAI in the glasses menu: selecting it there stops the
+  assistant (#16).
 - **"No speech heard in 10 s. On-device mode needs the offline model: Mentra
   App → Settings → Transcription."** — download the offline speech model, or
   switch wake listening to Mentra cloud.
@@ -102,6 +127,11 @@ Pairing state, the device token and settings live in the miniapp's session
 storage, backed by unencrypted MMKV in the current host — not the phone
 Keychain/Keystore. The gateway URL must be `wss://`, or `ws://` only for
 localhost/loopback or the Tailscale range.
+
+With gateway transcription on, the phone keeps the last 1.5 seconds of
+microphone audio in memory while connected. It sends audio to your gateway
+only from the wake word to the end of your question. Notification text
+never leaves the phone.
 
 ## For Administrators
 
@@ -128,6 +158,11 @@ These are the broad operator scopes, not the narrowest possible grant: they
 cover chat, session reads, agents, wake words and the other operator
 read/write methods (broader than the user client's narrow session scopes).
 They grant no admin, pairing, approvals, `talk.secrets`, and no node role.
+
+Question transcription uses `talk.session.*` under the existing
+`operator.write` scope. It needs a transcription provider on the gateway;
+otherwise the user sees "WednesdayAI transcription unavailable" once and
+Mentra's transcript is used.
 
 ### Manage devices and wake words
 
@@ -216,8 +251,9 @@ background pushes a state snapshot on every change.
 - Tests are colocated as `src/**/*.test.ts` (vitest). Coverage excludes the
   React UI (no DOM test setup) and thresholds live in `vitest.config.ts`.
 - Storage keys `wai.identity.v1`, `wai.gateway.v1`, `wai.deviceAuth.v1`,
-  `wai.settings.v1` sit in plain session storage (see the admin caveat).
+  `wai.settings.v1`, `wai.notificationApps.v1` sit in plain session storage
+  (see the admin caveat).
 - Sideload distribution only (MentraOS 3.0 does not store-distribute Miniapp
   SDK apps).
 - Open limitations are tracked as `[finding]` issues in
-  `ExpansionX/WednesdayAI-apps` (#1–#9).
+  `ExpansionX/WednesdayAI-apps` (#1–#16).
