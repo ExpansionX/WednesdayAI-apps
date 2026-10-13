@@ -130,8 +130,8 @@ localhost/loopback or the Tailscale range.
 
 With gateway transcription on, the phone keeps the last 1.5 seconds of
 microphone audio in memory while connected. It sends audio to your gateway
-only from the wake word to the end of your question. Notification text
-never leaves the phone.
+only from just before the wake word (up to 1.5 seconds of buffered audio)
+to the end of your question. Notification text never leaves the phone.
 
 ## For Administrators
 
