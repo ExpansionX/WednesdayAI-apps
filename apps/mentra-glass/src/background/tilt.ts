@@ -28,6 +28,8 @@ export class TiltDetector {
   private readonly holdMs: number
   private up = false
   private candidateSince: number | null = null
+  /** Last accepted sample timestamp; a lower one means the clock stepped back. */
+  private lastTimestamp: number | null = null
 
   constructor(options: TiltDetectorOptions = {}) {
     this.upDeg = options.upDeg ?? TILT_UP_DEG
@@ -37,11 +39,17 @@ export class TiltDetector {
 
   onSample(sample: AccelData): TiltEvent | null {
     const {x, y, z, timestamp} = sample
-    if (![x, y, z, timestamp].every(Number.isFinite)) return null
+    if (!Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(z) || !Number.isFinite(timestamp)) {
+      return null
+    }
+    // A backwards clock step restarts the hold in the new time domain.
+    const steppedBack = this.lastTimestamp !== null && timestamp < this.lastTimestamp
+    this.lastTimestamp = timestamp
 
     if (!this.up) {
       if (pitchDegrees(sample) >= this.upDeg) {
-        this.candidateSince ??= timestamp
+        if (steppedBack) this.candidateSince = timestamp
+        else this.candidateSince ??= timestamp
         if (timestamp - this.candidateSince >= this.holdMs) {
           this.up = true
           this.candidateSince = null
@@ -54,7 +62,8 @@ export class TiltDetector {
     }
 
     if (pitchDegrees(sample) <= this.downDeg) {
-      this.candidateSince ??= timestamp
+      if (steppedBack) this.candidateSince = timestamp
+      else this.candidateSince ??= timestamp
       if (timestamp - this.candidateSince >= this.holdMs) {
         this.up = false
         this.candidateSince = null
@@ -69,5 +78,6 @@ export class TiltDetector {
   reset(): void {
     this.up = false
     this.candidateSince = null
+    this.lastTimestamp = null
   }
 }

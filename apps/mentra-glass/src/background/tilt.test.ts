@@ -60,6 +60,26 @@ describe("TiltDetector", () => {
     expect(d.onSample(sample(30, 300))).toBe("up")
   })
 
+  it("restarts the up hold when the clock steps backwards mid-hold", () => {
+    const d = new TiltDetector()
+    expect(d.onSample(sample(30, 10000))).toBeNull()
+    expect(d.onSample(sample(30, 10100))).toBeNull()
+    // The clock jumps back 1000 ms: the hold restarts in the new time domain.
+    expect(d.onSample(sample(30, 9200))).toBeNull()
+    expect(d.onSample(sample(30, 9500))).toBe("up")
+  })
+
+  it("restarts the down hold when the clock steps backwards mid-hold", () => {
+    const d = new TiltDetector()
+    expect(d.onSample(sample(30, 10000))).toBeNull()
+    expect(d.onSample(sample(30, 10300))).toBe("up")
+    expect(d.onSample(sample(10, 10400))).toBeNull()
+    expect(d.onSample(sample(10, 10500))).toBeNull()
+    // The clock jumps back 1000 ms: the hold restarts in the new time domain.
+    expect(d.onSample(sample(10, 9700))).toBeNull()
+    expect(d.onSample(sample(10, 10000))).toBe("down")
+  })
+
   it("reset clears the tilt state", () => {
     const d = new TiltDetector()
     expect(d.onSample(sample(30, 0))).toBeNull()
