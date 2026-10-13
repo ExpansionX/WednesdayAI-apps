@@ -23,10 +23,21 @@ export function App() {
   const [error, setError] = useState<string | null>(null)
   const [code, setCode] = useState("")
   const [transcripts, setTranscripts] = useState<TranscriptItem[]>([])
+  /**
+   * Checkbox selections made since the last background snapshot. Ticking
+   * several apps in a row must build on the previous tick — the background
+   * only pushes a new snapshot after its storage write settles, so reading
+   * the snapshot array would drop earlier selections. Each snapshot resyncs
+   * this to null (the background's list wins once it arrives).
+   */
+  const [localApps, setLocalApps] = useState<string[] | null>(null)
 
   useEffect(() => {
     const unsubs = [
-      mentra.on("state", setSnapshot),
+      mentra.on("state", (next) => {
+        setLocalApps(null)
+        setSnapshot(next)
+      }),
       mentra.on("error", ({message}) => setError(message)),
       mentra.on("mictest:transcript", (item) => {
         setTranscripts((prev) => [item, ...prev].slice(0, TRANSCRIPT_LIMIT))
@@ -48,6 +59,7 @@ export function App() {
   }
 
   const pairDisabled = snapshot.connection === "connecting"
+  const allowlist = localApps ?? snapshot.settings.notificationApps
 
   return (
     <div className="app">
@@ -178,11 +190,12 @@ export function App() {
             <label key={app.packageName} className="row">
               <input
                 type="checkbox"
-                checked={snapshot.settings.notificationApps.includes(app.packageName)}
+                checked={allowlist.includes(app.packageName)}
                 onChange={(event) => {
                   const next = event.target.checked
-                    ? [...snapshot.settings.notificationApps, app.packageName]
-                    : snapshot.settings.notificationApps.filter((name) => name !== app.packageName)
+                    ? [...allowlist, app.packageName]
+                    : allowlist.filter((name) => name !== app.packageName)
+                  setLocalApps(next)
                   mentra.send("settings:set", {notificationApps: next})
                 }}
               />
