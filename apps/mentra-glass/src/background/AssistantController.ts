@@ -2,29 +2,35 @@
  * AssistantController — owns the glasses-side assistant.
  *
  * Wires the gateway connection (pairing, requests, chat events), wake-word
- * tracking over speech-to-text transcripts, the glasses display, persisted
- * settings, and the phone UI menu (see src/ui/App.tsx +
+ * tracking over speech-to-text transcripts, the glasses display — assistant
+ * frames, the head-tilt glance, and allowlisted phone notifications —
+ * persisted settings, and the phone UI menu (see src/ui/App.tsx +
  * src/shared/channels.ts). One instance lives for the whole background
  * JSContext; session.on("disconnect") tears everything down, marking the
  * controller disposed so async continuations cannot paint into a dead
  * session.
  */
 
-import type {MiniappSession} from "@mentra/miniapp/background"
+import type {AccelData, MiniappSession, PhoneNotificationData} from "@mentra/miniapp/background"
 import manifest from "../../miniapp.json"
 
 import {applyChatEvent, bindServerRunId, startRun} from "../gateway/chat"
 import type {ChatRun} from "../gateway/chat"
-import {SETTINGS_STORAGE_KEY} from "../gateway/constants"
+import {NOTIFICATION_APPS_STORAGE_KEY, SETTINGS_STORAGE_KEY} from "../gateway/constants"
 import {uuidV4} from "../gateway/encoding"
 import {GatewayConnection} from "../gateway/connection"
 import {parseSetupInput, parseUrlParts} from "../gateway/setup-code"
 import {agentOptions, resolveSessionKey} from "../gateway/sessions"
 import type {AgentsInfo} from "../gateway/sessions"
 import type {ConnectionState, KeyValueStore} from "../gateway/types"
-import type {Channels, GlassSettings, StateSnapshot} from "../shared/channels"
+import type {Channels, GlassSettings, NotificationAppOption, StateSnapshot} from "../shared/channels"
+import {glanceBody} from "./glance"
+import {notificationFromEvent} from "./notifications"
+import type {QueuedNotification} from "./notifications"
+import {NotificationPresenter} from "./notificationPresenter"
 import {GlassesView} from "./glassesView"
 import type {GlassesViewModel} from "./glassesView"
+import {TiltDetector} from "./tilt"
 import {WakeTracker} from "./wake"
 import type {WakeAction} from "./wake"
 
@@ -48,6 +54,9 @@ function sanitizeNotificationApps(value: unknown): string[] {
   }
   return [...seen]
 }
+
+/** Seen notification apps kept in state and storage, newest first. */
+const MAX_SEEN_APPS = 50
 /** How long the listening frame stays up when no query follows the wake word. */
 const LISTENING_WINDOW_MS = 8000
 /** Mic test: silence window before the on-device model hint is shown. */
@@ -104,6 +113,11 @@ export class AssistantController {
   /** True while the listening frame is the newest frame shown; guards the window's hide. */
   private listeningFrameUp = false
   private micTestTimer: TimerHandle | null = null
+  /** Which frame owns the display: assistant frames outrank notifications, which outrank the glance. */
+  private displayOwner: "assistant" | "notification" | "glance" | null = null
+  private readonly tilt = new TiltDetector()
+  private readonly notifications: NotificationPresenter
+  private seenApps: NotificationAppOption[] = []
 
   private settings: GlassSettings = {...DEFAULT_SETTINGS}
   private triggers: string[] = []
@@ -122,7 +136,22 @@ export class AssistantController {
     this.session = session
     // SimpleStorage's get/set/delete satisfy the portable KeyValueStore shape.
     this.store = session.storage
-    this.view = new GlassesView(session)
+    this.view = new GlassesView(session, {onAutoClear: () => this.onDisplayAutoClear()})
+    this.notifications = new NotificationPresenter(
+      {
+        canShow: () => this.displayOwner === null || this.displayOwner === "glance",
+        show: (vm) => {
+          this.displayOwner = "notification"
+          this.listeningFrameUp = false
+          this.view.show(vm)
+        },
+        hide: () => {
+          this.displayOwner = null
+          this.view.hide()
+        },
+      },
+      () => this.pushState(),
+    )
     const hooks: ConnectionHooks = {
       onStateChange: (state) => this.onConnectionState(state),
       onEvent: (event: string, payload: unknown) => this.onGatewayEvent(event, payload),
@@ -151,8 +180,15 @@ export class AssistantController {
 
     await this.loadSettings()
     if (this.disposed) return
+    await this.loadSeenApps()
+    if (this.disposed) return
     this.registerUiHandlers()
     this.subscribeTranscription()
+    this.unsubs.push(this.session.imu.onAccel((data) => this.onAccel(data)))
+    this.unsubs.push(this.session.phone.notifications.on((data) => this.onPhoneNotification(data)))
+    this.unsubs.push(
+      this.session.phone.notifications.onDismissed((data) => this.notifications.dismiss(data.notificationId)),
+    )
 
     void Promise.resolve(this.connection.start()).catch(() => {
       // Connection failures surface through onStateChange → pushState.
@@ -177,6 +213,8 @@ export class AssistantController {
       unsub()
     }
     this.connection.stop()
+    // Stops the page timer and drops queued state; the surface is left as is.
+    this.notifications.dispose()
     // Cancels GlassesView's heartbeat/auto-clear timers without rendering:
     // outbound render requests would only queue against the dead session.
     this.view.dispose()
@@ -198,7 +236,7 @@ export class AssistantController {
     if (!run || run.state === "final" || run.state === "error" || run.state === "aborted") return
     this.currentRun = null
     if (state === "unpaired") {
-      this.view.hide()
+      this.releaseDisplay()
       return
     }
     if (state === "offline") {
@@ -256,6 +294,9 @@ export class AssistantController {
       this.pushError(errorMessage(err, "Could not save settings"))
     }
     if (this.disposed) return
+    if (appsChanged) {
+      this.notifications.retain((notification) => this.settings.notificationApps.includes(notification.packageName))
+    }
     if (modeChanged) {
       this.subscribeTranscription()
       // The silence window restarts with the new subscription: a timer armed
@@ -295,7 +336,7 @@ export class AssistantController {
       case "cancel":
         this.listeningFrameUp = false
         this.stopListeningTimer()
-        this.view.hide()
+        this.releaseDisplay()
         return
       case "send":
         this.stopListeningTimer()
@@ -309,11 +350,107 @@ export class AssistantController {
   /**
    * Show a frame through the listening-window guard: a non-listening frame
    * takes the display away from the listening frame, so the window's expiry
-   * must no longer hide it.
+   * must no longer hide it. A notification on screen is requeued at the
+   * front (without hiding) and resumes when an assistant path frees the
+   * display.
    */
   private showFrame(vm: GlassesViewModel): void {
+    if (this.displayOwner === "notification") this.notifications.interrupt()
     this.listeningFrameUp = vm.phase === "listening"
+    this.displayOwner = "assistant"
     this.view.show(vm)
+  }
+
+  /**
+   * Give the display back: clear the glasses and let a queued notification
+   * step in. Every assistant-side hide of a live frame goes through here.
+   */
+  private releaseDisplay(): void {
+    this.displayOwner = null
+    this.view.hide()
+    this.notifications.pump()
+  }
+
+  /** A terminal frame auto-cleared itself: the display is free again. */
+  private onDisplayAutoClear(): void {
+    this.displayOwner = null
+    this.notifications.pump()
+  }
+
+  // ── Glance + notifications ──────────────────────────────────────────────
+
+  /** Head-tilt events: up shows the glance, down gives the display back. */
+  private onAccel(data: AccelData): void {
+    if (this.disposed) return
+    const event = this.tilt.onSample(data)
+    if (event === "up") {
+      // A glance never takes the display from an assistant frame.
+      if (this.displayOwner !== null && this.displayOwner !== "glance") return
+      this.displayOwner = "glance"
+      this.listeningFrameUp = false
+      this.view.show({
+        phase: "glance",
+        agentLabel: this.agentLabel(),
+        body: glanceBody(new Date(), this.connection.state, this.notifications.queued),
+      })
+      return
+    }
+    if (event === "down" && this.displayOwner === "glance") this.releaseDisplay()
+  }
+
+  private onPhoneNotification(data: PhoneNotificationData): void {
+    if (this.disposed) return
+    const item = notificationFromEvent(data)
+    if (!item) return
+    this.recordSeenApp(item)
+    if (this.settings.notificationApps.includes(item.packageName)) this.notifications.add(item)
+    this.pushState()
+  }
+
+  /** Move the app to the front of the seen list, cap it, and persist changes. */
+  private recordSeenApp(item: QueuedNotification): void {
+    const entry: NotificationAppOption = {packageName: item.packageName, app: item.app}
+    const rest = this.seenApps.filter((seen) => seen.packageName !== entry.packageName)
+    const next = [entry, ...rest]
+    if (next.length > MAX_SEEN_APPS) next.length = MAX_SEEN_APPS
+    const changed =
+      next.length !== this.seenApps.length ||
+      next.some(
+        (seen, index) =>
+          seen.app !== this.seenApps[index]?.app || seen.packageName !== this.seenApps[index]?.packageName,
+      )
+    this.seenApps = next
+    if (!changed) return
+    void this.saveSeenApps()
+  }
+
+  private async saveSeenApps(): Promise<void> {
+    try {
+      await this.store.set(NOTIFICATION_APPS_STORAGE_KEY, JSON.stringify(this.seenApps))
+    } catch (err) {
+      this.pushError(errorMessage(err, "Could not save notification apps"))
+    }
+  }
+
+  private async loadSeenApps(): Promise<void> {
+    try {
+      const raw = await this.store.get(NOTIFICATION_APPS_STORAGE_KEY)
+      if (!raw) return
+      const parsed: unknown = JSON.parse(raw)
+      if (!Array.isArray(parsed)) return
+      const apps: NotificationAppOption[] = []
+      for (const entry of parsed) {
+        if (typeof entry !== "object" || entry === null) continue
+        const candidate = entry as {packageName?: unknown; app?: unknown}
+        if (typeof candidate.packageName !== "string" || !candidate.packageName) continue
+        if (typeof candidate.app !== "string" || !candidate.app) continue
+        apps.push({packageName: candidate.packageName, app: candidate.app})
+        if (apps.length >= MAX_SEEN_APPS) break
+      }
+      this.seenApps = apps
+    } catch {
+      this.seenApps = []
+    }
   }
 
   private armListeningWindow(): void {
@@ -327,7 +464,7 @@ export class AssistantController {
       this.tracker.cancelAwait()
       if (this.listeningFrameUp) {
         this.listeningFrameUp = false
-        this.view.hide()
+        this.releaseDisplay()
       }
     }, LISTENING_WINDOW_MS)
   }
@@ -599,7 +736,7 @@ export class AssistantController {
     this.currentRun = null
     this.currentQuery = ""
     this.listeningFrameUp = false
-    if (hadFrame) this.view.hide()
+    if (hadFrame) this.releaseDisplay()
     try {
       await this.connection.pair(setup)
     } catch (err) {
@@ -623,6 +760,8 @@ export class AssistantController {
       settings: {...this.settings, notificationApps: [...this.settings.notificationApps]},
       micTestEnabled: this.micTestEnabled,
       lastError: this.notice ?? this.connection.lastError,
+      seenNotificationApps: this.seenApps.map((seen) => ({...seen})),
+      queuedNotifications: this.notifications.queued,
     }
   }
 

@@ -42,6 +42,10 @@ export interface StateSnapshot {
   /** Whether the microphone test is currently forwarding transcripts. */
   micTestEnabled: boolean
   lastError: string | null
+  /** Android apps from which a notification has been seen, newest first (max 50). */
+  seenNotificationApps: NotificationAppOption[]
+  /** Notifications waiting to show, excluding the one on screen. */
+  queuedNotifications: number
 }
 
 export interface Channels {

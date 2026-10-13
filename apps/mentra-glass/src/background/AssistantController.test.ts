@@ -1,9 +1,14 @@
 import {afterEach, beforeEach, describe, expect, it, vi} from "vitest"
 
-import type {MiniappSession, RenderElement} from "@mentra/miniapp/background"
+import type {AccelData, MiniappSession, PhoneNotificationData, RenderElement} from "@mentra/miniapp/background"
 import type {GatewayConnection} from "../gateway/connection"
 import {base64UrlEncode} from "../gateway/encoding"
-import {DEVICE_AUTH_STORAGE_KEY, GATEWAY_STORAGE_KEY, SETTINGS_STORAGE_KEY} from "../gateway/constants"
+import {
+  DEVICE_AUTH_STORAGE_KEY,
+  GATEWAY_STORAGE_KEY,
+  NOTIFICATION_APPS_STORAGE_KEY,
+  SETTINGS_STORAGE_KEY,
+} from "../gateway/constants"
 import type {ConnectionState, KeyValueStore} from "../gateway/types"
 import type {Channels, StateSnapshot} from "../shared/channels"
 
@@ -117,6 +122,39 @@ class FakeSession {
     },
   }
 
+  private readonly accelEntries: Array<(data: AccelData) => void> = []
+  private readonly notificationEntries: Array<(data: PhoneNotificationData) => void> = []
+  private readonly dismissedEntries: Array<(data: {notificationId: string}) => void> = []
+
+  readonly imu = {
+    onAccel: (handler: (data: AccelData) => void) => {
+      this.accelEntries.push(handler)
+      return () => {
+        const index = this.accelEntries.indexOf(handler)
+        if (index >= 0) this.accelEntries.splice(index, 1)
+      }
+    },
+  }
+
+  readonly phone = {
+    notifications: {
+      on: (handler: (data: PhoneNotificationData) => void) => {
+        this.notificationEntries.push(handler)
+        return () => {
+          const index = this.notificationEntries.indexOf(handler)
+          if (index >= 0) this.notificationEntries.splice(index, 1)
+        }
+      },
+      onDismissed: (handler: (data: {notificationId: string}) => void) => {
+        this.dismissedEntries.push(handler)
+        return () => {
+          const index = this.dismissedEntries.indexOf(handler)
+          if (index >= 0) this.dismissedEntries.splice(index, 1)
+        }
+      },
+    },
+  }
+
   on(event: string, cb: () => void): () => void {
     if (event === "disconnect") this.disconnectHandlers.push(cb)
     return () => {}
@@ -134,6 +172,31 @@ class FakeSession {
 
   transcriptSubscriptions(): Array<{forceLocal?: boolean}> {
     return this.transcriptEntries.map((entry) => entry.options ?? {})
+  }
+
+  /** One accelerometer reading at `deg` pitch and `ts` unix ms. */
+  accel(deg: number, ts: number): void {
+    const rad = (deg * Math.PI) / 180
+    const sample: AccelData = {x: 0, y: Math.sin(rad), z: Math.cos(rad), timestamp: ts}
+    for (const handler of [...this.accelEntries]) handler(sample)
+  }
+
+  notify(data: Partial<PhoneNotificationData>): void {
+    const full: PhoneNotificationData = {
+      notificationId: "",
+      title: "",
+      content: "",
+      app: "Messages",
+      packageName: "com.google.android.apps.messaging",
+      priority: "",
+      timestamp: Date.now(),
+      ...data,
+    }
+    for (const handler of [...this.notificationEntries]) handler(full)
+  }
+
+  dismiss(id: string): void {
+    for (const handler of [...this.dismissedEntries]) handler({notificationId: id})
   }
 }
 
@@ -1247,5 +1310,166 @@ describe("AssistantController", () => {
 
     expect(errorMessages(session)).toEqual(["Pairing failed"])
     expect(lastSnapshot(session).connection).toBe("connected")
+  })
+
+  it("tilt up shows the glance with the time and status", async () => {
+    const session = new FakeSession()
+    const connection = new FakeConnection()
+    await startAssistant(session, connection)
+    vi.setSystemTime(new Date(2026, 9, 13, 14, 5))
+
+    for (const ts of [0, 100, 200, 300]) session.accel(30, ts)
+    await vi.advanceTimersByTimeAsync(400)
+
+    expect(bodyTexts(session).at(-1)).toBe("14:05\nReady")
+    expect(headerTexts(session).at(-1)).toBe("WednesdayAI · default")
+  })
+
+  it("tilt down hides the glance", async () => {
+    const session = new FakeSession()
+    const connection = new FakeConnection()
+    await startAssistant(session, connection)
+    vi.setSystemTime(new Date(2026, 9, 13, 14, 5))
+
+    for (const ts of [0, 100, 200, 300]) session.accel(30, ts)
+    await vi.advanceTimersByTimeAsync(400)
+    expect(bodyTexts(session).at(-1)).toBe("14:05\nReady")
+
+    for (const ts of [400, 500, 600, 700]) session.accel(10, ts)
+    expect(session.renders.at(-1)).toEqual([])
+  })
+
+  it("tilt up is ignored while an assistant frame is up", async () => {
+    const session = new FakeSession()
+    const connection = new FakeConnection()
+    connection.respond("chat.send", () => ({runId: "srv-run-1"}))
+    await startAssistant(session, connection)
+
+    await ask(session, connection, "what is two plus two")
+    await vi.advanceTimersByTimeAsync(0)
+    expect(headerTexts(session).at(-1)).toContain("Thinking")
+
+    for (const ts of [0, 100, 200, 300]) session.accel(30, ts)
+    await flush()
+    await vi.advanceTimersByTimeAsync(400)
+
+    expect(headerTexts(session).at(-1)).toContain("Thinking")
+    expect(bodyTexts(session).at(-1)).toBe("what is two plus two")
+  })
+
+  it("allowlisted notification renders; other apps only appear in seen apps", async () => {
+    const session = new FakeSession()
+    const connection = new FakeConnection()
+    await startAssistant(session, connection)
+
+    session.uiMessage("settings:set", {notificationApps: ["com.google.android.apps.messaging"]})
+    await flush()
+
+    session.notify({notificationId: "n1", title: "Alice", content: "Lunch?"})
+    await flush()
+    await vi.advanceTimersByTimeAsync(400)
+    expect(headerTexts(session).at(-1)).toBe("Messages · Alice")
+    expect(bodyTexts(session).at(-1)).toBe("Lunch?")
+
+    session.notify({notificationId: "n2", title: "Bob", content: "Hey", packageName: "com.other"})
+    await flush()
+    expect(headerTexts(session).at(-1)).toBe("Messages · Alice")
+
+    const snapshot = lastSnapshot(session)
+    expect(snapshot.seenNotificationApps[0]).toEqual({packageName: "com.other", app: "Messages"})
+    expect(snapshot.queuedNotifications).toBe(0)
+  })
+
+  it("notification without text is ignored", async () => {
+    const session = new FakeSession()
+    const connection = new FakeConnection()
+    await startAssistant(session, connection)
+
+    session.notify({notificationId: "n0", title: "", content: ""})
+    await flush()
+
+    expect(session.renders).toEqual([])
+    expect(lastSnapshot(session).seenNotificationApps).toEqual([])
+  })
+
+  it("wake word interrupts a notification and the notification resumes after cancel", async () => {
+    const session = new FakeSession()
+    const connection = new FakeConnection()
+    await startAssistant(session, connection)
+
+    session.uiMessage("settings:set", {notificationApps: ["com.google.android.apps.messaging"]})
+    await flush()
+    session.notify({notificationId: "n1", title: "Alice", content: "Lunch?"})
+    await flush()
+    await vi.advanceTimersByTimeAsync(400)
+    expect(bodyTexts(session).at(-1)).toBe("Lunch?")
+
+    session.transcript("hey wednesday", false)
+    await flush()
+    await vi.advanceTimersByTimeAsync(400)
+    expect(headerTexts(session).at(-1)).toContain("Listening")
+
+    session.transcript("hey wendy", true)
+    await flush()
+    await vi.advanceTimersByTimeAsync(400)
+    expect(headerTexts(session).at(-1)).toBe("Messages · Alice")
+    expect(bodyTexts(session).at(-1)).toBe("Lunch?")
+  })
+
+  it("seen apps persist across restarts", async () => {
+    const session = new FakeSession()
+    const connection = new FakeConnection()
+    await startAssistant(session, connection)
+
+    session.notify({notificationId: "n1", title: "Alice", content: "Lunch?"})
+    await flush()
+    const stored = JSON.parse((await session.storage.get(NOTIFICATION_APPS_STORAGE_KEY)) ?? "[]") as unknown
+    expect(stored).toEqual([{packageName: "com.google.android.apps.messaging", app: "Messages"}])
+
+    const restarted = new FakeSession(undefined, session.storage)
+    await startAssistant(restarted, connection)
+    expect(lastSnapshot(restarted).seenNotificationApps).toEqual([
+      {packageName: "com.google.android.apps.messaging", app: "Messages"},
+    ])
+  })
+
+  it("removing an app from the allowlist drops its queued notifications", async () => {
+    const session = new FakeSession()
+    const connection = new FakeConnection()
+    await startAssistant(session, connection)
+
+    session.uiMessage("settings:set", {notificationApps: ["com.google.android.apps.messaging", "com.other"]})
+    await flush()
+    session.notify({notificationId: "n1", title: "Alice", content: "Lunch?"})
+    await flush()
+    await vi.advanceTimersByTimeAsync(400)
+    session.notify({notificationId: "n2", title: "Bob", content: "Hey", packageName: "com.other"})
+    await flush()
+    session.notify({notificationId: "n3", title: "Cara", content: "Hi"})
+    await flush()
+    expect(lastSnapshot(session).queuedNotifications).toBe(2)
+
+    session.uiMessage("settings:set", {notificationApps: ["com.google.android.apps.messaging"]})
+    await flush()
+    expect(lastSnapshot(session).queuedNotifications).toBe(1)
+  })
+
+  it("dismissed notification leaves the queue", async () => {
+    const session = new FakeSession()
+    const connection = new FakeConnection()
+    await startAssistant(session, connection)
+
+    session.uiMessage("settings:set", {notificationApps: ["com.google.android.apps.messaging"]})
+    await flush()
+    session.notify({notificationId: "n1", title: "Alice", content: "Lunch?"})
+    await flush()
+    await vi.advanceTimersByTimeAsync(400)
+    session.notify({notificationId: "n2", title: "Bob", content: "Hey"})
+    await flush()
+    expect(lastSnapshot(session).queuedNotifications).toBe(1)
+
+    session.dismiss("n2")
+    await flush()
+    expect(lastSnapshot(session).queuedNotifications).toBe(0)
   })
 })
