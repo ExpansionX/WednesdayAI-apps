@@ -6,11 +6,13 @@
  * streaming) re-render the same frame every 5 s to hold the 10 s background
  * display lock (MentraOS LocalDisplayManager renews the lock on every
  * render); final/error/offline/glance/notification frames auto-clear via
- * render([]). A host that
+ * render ([]). A host that
  * drops a terminal frame ("blocked": another background app owns the display
  * lock) gets retries every 1 s inside the frame's visibility window; the
  * auto-hide deadline is anchored at the frame's first show() so retries never
- * extend it. A generation counter makes any newer show()/hide()/dispose()
+ * extend it — except notification frames, whose deadline re-anchors at their
+ * first accepted render so an accepted page keeps its full reading interval.
+ * A generation counter makes any newer show()/hide()/dispose()
  * cancel older timers.
  */
 
@@ -87,6 +89,8 @@ export class GlassesView {
   private clearDeadline = 0
   /** When the current frame's show() ran; anchors its auto-hide deadline. */
   private frameShownAt = 0
+  /** Set once the current notification frame's deadline was re-anchored at its first accepted render. */
+  private acceptAnchored = false
   private current: GlassesViewModel | null = null
   private readonly onAutoClear?: () => void
   private readonly onShown?: (vm: GlassesViewModel) => void
@@ -103,6 +107,7 @@ export class GlassesView {
     this.stopTimers()
     this.current = vm
     this.frameShownAt = Date.now()
+    this.acceptAnchored = false
     const waitMs = Math.max(0, MIN_RENDER_INTERVAL_MS - (Date.now() - this.lastRenderAt))
     this.renderTimer = setTimeout(() => {
       if (generation === this.generation) void this.renderFrame(generation)
@@ -148,17 +153,28 @@ export class GlassesView {
     // first show() so blocked retries never extend it. While the host reports
     // "blocked" (another background app owns the lock and drops the frame),
     // retry inside that window instead of losing the answer.
+    const hideMs =
+      vm.phase === "offline"
+        ? OFFLINE_HIDE_MS
+        : vm.phase === "glance"
+          ? GLANCE_HIDE_MS
+          : vm.phase === "notification"
+            ? NOTIFICATION_HIDE_MS
+            : FINAL_HIDE_MS
     if (this.clearTimer === null) {
-      const hideMs =
-        vm.phase === "offline"
-          ? OFFLINE_HIDE_MS
-          : vm.phase === "glance"
-            ? GLANCE_HIDE_MS
-            : vm.phase === "notification"
-              ? NOTIFICATION_HIDE_MS
-              : FINAL_HIDE_MS
       this.clearDeadline = this.frameShownAt + hideMs
       this.scheduleClear(generation, Math.max(0, this.clearDeadline - Date.now()))
+    }
+    // A notification frame's reading interval (NotificationPresenter.onShown)
+    // starts only when the host accepts the frame, so re-anchor its auto-hide
+    // deadline at the first accepted render: a page accepted after blocked
+    // retries keeps its full interval instead of being cleared mid-read and
+    // restarted from page 1. Until acceptance the show()-anchored deadline
+    // still bounds the retries.
+    if (vm.phase === "notification" && result.status !== "blocked" && !this.acceptAnchored) {
+      this.acceptAnchored = true
+      this.clearDeadline = Date.now() + hideMs
+      this.scheduleClear(generation, hideMs)
     }
     if (result.status === "blocked" && Date.now() + TERMINAL_RETRY_MS <= this.clearDeadline) {
       this.scheduleRender(generation, TERMINAL_RETRY_MS)

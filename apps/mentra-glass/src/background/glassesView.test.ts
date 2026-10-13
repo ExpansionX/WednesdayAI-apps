@@ -256,6 +256,26 @@ describe("GlassesView glance and notification frames", () => {
     view.dispose()
   })
 
+  it("re-anchors a blocked notification frame's auto-clear at its first accepted render", async () => {
+    const host = new FakeDisplayHost()
+    host.elementStatus = "blocked"
+    const onAutoClear = vi.fn()
+    const view = new GlassesView(asSession(host), {onAutoClear})
+    view.show({phase: "notification", agentLabel: "", header: "Messages · Alice", body: "hi"})
+    await vi.advanceTimersByTimeAsync(0) // first attempt: blocked
+    await vi.advanceTimersByTimeAsync(3000) // retries at +1 s..+3 s: still blocked
+    host.elementStatus = "displayed"
+    await vi.advanceTimersByTimeAsync(1000) // accepted ~4 s after show
+    expect(host.calls).not.toContain("clear")
+    // Not cleared at show + 6 s — only at acceptance + 6 s.
+    await vi.advanceTimersByTimeAsync(5999)
+    expect(host.calls).not.toContain("clear")
+    await vi.advanceTimersByTimeAsync(1)
+    expect(host.calls.at(-1)).toBe("clear")
+    expect(onAutoClear).toHaveBeenCalledTimes(1)
+    view.dispose()
+  })
+
   it("header override replaces the default header", async () => {
     const host = new FakeDisplayHost()
     const view = new GlassesView(asSession(host))
