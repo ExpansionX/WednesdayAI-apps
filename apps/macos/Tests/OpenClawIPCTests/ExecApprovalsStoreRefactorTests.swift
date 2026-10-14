@@ -4,25 +4,19 @@ import Testing
 
 @Suite(.serialized)
 struct ExecApprovalsStoreRefactorTests {
-    /// Isolates each test from parallel tests that resolve the store through the
-    /// process-global OPENCLAW_STATE_DIR: the env points at a throwaway dir that
-    /// absorbs foreign writers, while the store calls below pin an explicit
-    /// fixture directory that no other test can touch.
+    /// Isolates each test into a unique fixture directory: every store call
+    /// below pins this directory explicitly (`inDirectory:`), so nothing in the
+    /// suite touches the process-global state dir and no environment mutation
+    /// is needed.
     private func withTempStateDir(
         _ body: @escaping @Sendable (URL) async throws -> Void) async throws
     {
-        let envDir = FileManager().temporaryDirectory
-            .appendingPathComponent("openclaw-state-env-\(UUID().uuidString)", isDirectory: true)
         let fixtureDir = FileManager().temporaryDirectory
             .appendingPathComponent("openclaw-state-fixture-\(UUID().uuidString)", isDirectory: true)
         defer {
-            try? FileManager().removeItem(at: envDir)
             try? FileManager().removeItem(at: fixtureDir)
         }
-
-        try await TestIsolation.withEnvValues(["OPENCLAW_STATE_DIR": envDir.path]) {
-            try await body(fixtureDir)
-        }
+        try await body(fixtureDir)
     }
 
     @Test
