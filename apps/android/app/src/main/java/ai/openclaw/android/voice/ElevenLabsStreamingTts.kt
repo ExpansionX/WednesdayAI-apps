@@ -6,10 +6,17 @@ import android.media.AudioManager
 import android.media.AudioTrack
 import android.util.Base64
 import android.util.Log
-import kotlinx.coroutines.*
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
-import okhttp3.*
+import kotlinx.coroutines.launch
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import okhttp3.Response
+import okhttp3.WebSocket
+import okhttp3.WebSocketListener
 import org.json.JSONObject
 import kotlin.math.max
 
@@ -235,16 +242,11 @@ class ElevenLabsStreamingTts(
   /**
    * Send incremental text. Call with the full accumulated text so far —
    * only the new portion (since last send) will be transmitted.
-   */
-  // Track the full text we've sent so we can detect replacement vs append
-  private var sentFullText = ""
-
-  /**
-   // If we already sent a superset of this text, it's just a stale/out-of-order
-   // event from a different thread — not a real divergence. Ignore it.
-   if (sentFullText.startsWith(fullText)) return true
+   * Tracks the full text already sent so replacement vs append can be detected.
    * Returns true if text was accepted, false if text diverged (caller should restart).
    */
+  private var sentFullText = ""
+
   @Synchronized
   fun sendText(fullText: String): Boolean {
     if (stopped) return false
