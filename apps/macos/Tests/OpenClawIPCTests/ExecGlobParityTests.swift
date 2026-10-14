@@ -102,9 +102,37 @@ struct ExecGlobParityTests {
         #expect(!ExecAllowlistMatcher.matches(pattern: pattern, target: negative))
 
         // Wide single-star backtracking (heap frames, bounded work).
-        let wideTarget = "/tmp/" + String(repeating: "a", count: 4000)
+        let wideTarget = "/tmp/" + String(repeating: "a", count: 4_000)
         #expect(ExecAllowlistMatcher.matches(pattern: "/tmp/a*a", target: wideTarget))
         #expect(!ExecAllowlistMatcher.matches(pattern: "/tmp/*a*b", target: wideTarget))
+    }
+
+    @Test func `ambiguous many star late failure stays polynomial`() {
+        // Reviewer W1 vector (46 units): without the failed-state set this
+        // visits C(40, 20) suffix explorations before returning false.
+        let clock = ContinuousClock()
+        let latePattern = "/tmp/" + String(repeating: "*a", count: 20) + "b"
+        var start = clock.now
+        #expect(!ExecAllowlistMatcher.matches(
+            pattern: latePattern,
+            target: "/tmp/" + String(repeating: "a", count: 40) + "c"))
+        #expect((clock.now - start) < .seconds(1))
+
+        // Positive control: the reachable final literal still matches.
+        #expect(ExecAllowlistMatcher.matches(
+            pattern: latePattern,
+            target: "/tmp/" + String(repeating: "a", count: 40) + "b"))
+
+        // Scaled well past 200 units, miss and hit, still inside the bound.
+        let scaledPattern = "/tmp/" + String(repeating: "*a", count: 120) + "b"
+        start = clock.now
+        #expect(!ExecAllowlistMatcher.matches(
+            pattern: scaledPattern,
+            target: "/tmp/" + String(repeating: "a", count: 240) + "c"))
+        #expect(ExecAllowlistMatcher.matches(
+            pattern: scaledPattern,
+            target: "/tmp/" + String(repeating: "a", count: 240) + "b"))
+        #expect((clock.now - start) < .seconds(1))
     }
 
     // MARK: - Generated differential vectors (TypeScript ground truth)

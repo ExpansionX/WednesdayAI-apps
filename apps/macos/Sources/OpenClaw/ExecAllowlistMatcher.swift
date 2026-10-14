@@ -124,15 +124,23 @@ enum ExecAllowlistMatcher {
     /// `?` consumes exactly ONE UTF-16 unit that is not a line terminator — a
     /// supplementary code point is two units. Backtracking is iterative (V3):
     /// an explicit heap frame stack retries each star one unit shorter on
-    /// failure, so pattern length never grows the native call stack.
+    /// failure, so pattern length never grows the native call stack. A
+    /// failed-state set (W1) keyed by `(token index, input index)` — star
+    /// starts are recorded when their frame is exhausted, segment starts when
+    /// their deterministic walk dies — bounds the search to polynomially many
+    /// states, so ambiguous late-failure inputs cannot re-explore a suffix
+    /// under a different prefix history.
     private static func globMatch(pattern: String, target: String) -> Bool {
         let tokens = Self.compileGlobTokens(pattern)
         let units = Array(target.utf16)
+        let stride = units.count + 1
         var tokenIndex = 0
         var unitIndex = 0
         var frames: [(star: Int, min: Int, end: Int)] = []
+        var deadStates = Set<Int>()
         while true {
-            var dead = false
+            let walkStartKey = tokenIndex * stride + unitIndex
+            var dead = deadStates.contains(walkStartKey)
             while tokenIndex < tokens.count, !dead {
                 switch tokens[tokenIndex] {
                 case let .literal(expected):
@@ -152,6 +160,13 @@ enum ExecAllowlistMatcher {
                         dead = true
                     }
                 case let .anyRun(includingSlash):
+                    // The star's start state was already proven unable to reach
+                    // a match (its frame was exhausted earlier): fail fast.
+                    let starKey = tokenIndex * stride + unitIndex
+                    if deadStates.contains(starKey) {
+                        dead = true
+                        break
+                    }
                     let end = Self.starMaxEnd(includingSlash: includingSlash, units: units, unitIndex)
                     frames.append((star: tokenIndex, min: unitIndex, end: end))
                     tokenIndex += 1
@@ -161,8 +176,11 @@ enum ExecAllowlistMatcher {
             if !dead, unitIndex == units.count {
                 return true
             }
+            // This walk cannot succeed from its start; remember it.
+            deadStates.insert(walkStartKey)
             // Backtrack: retry the newest star one unit shorter; discard it
-            // once its run is empty. Frames beneath stay pending.
+            // once its run is empty, recording that its start state is dead
+            // so no other prefix history re-descends it (W1).
             while true {
                 guard var frame = frames.last else { return false }
                 if frame.end > frame.min {
@@ -172,6 +190,7 @@ enum ExecAllowlistMatcher {
                     unitIndex = frame.end
                     break
                 }
+                deadStates.insert(frame.star * stride + frame.min)
                 frames.removeLast()
             }
         }
