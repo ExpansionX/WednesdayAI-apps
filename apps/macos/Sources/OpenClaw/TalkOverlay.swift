@@ -37,11 +37,10 @@ final class TalkOverlayController {
             target: target,
             onFirstPresent: {
                 self.model.isVisible = true
-            })
-        { window in
-            window.setFrame(target, display: true)
-            window.orderFrontRegardless()
-        }
+            }) { window in
+                window.setFrame(target, display: true)
+                window.orderFrontRegardless()
+            }
     }
 
     func dismiss() {
