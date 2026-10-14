@@ -48,6 +48,14 @@ export function App() {
   }
 
   const pairDisabled = snapshot.connection === "connecting"
+  // An enabled app can fall off the capped seen list; keep it in the menu,
+  // labelled by package name, so the user can still switch it off.
+  const menuApps = [
+    ...snapshot.seenNotificationApps,
+    ...snapshot.settings.notificationApps
+      .filter((packageName) => !snapshot.seenNotificationApps.some((seen) => seen.packageName === packageName))
+      .map((packageName) => ({packageName, app: packageName})),
+  ]
 
   return (
     <div className="app">
@@ -171,10 +179,10 @@ export function App() {
       <section className="card">
         <h2>Glasses notifications</h2>
         <p className="hint">Android only. On iOS the glasses firmware shows notifications itself.</p>
-        {snapshot.seenNotificationApps.length === 0 ? (
+        {menuApps.length === 0 ? (
           <p className="hint">No notifications seen yet. Apps appear here after your phone shows one.</p>
         ) : (
-          snapshot.seenNotificationApps.map((app) => (
+          menuApps.map((app) => (
             <label key={app.packageName} className="row">
               <input
                 type="checkbox"

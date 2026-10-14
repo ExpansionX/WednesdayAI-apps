@@ -140,6 +140,32 @@ describe("App", () => {
     expect(screen.getByText("Queued: 2")).toBeTruthy()
   })
 
+  it("keeps an enabled app in the menu after it leaves the seen list", () => {
+    const {emit, sent} = renderApp()
+    pushState(
+      emit,
+      snapshot({
+        seenNotificationApps: [{packageName: "com.example.app", app: "Example"}],
+        settings: {
+          wakeSttMode: "local",
+          agentId: null,
+          querySttMode: "gateway",
+          notificationApps: ["com.example.app", "com.enabled.app"],
+        },
+      }),
+    )
+
+    // The enabled app is no longer in the capped seen list but must stay
+    // tickable so the user can switch it off.
+    const unseen = screen.getByRole("checkbox", {name: /com\.enabled\.app/}) as HTMLInputElement
+    expect(unseen.checked).toBe(true)
+    fireEvent.click(unseen)
+    expect(sent).toContainEqual({
+      channel: "notifications:allow",
+      payload: {packageName: "com.enabled.app", enabled: false},
+    })
+  })
+
   it("shows empty-state hints with no notifications, triggers, or queue", () => {
     const {emit} = renderApp()
     pushState(emit, snapshot({triggers: [], queuedNotifications: 0}))
