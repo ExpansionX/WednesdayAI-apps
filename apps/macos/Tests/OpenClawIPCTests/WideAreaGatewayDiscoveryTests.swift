@@ -35,7 +35,11 @@ struct WideAreaGatewayDiscoveryTests {
             // Injected instead of a process-env setenv: tests must not mutate
             // global state, and Foundation may snapshot the environment, so a
             // mid-run setenv is not reliably visible under parallel runs.
-            wideAreaDomain: { "openclaw.internal" })
+            wideAreaDomain: { "openclaw.internal" },
+            // A user-initiated probe queue: the utility-QoS live queue can be
+            // starved past the discovery deadline when parallel tests (the
+            // glob differential vectors) saturate the runner.
+            probeQueue: .global(qos: .userInitiated))
 
         let beacons = WideAreaGatewayDiscovery.discover(
             timeoutSeconds: 2.0,

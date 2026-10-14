@@ -28,6 +28,12 @@ enum WideAreaGatewayDiscovery {
         /// mid-run setenv is not reliably visible (Apple CI failure on
         /// 89ad0ed6). nil keeps the live env-backed read.
         var wideAreaDomain: (@Sendable () -> String?)?
+        /// Nameserver probe workers are dispatched here. Tests inject a
+        /// non-utility queue: `.utility` workers can be starved past the
+        /// discovery deadline on a saturated runner, which would make the test
+        /// report zero beacons under load. nil keeps the live
+        /// `.global(qos: .utility)`.
+        var probeQueue: DispatchQueue?
 
         static let live = DiscoveryContext(
             tailscaleStatus: { readTailscaleStatus() },
@@ -54,7 +60,8 @@ enum WideAreaGatewayDiscovery {
                   candidates: &candidates,
                   domain: domain,
                   remaining: remaining,
-                  dig: context.dig)
+                  dig: context.dig,
+                  probeQueue: context.probeQueue ?? .global(qos: .utility))
         else {
             return []
         }
@@ -159,7 +166,8 @@ enum WideAreaGatewayDiscovery {
         candidates: inout [String],
         domain: String,
         remaining: () -> TimeInterval,
-        dig: @escaping @Sendable (_ args: [String], _ timeout: TimeInterval) -> String?) -> String?
+        dig: @escaping @Sendable (_ args: [String], _ timeout: TimeInterval) -> String?,
+        probeQueue: DispatchQueue) -> String?
     {
         let domainTrimmed = domain.trimmingCharacters(in: CharacterSet(charactersIn: "."))
         let probeName = "_openclaw-gw._tcp.\(domainTrimmed)"
@@ -181,7 +189,7 @@ enum WideAreaGatewayDiscovery {
 
         for _ in 0..<workerCount {
             group.enter()
-            DispatchQueue.global(qos: .utility).async {
+            probeQueue.async {
                 defer { group.leave() }
 
                 while Date() < deadline {
