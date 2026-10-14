@@ -50,21 +50,25 @@ enum ShellExecutor {
                 errorMessage: "failed to start: \(error.localizedDescription)")
         }
 
-        let outTask = Task { stdoutPipe.fileHandleForReading.readToEndSafely() }
-        let errTask = Task { stderrPipe.fileHandleForReading.readToEndSafely() }
-
+        // waitUntilExit and the pipe drains block; run them on GCD so they cannot
+        // starve the cooperative pool (a starved pool delayed the timeout task past
+        // the child's natural exit on loaded CI runners).
         let waitTask = Task { () -> ShellResult in
-            process.waitUntilExit()
-            let out = await outTask.value
-            let err = await errTask.value
-            let status = Int(process.terminationStatus)
-            return ShellResult(
-                stdout: String(bytes: out, encoding: .utf8) ?? "",
-                stderr: String(bytes: err, encoding: .utf8) ?? "",
-                exitCode: status,
-                timedOut: false,
-                success: status == 0,
-                errorMessage: status == 0 ? nil : "exit \(status)")
+            await withCheckedContinuation { (continuation: CheckedContinuation<ShellResult, Never>) in
+                DispatchQueue.global().async {
+                    process.waitUntilExit()
+                    let out = stdoutPipe.fileHandleForReading.readToEndSafely()
+                    let err = stderrPipe.fileHandleForReading.readToEndSafely()
+                    let status = Int(process.terminationStatus)
+                    continuation.resume(returning: ShellResult(
+                        stdout: String(bytes: out, encoding: .utf8) ?? "",
+                        stderr: String(bytes: err, encoding: .utf8) ?? "",
+                        exitCode: status,
+                        timedOut: false,
+                        success: status == 0,
+                        errorMessage: status == 0 ? nil : "exit \(status)"))
+                }
+            }
         }
 
         if let timeout, timeout > 0 {
