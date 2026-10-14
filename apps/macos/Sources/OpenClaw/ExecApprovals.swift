@@ -229,12 +229,16 @@ enum ExecApprovalsStore {
     private static let defaultAutoAllowSkills = false
     private static let secureStateDirPermissions = 0o700
 
-    static func fileURL() -> URL {
-        OpenClawPaths.stateDirURL.appendingPathComponent("exec-approvals.json")
+    static func fileURL(inDirectory directory: String? = nil) -> URL {
+        let base = directory ?? OpenClawPaths.stateDirURL.path
+        return URL(fileURLWithPath: base, isDirectory: true)
+            .appendingPathComponent("exec-approvals.json")
     }
 
-    static func socketPath() -> String {
-        OpenClawPaths.stateDirURL.appendingPathComponent("exec-approvals.sock").path
+    static func socketPath(inDirectory directory: String? = nil) -> String {
+        let base = directory ?? OpenClawPaths.stateDirURL.path
+        return URL(fileURLWithPath: base, isDirectory: true)
+            .appendingPathComponent("exec-approvals.sock").path
     }
 
     static func normalizeIncoming(_ file: ExecApprovalsFile) -> ExecApprovalsFile {
@@ -310,8 +314,8 @@ enum ExecApprovalsStore {
             agents: file.agents)
     }
 
-    static func loadFile() -> ExecApprovalsFile {
-        let url = self.fileURL()
+    static func loadFile(inDirectory directory: String? = nil) -> ExecApprovalsFile {
+        let url = self.fileURL(inDirectory: directory)
         guard FileManager().fileExists(atPath: url.path) else {
             return ExecApprovalsFile(version: 1, socket: nil, defaults: nil, agents: [:])
         }
@@ -330,13 +334,13 @@ enum ExecApprovalsStore {
         }
     }
 
-    static func saveFile(_ file: ExecApprovalsFile) {
+    static func saveFile(_ file: ExecApprovalsFile, inDirectory directory: String? = nil) {
         do {
             let encoder = JSONEncoder()
             encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
             let data = try encoder.encode(file)
-            let url = self.fileURL()
-            self.ensureSecureStateDirectory()
+            let url = self.fileURL(inDirectory: directory)
+            self.ensureSecureStateDirectory(inDirectory: directory)
             try FileManager().createDirectory(
                 at: url.deletingLastPathComponent(),
                 withIntermediateDirectories: true)
@@ -349,18 +353,18 @@ enum ExecApprovalsStore {
         }
     }
 
-    static func ensureFile() -> ExecApprovalsFile {
-        self.ensureSecureStateDirectory()
-        let url = self.fileURL()
+    static func ensureFile(inDirectory directory: String? = nil) -> ExecApprovalsFile {
+        self.ensureSecureStateDirectory(inDirectory: directory)
+        let url = self.fileURL(inDirectory: directory)
         let existed = FileManager().fileExists(atPath: url.path)
-        let loaded = self.loadFile()
+        let loaded = self.loadFile(inDirectory: directory)
         let loadedHash = self.hashFile(loaded)
 
         var file = self.normalizeIncoming(loaded)
         if file.socket == nil { file.socket = ExecApprovalsSocketConfig(path: nil, token: nil) }
         let path = file.socket?.path?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         if path.isEmpty {
-            file.socket?.path = self.socketPath()
+            file.socket?.path = self.socketPath(inDirectory: directory)
         }
         let token = file.socket?.token?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         if token.isEmpty {
@@ -368,13 +372,13 @@ enum ExecApprovalsStore {
         }
         if file.agents == nil { file.agents = [:] }
         if !existed || loadedHash != self.hashFile(file) {
-            self.saveFile(file)
+            self.saveFile(file, inDirectory: directory)
         }
         return file
     }
 
-    static func resolve(agentId: String?) -> ExecApprovalsResolved {
-        let file = self.ensureFile()
+    static func resolve(agentId: String?, inDirectory directory: String? = nil) -> ExecApprovalsResolved {
+        let file = self.ensureFile(inDirectory: directory)
         let defaults = file.defaults ?? ExecApprovalsDefaults()
         let resolvedDefaults = ExecApprovalsResolvedDefaults(
             security: defaults.security ?? self.defaultSecurity,
@@ -495,9 +499,13 @@ enum ExecApprovalsStore {
     }
 
     @discardableResult
-    static func updateAllowlist(agentId: String?, allowlist: [ExecAllowlistEntry]) -> [ExecAllowlistRejectedEntry] {
+    static func updateAllowlist(
+        agentId: String?,
+        allowlist: [ExecAllowlistEntry],
+        inDirectory directory: String? = nil) -> [ExecAllowlistRejectedEntry]
+    {
         var rejected: [ExecAllowlistRejectedEntry] = []
-        self.updateFile { file in
+        self.updateFile(inDirectory: directory) { file in
             let key = self.agentKey(agentId)
             var agents = file.agents ?? [:]
             var entry = agents[key] ?? ExecApprovalsAgent()
@@ -526,14 +534,18 @@ enum ExecApprovalsStore {
         }
     }
 
-    private static func updateFile(_ mutate: (inout ExecApprovalsFile) -> Void) {
-        var file = self.ensureFile()
+    private static func updateFile(
+        inDirectory directory: String? = nil,
+        _ mutate: (inout ExecApprovalsFile) -> Void)
+    {
+        var file = self.ensureFile(inDirectory: directory)
         mutate(&file)
-        self.saveFile(file)
+        self.saveFile(file, inDirectory: directory)
     }
 
-    private static func ensureSecureStateDirectory() {
-        let url = OpenClawPaths.stateDirURL
+    private static func ensureSecureStateDirectory(inDirectory directory: String? = nil) {
+        let url = directory.map { URL(fileURLWithPath: $0, isDirectory: true) }
+            ?? OpenClawPaths.stateDirURL
         do {
             try FileManager().createDirectory(at: url, withIntermediateDirectories: true)
             try FileManager().setAttributes(
