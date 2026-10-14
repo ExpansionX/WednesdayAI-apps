@@ -37,13 +37,21 @@ enum ExecAllowlistMatcher {
     /// Full TS `matchesExecAllowlistPattern` pipeline (trim → tilde → lowercase
     /// normalize → glob match); internal for the generated parity tests.
     static func matches(pattern: String, target: String) -> Bool {
+        self.matchCountingStates(pattern: pattern, target: target).matched
+    }
+
+    /// Identical pipeline, also returning how many distinct `(token, input)`
+    /// states the matcher actually walked (internal test seam, round 7b).
+    /// Because every failed walk memoizes its state, this is bounded by
+    /// `(pattern units + 1) * (target units + 1)` — the pre-W1 uncached search
+    /// re-walked states under different prefix histories and exceeded that
+    /// bound. Production callers pay one integer increment per walked state.
+    static func matchCountingStates(pattern: String, target: String) -> (matched: Bool, exploredStates: Int) {
         let trimmed = pattern.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return false }
+        guard !trimmed.isEmpty else { return (false, 0) }
         let expanded = ExecPathScalars.hasPrefix(trimmed, "~")
             ? (trimmed as NSString).expandingTildeInPath : trimmed
-        let normalizedPattern = self.normalizeMatchTarget(expanded)
-        let normalizedTarget = self.normalizeMatchTarget(target)
-        return self.globMatch(pattern: normalizedPattern, target: normalizedTarget)
+        return Self.globMatch(pattern: Self.normalizeMatchTarget(expanded), target: Self.normalizeMatchTarget(target))
     }
 
     private static func normalizeMatchTarget(_ value: String) -> String {
@@ -130,7 +138,7 @@ enum ExecAllowlistMatcher {
     /// their deterministic walk dies — bounds the search to polynomially many
     /// states, so ambiguous late-failure inputs cannot re-explore a suffix
     /// under a different prefix history.
-    private static func globMatch(pattern: String, target: String) -> Bool {
+    private static func globMatch(pattern: String, target: String) -> (matched: Bool, exploredStates: Int) {
         let tokens = Self.compileGlobTokens(pattern)
         let units = Array(target.utf16)
         let stride = units.count + 1
@@ -138,9 +146,15 @@ enum ExecAllowlistMatcher {
         var unitIndex = 0
         var frames: [(star: Int, min: Int, end: Int)] = []
         var deadStates = Set<Int>()
+        var exploredStates = 0
         while true {
             let walkStartKey = tokenIndex * stride + unitIndex
             var dead = deadStates.contains(walkStartKey)
+            if !dead {
+                // Each state is walked at most once (a failed walk memoizes
+                // it), so this counter is bounded by the state space.
+                exploredStates += 1
+            }
             while tokenIndex < tokens.count, !dead {
                 switch tokens[tokenIndex] {
                 case let .literal(expected):
@@ -174,7 +188,7 @@ enum ExecAllowlistMatcher {
                 }
             }
             if !dead, unitIndex == units.count {
-                return true
+                return (true, exploredStates)
             }
             // This walk cannot succeed from its start; remember it.
             deadStates.insert(walkStartKey)
@@ -182,7 +196,7 @@ enum ExecAllowlistMatcher {
             // once its run is empty, recording that its start state is dead
             // so no other prefix history re-descends it (W1).
             while true {
-                guard var frame = frames.last else { return false }
+                guard var frame = frames.last else { return (false, exploredStates) }
                 if frame.end > frame.min {
                     frame.end -= 1
                     frames[frames.count - 1] = frame

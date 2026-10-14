@@ -110,29 +110,46 @@ struct ExecGlobParityTests {
     @Test func `ambiguous many star late failure stays polynomial`() {
         // Reviewer W1 vector (46 units): without the failed-state set this
         // visits C(40, 20) suffix explorations before returning false.
-        let clock = ContinuousClock()
+        //
+        // Deterministic complexity bound instead of wall clock (wall clock is
+        // load-dependent and was flaky on CI): every failed walk memoizes its
+        // (tokenIndex, unitIndex) state, so the matcher can never walk more
+        // states than the state space holds — exploredStates <=
+        // (pattern units + 1) * (target units + 1), i.e. c = 1. Compiled
+        // tokens are 1-2 units each, so pattern units bound the token count.
+        // The uncached pre-W1 search re-walked states under different prefix
+        // histories and exceeded this bound.
+        func stateBound(pattern: String, target: String) -> Int {
+            (pattern.utf16.count + 1) * (target.utf16.count + 1)
+        }
+
         let latePattern = "/tmp/" + String(repeating: "*a", count: 20) + "b"
-        var start = clock.now
-        #expect(!ExecAllowlistMatcher.matches(
+        let lateMiss = ExecAllowlistMatcher.matchCountingStates(
             pattern: latePattern,
-            target: "/tmp/" + String(repeating: "a", count: 40) + "c"))
-        #expect((clock.now - start) < .seconds(1))
+            target: "/tmp/" + String(repeating: "a", count: 40) + "c")
+        #expect(!lateMiss.matched)
+        #expect(lateMiss.exploredStates <= stateBound(pattern: latePattern, target: "/tmp/" + String(repeating: "a", count: 40) + "c"))
 
         // Positive control: the reachable final literal still matches.
-        #expect(ExecAllowlistMatcher.matches(
+        let lateHit = ExecAllowlistMatcher.matchCountingStates(
             pattern: latePattern,
-            target: "/tmp/" + String(repeating: "a", count: 40) + "b"))
+            target: "/tmp/" + String(repeating: "a", count: 40) + "b")
+        #expect(lateHit.matched)
+        #expect(lateHit.exploredStates <= stateBound(pattern: latePattern, target: "/tmp/" + String(repeating: "a", count: 40) + "b"))
 
-        // Scaled well past 200 units, miss and hit, still inside the bound.
+        // Scaled well past 200 units, miss and hit, under the same bound.
         let scaledPattern = "/tmp/" + String(repeating: "*a", count: 120) + "b"
-        start = clock.now
-        #expect(!ExecAllowlistMatcher.matches(
+        let scaledMiss = ExecAllowlistMatcher.matchCountingStates(
             pattern: scaledPattern,
-            target: "/tmp/" + String(repeating: "a", count: 240) + "c"))
-        #expect(ExecAllowlistMatcher.matches(
+            target: "/tmp/" + String(repeating: "a", count: 240) + "c")
+        #expect(!scaledMiss.matched)
+        #expect(scaledMiss.exploredStates <= stateBound(pattern: scaledPattern, target: "/tmp/" + String(repeating: "a", count: 240) + "c"))
+
+        let scaledHit = ExecAllowlistMatcher.matchCountingStates(
             pattern: scaledPattern,
-            target: "/tmp/" + String(repeating: "a", count: 240) + "b"))
-        #expect((clock.now - start) < .seconds(1))
+            target: "/tmp/" + String(repeating: "a", count: 240) + "b")
+        #expect(scaledHit.matched)
+        #expect(scaledHit.exploredStates <= stateBound(pattern: scaledPattern, target: "/tmp/" + String(repeating: "a", count: 240) + "b"))
     }
 
     // MARK: - Generated differential vectors (TypeScript ground truth)
