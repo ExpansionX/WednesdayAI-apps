@@ -172,37 +172,69 @@ struct ExecAllowlistTests {
     }
 
     private struct WrapperPlanExpectation {
+        let effectiveArgv: [String]
         let wrappers: [String]
         let policyBlocked: Bool
         let blockedWrapper: String?
+        let resolvedPath: String?
+        let resolvedRealPath: String?
     }
 
     /// Core-derived expectations (verified against
     /// `resolveDispatchWrapperExecutionPlan` at core HEAD) for every returned
-    /// plan field, keyed by fixture case id.
+    /// resolution field, keyed by fixture case id. Blocked plans pin effective
+    /// argv to the outer invocation; transparent plans pin it to the wrapped
+    /// command.
     private static let wrapperFixturePlanExpectations: [String: WrapperPlanExpectation] = [
-        "direct-absolute-executable": WrapperPlanExpectation(wrappers: [], policyBlocked: false, blockedWrapper: nil),
-        "env-assignment-prefix": WrapperPlanExpectation(wrappers: ["env"], policyBlocked: true, blockedWrapper: "env"),
+        "direct-absolute-executable": WrapperPlanExpectation(
+            effectiveArgv: ["/usr/bin/printf", "ok"],
+            wrappers: [],
+            policyBlocked: false,
+            blockedWrapper: nil,
+            resolvedPath: "/usr/bin/printf",
+            resolvedRealPath: "/usr/bin/printf"),
+        "env-assignment-prefix": WrapperPlanExpectation(
+            effectiveArgv: ["/usr/bin/env", "FOO=bar", "/usr/bin/printf", "ok"],
+            wrappers: ["env"],
+            policyBlocked: true,
+            blockedWrapper: "env",
+            resolvedPath: "/usr/bin/env",
+            resolvedRealPath: "/usr/bin/env"),
         "env-option-with-separate-value": WrapperPlanExpectation(
+            effectiveArgv: ["/usr/bin/env", "-u", "HOME", "/usr/bin/printf", "ok"],
             wrappers: ["env"],
             policyBlocked: true,
-            blockedWrapper: "env"),
+            blockedWrapper: "env",
+            resolvedPath: "/usr/bin/env",
+            resolvedRealPath: "/usr/bin/env"),
         "env-option-with-inline-value": WrapperPlanExpectation(
+            effectiveArgv: ["/usr/bin/env", "-uHOME", "/usr/bin/printf", "ok"],
             wrappers: ["env"],
             policyBlocked: true,
-            blockedWrapper: "env"),
+            blockedWrapper: "env",
+            resolvedPath: "/usr/bin/env",
+            resolvedRealPath: "/usr/bin/env"),
         "nested-env-wrappers": WrapperPlanExpectation(
+            effectiveArgv: ["/usr/bin/env", "FOO=bar", "printf", "ok"],
             wrappers: ["env", "env"],
             policyBlocked: true,
-            blockedWrapper: "env"),
+            blockedWrapper: "env",
+            resolvedPath: "/usr/bin/env",
+            resolvedRealPath: "/usr/bin/env"),
         "env-shell-wrapper-stops-at-shell": WrapperPlanExpectation(
+            effectiveArgv: ["bash", "-lc", "echo ok"],
             wrappers: ["env"],
             policyBlocked: false,
-            blockedWrapper: nil),
+            blockedWrapper: nil,
+            resolvedPath: "/bin/bash",
+            resolvedRealPath: "/bin/bash"),
         "env-missing-effective-command": WrapperPlanExpectation(
+            effectiveArgv: ["/usr/bin/env", "FOO=bar"],
             wrappers: [],
             policyBlocked: true,
-            blockedWrapper: "env"),
+            blockedWrapper: "env",
+            resolvedPath: "/usr/bin/env",
+            resolvedRealPath: "/usr/bin/env"),
     ]
 
     @Test func `resolve matches shared wrapper resolution fixture`() throws {
@@ -214,13 +246,16 @@ struct ExecAllowlistTests {
                 env: ["PATH": "/usr/bin:/bin"])
             #expect(resolution?.rawExecutable == fixture.expectedRawExecutable)
 
-            if let expected = Self.wrapperFixturePlanExpectations[fixture.id] {
-                #expect(resolution?.wrapperChain == expected.wrappers, "\(fixture.id): wrapperChain")
-                #expect(resolution?.policyBlocked == expected.policyBlocked, "\(fixture.id): policyBlocked")
-                #expect(resolution?.blockedWrapper == expected.blockedWrapper, "\(fixture.id): blockedWrapper")
-            } else {
+            guard let expected = Self.wrapperFixturePlanExpectations[fixture.id] else {
                 Issue.record("missing plan expectation for fixture \(fixture.id)")
+                continue
             }
+            #expect(resolution?.effectiveArgv == expected.effectiveArgv, "\(fixture.id): effectiveArgv")
+            #expect(resolution?.wrapperChain == expected.wrappers, "\(fixture.id): wrapperChain")
+            #expect(resolution?.policyBlocked == expected.policyBlocked, "\(fixture.id): policyBlocked")
+            #expect(resolution?.blockedWrapper == expected.blockedWrapper, "\(fixture.id): blockedWrapper")
+            #expect(resolution?.resolvedPath == expected.resolvedPath, "\(fixture.id): resolvedPath")
+            #expect(resolution?.resolvedRealPath == expected.resolvedRealPath, "\(fixture.id): resolvedRealPath")
         }
     }
 
@@ -404,7 +439,9 @@ struct ExecAllowlistTests {
         {
         case let .argv(argv):
             #expect(!argv.contains("/tmp/nohup"))
-            #expect(argv[0] == "/usr/bin/printf" || argv[0] == resolution?.resolvedRealPath)
+            // TS pins argv[0] to resolvedRealPath ?? resolvedPath — require the
+            // realpath exactly, never the unpinned lookup string.
+            #expect(argv[0] == resolution?.resolvedRealPath)
             #expect(argv.dropFirst() == ["ok"])
         case .none:
             Issue.record("expected planned argv")
@@ -555,6 +592,181 @@ struct ExecAllowlistTests {
         #expect(!ExecApprovalEvaluator.isSkillAutoAllowed(segment: impostorSegment, allowSkills: true, trust: trust))
     }
 
+    @Test func `planned argv pins the real path behind symlinks`() {
+        // F12 residual: when the resolved path is a symlink, TS pins argv[0] to
+        // the REAL path — dropping realpath pinning must fail this test.
+        let dir = NSTemporaryDirectory() + "oc-symlink-\(UUID().uuidString)"
+        try? FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
+        let real = URL(fileURLWithPath: dir).appendingPathComponent("real-printf")
+        let link = URL(fileURLWithPath: dir).appendingPathComponent("link-printf")
+        let created = FileManager.default.createFile(
+            atPath: real.path,
+            contents: Data("#!/bin/sh\nexit 0\n".utf8),
+            attributes: [.posixPermissions: 0o755])
+        #expect(created)
+        try? FileManager.default.createSymbolicLink(at: link, withDestinationURL: real)
+        defer { try? FileManager.default.removeItem(atPath: dir) }
+
+        let command = [dir + "/nohup", link.path, "ok"]
+        let analysis = ExecCommandResolution.analyze(
+            command: command,
+            rawCommand: nil,
+            cwd: nil,
+            env: ["PATH": "/usr/bin:/bin"])
+        #expect(analysis.ok)
+        let resolution = analysis.segments[0].resolution
+        #expect(resolution?.resolvedPath == link.path)
+        let expectedReal = URL(fileURLWithPath: real.path).resolvingSymlinksInPath().path
+        #expect(resolution?.resolvedRealPath == expectedReal)
+        #expect(expectedReal != link.path)
+
+        // The allowlist matches the resolved path (TS matchAllowlist semantics);
+        // execution must then pin argv[0] to the REAL path behind the symlink.
+        let outcome = ExecApprovalEvaluator.evaluatePolicy(
+            security: .allowlist,
+            shellCommand: nil,
+            analysis: analysis,
+            allowlist: [ExecAllowlistEntry(pattern: link.path)],
+            autoAllowSkills: false,
+            skillTrust: [],
+            cwd: nil)
+        #expect(outcome.allowlistSatisfied)
+
+        guard case let .argv(argv) = ExecAllowlistPlan.plannedArgv(
+            security: .allowlist,
+            shellCommand: nil,
+            approvedByAsk: false,
+            analysisOk: outcome.analysisOk,
+            allowlistSatisfied: outcome.allowlistSatisfied,
+            segments: analysis.segments)
+        else {
+            Issue.record("expected planned argv")
+            return
+        }
+        #expect(argv[0] == expectedReal)
+        #expect(argv[0] != link.path)
+        #expect(argv.dropFirst() == ["ok"])
+    }
+
+    @Test func `socket display binds to validated full argv on raw mismatch`() {
+        // R1: the socket must forward the VALIDATED display text to the
+        // approval surface. With a positional-carrier shell payload and an
+        // unrelated client rawCommand, validation falls back to the full-argv
+        // display; forwarding that value keeps the prompt authoritative while
+        // analysis stays argv-derived.
+        let command = ["/bin/sh", "-lc", "$0 \"$1\"", "/usr/bin/touch", "/tmp/marker"]
+
+        // The validator rejects nothing but refuses the stale display text.
+        guard case let .ok(validated) = ExecSystemRunCommandValidator.resolve(
+            command: command,
+            rawCommand: "printf safe")
+        else {
+            Issue.record("expected valid resolution")
+            return
+        }
+        #expect(validated.displayCommand == "/bin/sh -lc \"$0 \\\"$1\\\"\" /usr/bin/touch /tmp/marker")
+        #expect(validated.displayCommand != "printf safe")
+
+        // Forwarding the validated display (as the socket now does) preserves
+        // it through the display-only formatter; the prompt can never show the
+        // stale client text.
+        let promptDisplay = ExecCommandFormatter.displayString(for: command, rawCommand: validated.displayCommand)
+        #expect(promptDisplay == validated.displayCommand)
+
+        // Analysis remains argv-derived: the shell gate still binds display to
+        // the full argv because positional carriers follow the inline payload.
+        let analysis = ExecCommandResolution.analyze(
+            command: command,
+            rawCommand: validated.displayCommand,
+            cwd: nil,
+            env: ["PATH": "/usr/bin:/bin"])
+        #expect(analysis.shellCommand == "$0 \"$1\"")
+        let outcome = ExecApprovalEvaluator.evaluatePolicy(
+            security: .allowlist,
+            shellCommand: analysis.shellCommand,
+            analysis: analysis,
+            allowlist: [ExecAllowlistEntry(pattern: "/usr/bin/touch")],
+            autoAllowSkills: false,
+            skillTrust: [],
+            cwd: nil)
+        #expect(outcome.shellWrapperBlocked)
+        #expect(!outcome.allowlistSatisfied)
+    }
+
+    @Test func `relative cwd resolves against the process working directory`() {
+        // R2: a relative request cwd must resolve against the injected process
+        // working directory (path.resolve semantics) — not against the
+        // filesystem root. The process cwd is injected so the test never
+        // mutates shared process state.
+        let dir = NSTemporaryDirectory() + "oc-relcwd-\(UUID().uuidString)"
+        let toolsDir = URL(fileURLWithPath: dir).appendingPathComponent("project/tools")
+        try? FileManager.default.createDirectory(at: toolsDir, withIntermediateDirectories: true)
+        let script = toolsDir.appendingPathComponent("run")
+        let created = FileManager.default.createFile(
+            atPath: script.path,
+            contents: Data("#!/bin/sh\nexit 0\n".utf8),
+            attributes: [.posixPermissions: 0o755])
+        #expect(created)
+        defer { try? FileManager.default.removeItem(atPath: dir) }
+
+        let expectedPath = dir + "/project/tools/run"
+        let resolution = ExecCommandResolution.resolve(
+            command: ["./tools/run"],
+            cwd: "project",
+            env: ["PATH": "/usr/bin:/bin"],
+            processCwd: dir)
+        #expect(resolution?.resolvedPath == expectedPath)
+        #expect(resolution?.allowlistCandidatePath(cwd: "project", processCwd: dir) == expectedPath)
+
+        // The reviewer's trap: only a root-level lookalike path is allowlisted.
+        // The correct resolution must NOT match it, so approval is required.
+        let analysis = ExecCommandResolution.analyze(
+            command: ["./tools/run"],
+            rawCommand: nil,
+            cwd: "project",
+            env: ["PATH": "/usr/bin:/bin"],
+            processCwd: dir)
+        let outcome = ExecApprovalEvaluator.evaluatePolicy(
+            security: .allowlist,
+            shellCommand: nil,
+            analysis: analysis,
+            allowlist: [ExecAllowlistEntry(pattern: "/project/tools/run")],
+            autoAllowSkills: false,
+            skillTrust: [],
+            cwd: "project",
+            processCwd: dir)
+        #expect(!outcome.allowlistSatisfied)
+    }
+
+    @Test func `path join normalizes dot components without absolutizing`() {
+        // R3: PATH joins normalize lexically like path.join while keeping
+        // relative entries relative.
+        #expect(ExecCommandResolution.joinPath("/usr/../bin", "echo") == "/bin/echo")
+        #expect(ExecCommandResolution.joinPath("./tools", "run") == "tools/run")
+        #expect(ExecCommandResolution.joinPath("tools//sub", "run") == "tools/sub/run")
+        #expect(ExecCommandResolution.joinPath("/usr/bin/", "printf") == "/usr/bin/printf")
+        #expect(ExecCommandResolution.joinPath("a/../b", "c") == "b/c")
+
+        // Reviewer's end-to-end case: /usr/../bin resolves /bin/echo and a
+        // /bin/echo allowlist entry matches the normalized candidate.
+        let resolution = ExecCommandResolution.resolve(command: ["echo", "ok"], cwd: nil, env: ["PATH": "/usr/../bin"])
+        #expect(resolution?.resolvedPath == "/bin/echo")
+        let analysis = ExecCommandResolution.analyze(
+            command: ["echo", "ok"],
+            rawCommand: nil,
+            cwd: nil,
+            env: ["PATH": "/usr/../bin"])
+        let outcome = ExecApprovalEvaluator.evaluatePolicy(
+            security: .allowlist,
+            shellCommand: nil,
+            analysis: analysis,
+            allowlist: [ExecAllowlistEntry(pattern: "/bin/echo")],
+            autoAllowSkills: false,
+            skillTrust: [],
+            cwd: nil)
+        #expect(outcome.allowlistSatisfied)
+    }
+
     @Test func `allow always persistence never persists the shell`() {
         // F3/F7: allow-always derives entries from canonical analysis — the
         // shell itself is never persisted, inner executables are.
@@ -603,7 +815,8 @@ struct ExecAllowlistTests {
 
     @Test func `relative path entries keep relative candidate spelling`() {
         // F9: PATH candidates keep the PATH entry's spelling (relative stays
-        // relative); existence checks resolve against the process cwd.
+        // relative); existence checks resolve against the INJECTED process cwd
+        // so the test never mutates shared process state.
         let dir = NSTemporaryDirectory() + "oc-relpath-\(UUID().uuidString)"
         let toolsDir = URL(fileURLWithPath: dir).appendingPathComponent("tools")
         try? FileManager.default.createDirectory(at: toolsDir, withIntermediateDirectories: true)
@@ -615,21 +828,16 @@ struct ExecAllowlistTests {
         #expect(created)
         defer { try? FileManager.default.removeItem(atPath: dir) }
 
-        let previousCwd = FileManager.default.currentDirectoryPath
-        guard FileManager.default.changeCurrentDirectoryPath(dir) else {
-            Issue.record("could not enter temp cwd")
-            return
-        }
-        defer { FileManager.default.changeCurrentDirectoryPath(previousCwd) }
-
         let resolution = ExecCommandResolution.resolve(
             command: ["run"],
             cwd: nil,
-            env: ["PATH": "tools"])
+            env: ["PATH": "tools"],
+            processCwd: dir)
         #expect(resolution?.resolvedPath == "tools/run")
         #expect(resolution?.executableName == "run")
-        // The real path resolves the relative spelling against the process cwd.
-        #expect(resolution?.resolvedRealPath == script.resolvingSymlinksInPath().path)
+        // Realpath resolves the relative spelling against the injected cwd.
+        let expectedReal = URL(fileURLWithPath: script.path).resolvingSymlinksInPath().path
+        #expect(resolution?.resolvedRealPath == expectedReal)
     }
 
     @Test func `tokenizer preserves unicode content and js whitespace class`() {
