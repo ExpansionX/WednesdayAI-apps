@@ -292,7 +292,9 @@ final class VoiceWakeTester {
         let matchSummary = VoiceWakeRecognitionDebugSupport.matchSummary(match)
 
         self.logger.debug(
-            "voicewake test transcript='\(transcript, privacy: .private)' textOnly=\(summary.textOnly) isFinal=\(isFinal) timing=\(summary.timingCount)/\(segments.count) \(matchSummary) gaps=[\(gaps, privacy: .private)] segments=[\(segmentSummary, privacy: .private)]")
+            "voicewake test transcript='\(transcript, privacy: .private)' textOnly=\(summary.textOnly) isFinal=\(isFinal) timing=\(summary.timingCount)/\(segments.count)")
+        self.logger.debug(
+            "voicewake test segments \(matchSummary) gaps=[\(gaps, privacy: .private)] segments=[\(segmentSummary, privacy: .private)]")
     }
 
     private static func debugSegments(_ segments: [WakeWordSegment]) -> String {
