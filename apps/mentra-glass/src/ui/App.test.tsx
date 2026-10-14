@@ -168,7 +168,14 @@ describe("App", () => {
 
   it("shows empty-state hints with no notifications, triggers, or queue", () => {
     const {emit} = renderApp()
-    pushState(emit, snapshot({triggers: [], queuedNotifications: 0}))
+    pushState(
+      emit,
+      snapshot({
+        triggers: [],
+        queuedNotifications: 0,
+        settings: {wakeSttMode: "local", agentId: null, querySttMode: "gateway", notificationApps: []},
+      }),
+    )
 
     expect(screen.getByText("No notifications seen yet. Apps appear here after your phone shows one.")).toBeTruthy()
     expect(screen.getByText("Wake words: none")).toBeTruthy()
