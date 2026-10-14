@@ -37,9 +37,10 @@
  * immediately from the cache. Continuations resumed after an await
  * re-check the utterance identity, so a stale capture can never touch the
  * fields or timers of its replacement. LC3 or non-16 kHz chunks never
- * reach appendAudio. finish pads real-audio utterances with 500 ms of
- * trailing silence before close: the relay's endpointing otherwise drops
- * clips that end on speech. `talk.event` payloads are parsed defensively:
+ * reach appendAudio. finish pads real-audio utterances with 1.5 s of
+ * trailing silence before close, meeting the provider's endpointing
+ * threshold, which otherwise drops clips that end on speech. `talk.event`
+ * payloads are parsed defensively:
  * anything without a string `type` and `sessionId`, or
  * naming another session, is ignored.
  */
@@ -60,9 +61,10 @@ export const MAX_CAPTURE_MS = 20000
 /** Max decoded PCM bytes per appendAudio frame: 3 s of PCM16@16 kHz, about a
  * quarter of the gateway's 512 KiB base64 frame limit. */
 export const MAX_APPEND_BYTES = 96_000
-/** Digital silence padded before close so relay endpointing keeps a last word
- * that would otherwise be cut off (live E2E). */
-export const TRAILING_SILENCE_MS = 500
+/** Digital silence padded before close so the provider's endpointing keeps a
+ * last word that would otherwise be cut off: the ElevenLabs realtime relay's
+ * VAD silence threshold defaults to 1.5 s (live E2E: 500 ms was not enough). */
+export const TRAILING_SILENCE_MS = 1500
 /** Decoded bytes of that tail (16 kHz PCM16 = 32 bytes per ms). */
 const TRAILING_SILENCE_BYTES = TRAILING_SILENCE_MS * 32
 

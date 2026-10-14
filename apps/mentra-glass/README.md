@@ -268,8 +268,9 @@ while connected: it opens a `talk.session` carrying the last 1.5 s of
 pre-roll, appends live audio in ordered frames of at most `MAX_APPEND_BYTES`
 (96,000 decoded bytes, about 3 s of PCM16 at 16 kHz), waits up to 6 s for
 the transcript after close, and aborts a capture at 20 s. Before close it
-pads captures that carried audio with 500 ms of digital silence, because
-the relay's endpointing otherwise drops a clip that ends on speech. The gateway
+pads captures that carried audio with 1.5 s of digital silence, meeting the
+provider's endpointing threshold, which otherwise drops a clip that ends on
+speech. The gateway
 transcript wins over Mentra's when both arrive; a gateway that cannot
 transcribe warns once per hello ("WednesdayAI transcription unavailable:
 …") and Mentra's transcript is used.
