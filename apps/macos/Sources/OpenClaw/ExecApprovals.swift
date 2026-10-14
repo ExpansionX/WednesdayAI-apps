@@ -401,7 +401,7 @@ enum ExecApprovalsStore {
         let socketPath = self.expandPath(file.socket?.path ?? self.socketPath())
         let token = file.socket?.token ?? ""
         return ExecApprovalsResolved(
-            url: self.fileURL(),
+            url: self.fileURL(inDirectory: directory),
             socketPath: socketPath,
             token: token,
             defaults: resolvedDefaults,

@@ -65,6 +65,9 @@ struct ExecApprovalsStoreRefactorTests {
 
             let resolved = ExecApprovalsStore.resolve(agentId: "main", inDirectory: stateDir.path)
             #expect(resolved.allowlist.map(\.pattern) == ["/bin/echo"])
+            // Review S1: the resolved metadata must name the requested fixture
+            // file, not the process-global state dir.
+            #expect(resolved.url == ExecApprovalsStore.fileURL(inDirectory: stateDir.path))
         }
     }
 
