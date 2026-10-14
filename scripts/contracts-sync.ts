@@ -28,6 +28,13 @@ const CONTRACT_FILES = [
   "host-env-security-policy.json",
   "tool-display.json",
 ] as const;
+const FIXTURE_FILES = [
+  "exec-allowlist-shell-parser-parity.json",
+  "exec-wrapper-resolution-parity.json",
+  "system-run-approval-binding-contract.json",
+  "system-run-approval-mismatch-contract.json",
+  "system-run-command-contract.json",
+] as const;
 
 type Args = {
   version?: string;
@@ -119,6 +126,11 @@ function validateContractsDir(sourceDir: string, versionLabel: string): void {
       fail(missingMessage(versionLabel, file));
     }
   }
+  for (const file of FIXTURE_FILES) {
+    if (!existsSync(path.join(sourceDir, "fixtures", file))) {
+      fail(missingMessage(versionLabel, `fixtures/${file}`));
+    }
+  }
   const schema = JSON.parse(readFileSync(path.join(sourceDir, CONTRACT_FILES[0]), "utf8"));
   if (typeof schema["x-protocol-version"] !== "number") {
     fail(missingMessage(versionLabel, CONTRACT_FILES[0]));
@@ -133,11 +145,18 @@ function applyContracts(sourceDir: string, exactVersion: string): void {
   copyFileSync(path.join(sourceDir, "gateway-protocol.schema.json"), path.join(contractsDir, "gateway-protocol.schema.json"));
   copyFileSync(path.join(sourceDir, "host-env-security-policy.json"), path.join(contractsDir, "host-env-security-policy.json"));
   copyFileSync(path.join(sourceDir, "tool-display.json"), path.join(repoRoot, TOOL_DISPLAY_TARGET));
+  // Replace the fixtures directory wholesale so a fixture removed upstream disappears here too.
+  const fixturesDir = path.join(contractsDir, "fixtures");
+  rmSync(fixturesDir, { recursive: true, force: true });
+  mkdirSync(fixturesDir, { recursive: true });
+  for (const file of FIXTURE_FILES) {
+    copyFileSync(path.join(sourceDir, "fixtures", file), path.join(fixturesDir, file));
+  }
   writeFileSync(path.join(contractsDir, "CORE_VERSION"), `${exactVersion}\n`);
 
   const stamped = stampAppVersions(exactVersion);
   console.log(
-    `synced wednesdayai@${exactVersion}; copied ${CONTRACT_FILES.length} contracts, stamped ${stamped.length} app version files`,
+    `synced wednesdayai@${exactVersion}; copied ${CONTRACT_FILES.length} contracts and ${FIXTURE_FILES.length} fixtures, stamped ${stamped.length} app version files`,
   );
 }
 

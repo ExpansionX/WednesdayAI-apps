@@ -61,7 +61,9 @@ struct ExecSystemRunCommandValidatorTests {
         var cursor = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
         for _ in 0..<8 {
             let candidate = cursor
-                .appendingPathComponent("test")
+                .appendingPathComponent("apps")
+                .appendingPathComponent("shared")
+                .appendingPathComponent("contracts")
                 .appendingPathComponent("fixtures")
                 .appendingPathComponent("system-run-command-contract.json")
             if FileManager.default.fileExists(atPath: candidate.path) {

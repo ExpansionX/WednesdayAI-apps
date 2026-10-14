@@ -1,5 +1,7 @@
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
+import { copyFileSync, mkdtempSync, rmSync } from "node:fs";
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
@@ -179,5 +181,46 @@ describe("derived-location coverage", () => {
       unmanaged,
       `wire these into APP_VERSION_TARGETS in scripts/app-versions.ts: ${unmanaged.join(", ")}`,
     ).toEqual([]);
+  });
+});
+
+describe("contracts sync", () => {
+  it("fails before writing when the source is missing a fixture", () => {
+    const stage = mkdtempSync(path.join(os.tmpdir(), "contracts-sync-test-"));
+    try {
+      for (const [file, source] of [
+        ["gateway-protocol.schema.json", contractsDir],
+        ["host-env-security-policy.json", contractsDir],
+        [
+          "tool-display.json",
+          path.join(repoRoot, "apps/shared/OpenClawKit/Sources/OpenClawKit/Resources"),
+        ],
+      ] as const) {
+        copyFileSync(path.join(source, file), path.join(stage, file));
+      }
+      const coreVersionBefore = fs.readFileSync(path.join(contractsDir, "CORE_VERSION"), "utf8");
+      const run = spawnSync(
+        "node",
+        [
+          "--import",
+          "tsx",
+          "scripts/contracts-sync.ts",
+          "--from-dir",
+          stage,
+          "--core-version",
+          coreVersionBefore.trim(),
+        ],
+        { cwd: repoRoot, encoding: "utf8" },
+      );
+      expect(run.status).toBe(1);
+      expect(run.stderr).toContain(
+        "does not ship dist/contracts/fixtures/exec-allowlist-shell-parser-parity.json",
+      );
+      expect(fs.readFileSync(path.join(contractsDir, "CORE_VERSION"), "utf8")).toBe(
+        coreVersionBefore,
+      );
+    } finally {
+      rmSync(stage, { recursive: true, force: true });
+    }
   });
 });

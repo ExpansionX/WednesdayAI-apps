@@ -46,7 +46,9 @@ struct ExecAllowlistTests {
             repoRoot.deleteLastPathComponent()
         }
         return repoRoot
-            .appendingPathComponent("test")
+            .appendingPathComponent("apps")
+            .appendingPathComponent("shared")
+            .appendingPathComponent("contracts")
             .appendingPathComponent("fixtures")
             .appendingPathComponent(filename)
     }

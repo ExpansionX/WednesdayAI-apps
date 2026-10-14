@@ -16,7 +16,7 @@ Native, desktop and glasses client apps for WednesdayAI. These apps connect to a
 App protocol code is generated, not hand-edited:
 
 - `apps/shared/contracts/CORE_VERSION` pins the WednesdayAI-core version this repo is synced to.
-- `npm run contracts:sync -- --version <semver|latest>` downloads `dist/contracts/*` from the pinned `wednesdayai` npm release into `apps/shared/contracts/`, regenerates the Swift protocol models, and stamps app versions to the synced core version.
+- `npm run contracts:sync -- --version <semver|latest>` downloads `dist/contracts/*` from the pinned `wednesdayai` npm release into `apps/shared/contracts/` (including the native exec test fixtures under `contracts/fixtures/`), regenerates the Swift protocol models, and stamps app versions to the synced core version.
 - `npm run contracts:check` fails if the committed Swift diverges from the synced contracts.
 - A weekly bot PR (`contracts-sync.yml`) keeps this repo current with core releases.
 
