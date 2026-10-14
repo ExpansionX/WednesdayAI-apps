@@ -38,6 +38,11 @@ enum ShellExecutor {
         process.standardOutput = stdoutPipe
         process.standardError = stderrPipe
 
+        // Install before launch: a fast child can terminate before a
+        // post-launch installation runs, and the handler must fire exactly once.
+        let exited = DispatchSemaphore(value: 0)
+        process.terminationHandler = { _ in exited.signal() }
+
         do {
             try process.run()
         } catch {
@@ -76,8 +81,6 @@ enum ShellExecutor {
                 }
                 group.enter()
                 DispatchQueue.global().async {
-                    let exited = DispatchSemaphore(value: 0)
-                    process.terminationHandler = { _ in exited.signal() }
                     exited.wait()
                     process.terminationHandler = nil
                     group.leave()
