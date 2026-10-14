@@ -801,6 +801,7 @@ extension MenuSessionsInjector {
             openLog.target = self
             openLog.representedObject = [
                 "sessionId": sessionId,
+                "key": row.key,
                 "storePath": storePath,
             ]
             menu.addItem(openLog)
@@ -1018,9 +1019,9 @@ extension MenuSessionsInjector {
     private func openSessionLog(_ sender: NSMenuItem) {
         guard let dict = sender.representedObject as? [String: String],
               let sessionId = dict["sessionId"],
-              let storePath = dict["storePath"]
+              let sessionKey = dict["key"]
         else { return }
-        SessionActions.openSessionLogInCode(sessionId: sessionId, storePath: storePath)
+        SessionActions.openSessionLogInCode(sessionKey: sessionKey, sessionId: sessionId)
     }
 
     @objc
