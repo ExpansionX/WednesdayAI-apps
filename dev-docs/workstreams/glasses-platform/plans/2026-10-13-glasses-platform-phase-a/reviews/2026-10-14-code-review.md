@@ -97,3 +97,5 @@ Run against the real gateway `wss://astro.tailfd11f7.ts.net` (pair, wake words, 
 | E-05 | Info | Pre-existing | `icon.png` was a 1×1 placeholder. | Fixed in `010d68a`: 192×192 WednesdayAI icon. |
 | E-06 | Info | This branch | 23 `no-useless-spread` lint warnings in a test. | Fixed in `cf3a853`. |
 | E-07 | Info | Environment | Dev gateway has no model or transcription provider, so those steps fail cleanly there. | Not an app defect; covered by the real-gateway run. |
+
+Final run at `e0db270`: 387/387 tests (coverage 99.96 / 97.73 / 99.56 / 99.96), strict `tsc` and `oxlint` clean, build, pack, schema and both bundle execution tests pass. On the real gateway: pair (after approval, E-02), wake words, 19 agents, chat reply, gateway transcript for the clip with trailing speech pause, clean fallback path for the clipped one (E-01), and device-token reconnect all pass. All test devices were removed from the gateway.
