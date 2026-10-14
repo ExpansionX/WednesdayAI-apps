@@ -65,7 +65,8 @@ enum ExecAllowlistPlan {
     static func allowAlwaysPatterns(
         segments: [ExecCommandSegment],
         cwd: String?,
-        env: [String: String]?) -> [String]
+        env: [String: String]?,
+        processCwd: String = FileManager.default.currentDirectoryPath) -> [String]
     {
         var patterns: [String] = []
         var seen = Set<String>()
@@ -74,6 +75,7 @@ enum ExecAllowlistPlan {
                 segment: segment,
                 cwd: cwd,
                 env: env,
+                processCwd: processCwd,
                 depth: 0,
                 seen: &seen,
                 out: &patterns)
@@ -84,12 +86,13 @@ enum ExecAllowlistPlan {
     private static func makeSegment(
         _ argv: [String],
         cwd: String?,
-        env: [String: String]?) -> ExecCommandSegment
+        env: [String: String]?,
+        processCwd: String) -> ExecCommandSegment
     {
         ExecCommandSegment(
             raw: argv.joined(separator: " "),
             argv: argv,
-            resolution: ExecCommandResolution.resolve(command: argv, cwd: cwd, env: env))
+            resolution: ExecCommandResolution.resolve(command: argv, cwd: cwd, env: env, processCwd: processCwd))
     }
 
     private static func hasExecutableMatch(
@@ -109,6 +112,7 @@ enum ExecAllowlistPlan {
         segment: ExecCommandSegment,
         cwd: String?,
         env: [String: String]?,
+        processCwd: String,
         depth: Int,
         seen: inout Set<String>,
         out: inout [String])
@@ -120,9 +124,10 @@ enum ExecAllowlistPlan {
                 .unwrapKnownDispatchWrapperInvocation(segment.argv), !unwrapped.isEmpty
             else { return }
             self.collectAllowAlwaysPattern(
-                segment: self.makeSegment(unwrapped, cwd: cwd, env: env),
+                segment: self.makeSegment(unwrapped, cwd: cwd, env: env, processCwd: processCwd),
                 cwd: cwd,
                 env: env,
+                processCwd: processCwd,
                 depth: depth + 1,
                 seen: &seen,
                 out: &out)
@@ -134,9 +139,10 @@ enum ExecAllowlistPlan {
             return
         case let .unwrapped(_, unwrapped):
             self.collectAllowAlwaysPattern(
-                segment: self.makeSegment(unwrapped, cwd: cwd, env: env),
+                segment: self.makeSegment(unwrapped, cwd: cwd, env: env, processCwd: processCwd),
                 cwd: cwd,
                 env: env,
+                processCwd: processCwd,
                 depth: depth + 1,
                 seen: &seen,
                 out: &out)
@@ -145,18 +151,25 @@ enum ExecAllowlistPlan {
             break
         }
 
-        guard let candidatePath = segment.resolution?.allowlistCandidatePath(cwd: cwd) else { return }
+        guard let candidatePath = segment.resolution?.allowlistCandidatePath(cwd: cwd, processCwd: processCwd) else {
+            return
+        }
         guard !self.hasExecutableMatch(segment, predicate: ExecDispatchWrapper.isShellWrapperExecutable) else {
             guard let inlineCommand = ExecDispatchWrapper.extractShellWrapperInlineCommand(segment.argv) else {
                 return
             }
-            let nested = ExecCommandResolution.analyzeShellCommand(inlineCommand, cwd: cwd, env: env)
+            let nested = ExecCommandResolution.analyzeShellCommand(
+                inlineCommand,
+                cwd: cwd,
+                env: env,
+                processCwd: processCwd)
             guard nested.ok else { return }
             for nestedSegment in nested.segments {
                 self.collectAllowAlwaysPattern(
                     segment: nestedSegment,
                     cwd: cwd,
                     env: env,
+                    processCwd: processCwd,
                     depth: depth + 1,
                     seen: &seen,
                     out: &out)

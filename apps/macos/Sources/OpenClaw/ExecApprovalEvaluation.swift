@@ -74,7 +74,8 @@ enum ExecApprovalEvaluator {
         rawCommand: String?,
         cwd: String?,
         envOverrides: [String: String]?,
-        agentId: String?) async -> ExecApprovalEvaluation
+        agentId: String?,
+        processCwd: String = FileManager.default.currentDirectoryPath) async -> ExecApprovalEvaluation
     {
         let trimmedAgent = agentId?.trimmingCharacters(in: .whitespacesAndNewlines)
         let normalizedAgentId = (trimmedAgent?.isEmpty == false) ? trimmedAgent : nil
@@ -85,8 +86,18 @@ enum ExecApprovalEvaluator {
         let shellWrapper = ExecShellWrapperParser.extract(command: command, rawCommand: nil).isWrapper
         let env = HostEnvSanitizer.sanitize(overrides: envOverrides, shellWrapper: shellWrapper)
         let displayCommand = ExecCommandFormatter.displayString(for: command, rawCommand: rawCommand)
-        let analysis = ExecCommandResolution.analyze(command: command, rawCommand: rawCommand, cwd: cwd, env: env)
-        let skillTrust = await SkillBinsCache.shared.currentTrustEntries()
+        let analysis = ExecCommandResolution.analyze(
+            command: command,
+            rawCommand: rawCommand,
+            cwd: cwd,
+            env: env,
+            processCwd: processCwd)
+        // Mirror core invoke-system-run.ts: skip the skills-status fetch
+        // entirely when skill auto-allow is disabled (no gateway dependency for
+        // deny/prompt/execute decisions that cannot use skills).
+        let skillTrust = approvals.agent.autoAllowSkills
+            ? await SkillBinsCache.shared.currentTrustEntries()
+            : []
         let outcome = Self.evaluatePolicy(
             security: security,
             shellCommand: analysis.shellCommand,
@@ -94,7 +105,8 @@ enum ExecApprovalEvaluator {
             allowlist: approvals.allowlist,
             autoAllowSkills: approvals.agent.autoAllowSkills,
             skillTrust: skillTrust,
-            cwd: cwd)
+            cwd: cwd,
+            processCwd: processCwd)
 
         return ExecApprovalEvaluation(
             command: command,
@@ -126,7 +138,8 @@ enum ExecApprovalEvaluator {
         allowlist: [ExecAllowlistEntry],
         autoAllowSkills: Bool,
         skillTrust: [SkillBinTrust.Entry],
-        cwd: String?) -> ExecPolicyOutcome
+        cwd: String?,
+        processCwd: String = FileManager.default.currentDirectoryPath) -> ExecPolicyOutcome
     {
         let shellWrapperBlocked = security == .allowlist && shellCommand != nil
         let analysisOk = shellWrapperBlocked ? false : analysis.ok
@@ -139,7 +152,7 @@ enum ExecApprovalEvaluator {
             let allowSkills = autoAllowSkills && !trust.isEmpty
             for segment in analysis.segments {
                 let segmentMatch = Self.allowlistMatch(
-                    segment: segment, allowlist: allowlist, cwd: cwd)
+                    segment: segment, allowlist: allowlist, cwd: cwd, processCwd: processCwd)
                 let segmentSkillAllow = Self.isSkillAutoAllowed(
                     segment: segment, allowSkills: allowSkills, trust: trust)
                 if let segmentMatch { matches.append(segmentMatch) }
@@ -159,11 +172,12 @@ enum ExecApprovalEvaluator {
     private static func allowlistMatch(
         segment: ExecCommandSegment,
         allowlist: [ExecAllowlistEntry],
-        cwd: String?) -> ExecAllowlistEntry?
+        cwd: String?,
+        processCwd: String) -> ExecAllowlistEntry?
     {
         guard let resolution = segment.resolution, !resolution.policyBlocked else { return nil }
         var candidate = resolution
-        if let candidatePath = resolution.allowlistCandidatePath(cwd: cwd) {
+        if let candidatePath = resolution.allowlistCandidatePath(cwd: cwd, processCwd: processCwd) {
             candidate = ExecCommandResolution(
                 rawExecutable: resolution.rawExecutable,
                 resolvedPath: candidatePath,

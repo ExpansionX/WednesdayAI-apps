@@ -59,12 +59,20 @@ struct ExecCommandResolution: Sendable {
     /// argv. Env-modifier preludes, sudo-style dispatch wrappers and depth overflow
     /// yield `policyBlocked` resolutions that keep the outermost wrapper as
     /// `rawExecutable` — those can never be auto-approved by the allowlist.
-    static func resolve(command: [String], cwd: String?, env: [String: String]?) -> ExecCommandResolution? {
+    ///
+    /// `processCwd` is injectable so tests never mutate the shared process
+    /// working directory; production callers default to the live value.
+    static func resolve(
+        command: [String],
+        cwd: String?,
+        env: [String: String]?,
+        processCwd: String = FileManager.default.currentDirectoryPath) -> ExecCommandResolution?
+    {
         let plan = ExecDispatchWrapper.resolveDispatchWrapperExecutionPlan(command)
         guard let raw = plan.argv.first?.trimmingCharacters(in: .whitespacesAndNewlines), !raw.isEmpty else {
             return nil
         }
-        let resolution = self.resolveExecutable(rawExecutable: raw, cwd: cwd, env: env)
+        let resolution = self.resolveExecutable(rawExecutable: raw, cwd: cwd, env: env, processCwd: processCwd)
         return ExecCommandResolution(
             rawExecutable: resolution.rawExecutable,
             resolvedPath: resolution.resolvedPath,
@@ -87,7 +95,8 @@ struct ExecCommandResolution: Sendable {
         command: [String],
         rawCommand: String?,
         cwd: String?,
-        env: [String: String]?) -> ExecCommandAnalysis
+        env: [String: String]?,
+        processCwd: String = FileManager.default.currentDirectoryPath) -> ExecCommandAnalysis
     {
         // rawCommand is display text only; analysis is argv-based (core parity).
         let shell = ExecShellWrapperParser.extract(command: command, rawCommand: nil)
@@ -95,18 +104,23 @@ struct ExecCommandResolution: Sendable {
             guard let shellCommand = shell.command else {
                 return ExecCommandAnalysis(ok: false, shellCommand: nil, segments: [])
             }
-            let analysis = self.analyzeShellCommand(shellCommand, cwd: cwd, env: env)
+            let analysis = self.analyzeShellCommand(shellCommand, cwd: cwd, env: env, processCwd: processCwd)
             return ExecCommandAnalysis(ok: analysis.ok, shellCommand: shellCommand, segments: analysis.segments)
         }
-        return self.analyzeArgv(command: command, cwd: cwd, env: env)
+        return self.analyzeArgv(command: command, cwd: cwd, env: env, processCwd: processCwd)
     }
 
-    static func analyzeArgv(command: [String], cwd: String?, env: [String: String]?) -> ExecCommandAnalysis {
+    static func analyzeArgv(
+        command: [String],
+        cwd: String?,
+        env: [String: String]?,
+        processCwd: String = FileManager.default.currentDirectoryPath) -> ExecCommandAnalysis
+    {
         let filtered = command.filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
         guard !filtered.isEmpty else {
             return ExecCommandAnalysis(ok: false, shellCommand: nil, segments: [])
         }
-        let resolution = self.resolve(command: filtered, cwd: cwd, env: env)
+        let resolution = self.resolve(command: filtered, cwd: cwd, env: env, processCwd: processCwd)
         let segment = ExecCommandSegment(
             raw: filtered.joined(separator: " "),
             argv: filtered,
@@ -117,7 +131,8 @@ struct ExecCommandResolution: Sendable {
     static func analyzeShellCommand(
         _ payload: String,
         cwd: String?,
-        env: [String: String]?) -> ExecCommandAnalysis
+        env: [String: String]?,
+        processCwd: String = FileManager.default.currentDirectoryPath) -> ExecCommandAnalysis
     {
         guard let segments = self.splitShellCommandChain(payload) else {
             return ExecCommandAnalysis(ok: false, shellCommand: nil, segments: [])
@@ -126,7 +141,7 @@ struct ExecCommandResolution: Sendable {
         out.reserveCapacity(segments.count)
         for segment in segments {
             guard let segmentArgv = ExecShellArgvTokenizer.split(segment), !segmentArgv.isEmpty,
-                  let resolution = self.resolve(command: segmentArgv, cwd: cwd, env: env)
+                  let resolution = self.resolve(command: segmentArgv, cwd: cwd, env: env, processCwd: processCwd)
             else {
                 // Fail closed on unparsable segments.
                 return ExecCommandAnalysis(ok: false, shellCommand: nil, segments: [])
@@ -143,9 +158,15 @@ struct ExecCommandResolution: Sendable {
         command: [String],
         rawCommand: String?,
         cwd: String?,
-        env: [String: String]?) -> [ExecCommandResolution]
+        env: [String: String]?,
+        processCwd: String = FileManager.default.currentDirectoryPath) -> [ExecCommandResolution]
     {
-        let analysis = self.analyze(command: command, rawCommand: rawCommand, cwd: cwd, env: env)
+        let analysis = self.analyze(
+            command: command,
+            rawCommand: rawCommand,
+            cwd: cwd,
+            env: env,
+            processCwd: processCwd)
         guard analysis.ok else {
             // Fail closed: unanalyzable commands are an allowlist miss requiring approval.
             return []
@@ -157,7 +178,10 @@ struct ExecCommandResolution: Sendable {
     /// allowlist comparisons. Falls back to the cwd-normalized raw executable
     /// when filesystem resolution found nothing (the configured pattern may
     /// still match a not-yet-existing relative target).
-    func allowlistCandidatePath(cwd: String?) -> String? {
+    func allowlistCandidatePath(
+        cwd: String?,
+        processCwd: String = FileManager.default.currentDirectoryPath) -> String?
+    {
         if let resolvedPath, !resolvedPath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             return resolvedPath
         }
@@ -169,37 +193,64 @@ struct ExecCommandResolution: Sendable {
             return expanded
         }
         let trimmedCwd = cwd?.trimmingCharacters(in: .whitespacesAndNewlines)
-        let base = (trimmedCwd?.isEmpty == false)
-            ? trimmedCwd!
-            : FileManager.default.currentDirectoryPath
-        return Self.resolveAgainstBase(base, expanded)
+        let base = (trimmedCwd?.isEmpty == false) ? trimmedCwd! : processCwd
+        return Self.resolveAgainstBase(base, expanded, processCwd: processCwd)
     }
 
-    /// Lexical `path.resolve(base, relative)` equivalent: absolute result with
-    /// "." and ".." collapsed (no symlink resolution).
-    private static func resolveAgainstBase(_ base: String, _ relative: String) -> String {
-        let combined = base.hasSuffix("/") ? base + relative : base + "/" + relative
-        var parts: [String] = []
-        for component in combined.split(separator: "/") {
-            if component == "." { continue }
-            if component == ".." {
-                if !parts.isEmpty { parts.removeLast() }
-                continue
-            }
-            parts.append(String(component))
+    /// Lexical `path.resolve(base, relative)` equivalent: a relative base is
+    /// first resolved against the injected process working directory (Node
+    /// path.resolve semantics), then "." and ".." are collapsed into an
+    /// absolute result without symlink resolution.
+    static func resolveAgainstBase(_ base: String, _ relative: String, processCwd: String) -> String {
+        var rooted = base
+        if !rooted.hasPrefix("/") {
+            rooted = processCwd.hasSuffix("/") ? processCwd + rooted : processCwd + "/" + rooted
         }
-        return "/" + parts.joined(separator: "/")
+        let combined = rooted.hasSuffix("/") ? rooted + relative : rooted + "/" + relative
+        return Self.collapsePath(combined)
+    }
+
+    /// Lexical POSIX path normalization (`path.join` semantics): removes "."
+    /// components and duplicate separators, resolves ".." against the component
+    /// stack (clamped at the root for absolute paths, preserved as leading
+    /// segments for relative paths), and keeps the input's absolute/relative
+    /// status.
+    static func collapsePath(_ path: String) -> String {
+        let isAbsolute = path.hasPrefix("/")
+        var stack: [String] = []
+        for component in path.split(separator: "/") {
+            switch component {
+            case ".":
+                continue
+            case "..":
+                if isAbsolute {
+                    if !stack.isEmpty { stack.removeLast() }
+                } else if let last = stack.last, last != ".." {
+                    stack.removeLast()
+                } else {
+                    stack.append("..")
+                }
+            default:
+                stack.append(String(component))
+            }
+        }
+        let joined = stack.joined(separator: "/")
+        if isAbsolute {
+            return "/" + joined
+        }
+        return joined.isEmpty ? "." : joined
     }
 
     /// Mirror of core `resolveExecutablePath` + `buildCommandResolution`.
     private static func resolveExecutable(
         rawExecutable: String,
         cwd: String?,
-        env: [String: String]?) -> ExecCommandResolution
+        env: [String: String]?,
+        processCwd: String) -> ExecCommandResolution
     {
         let expanded = rawExecutable.hasPrefix("~") ? (rawExecutable as NSString).expandingTildeInPath : rawExecutable
-        let resolvedPath = self.resolveExecutablePath(expanded, cwd: cwd, env: env)
-        let resolvedRealPath = self.tryResolveRealpath(resolvedPath)
+        let resolvedPath = self.resolveExecutablePath(expanded, cwd: cwd, env: env, processCwd: processCwd)
+        let resolvedRealPath = self.tryResolveRealpath(resolvedPath, processCwd: processCwd)
         let name = resolvedPath.map { URL(fileURLWithPath: $0).lastPathComponent } ?? rawExecutable
         return ExecCommandResolution(
             rawExecutable: rawExecutable,
@@ -210,10 +261,13 @@ struct ExecCommandResolution: Sendable {
     }
 
     /// Mirror of core `tryResolveRealpath`: nil when the path is missing or the
-    /// symlink chain cannot be resolved.
-    private static func tryResolveRealpath(_ path: String?) -> String? {
-        guard let path, FileManager.default.fileExists(atPath: path) else { return nil }
-        return URL(fileURLWithPath: path).resolvingSymlinksInPath().path
+    /// symlink chain cannot be resolved. Relative paths are resolved against
+    /// the injected process working directory before symlink resolution.
+    private static func tryResolveRealpath(_ path: String?, processCwd: String) -> String? {
+        guard let path else { return nil }
+        let absolute = path.hasPrefix("/") ? path : self.joinPath(processCwd, path)
+        guard FileManager.default.fileExists(atPath: absolute) else { return nil }
+        return URL(fileURLWithPath: absolute).resolvingSymlinksInPath().path
     }
 
     private static func isExecutableFile(_ path: String) -> Bool {
@@ -227,34 +281,41 @@ struct ExecCommandResolution: Sendable {
     private static func resolveExecutablePath(
         _ expanded: String,
         cwd: String?,
-        env: [String: String]?) -> String?
+        env: [String: String]?,
+        processCwd: String) -> String?
     {
         if expanded.contains("/") || expanded.contains("\\") {
             if expanded.hasPrefix("/") {
                 return self.isExecutableFile(expanded) ? expanded : nil
             }
             let base = cwd?.trimmingCharacters(in: .whitespacesAndNewlines)
-            let root = (base?.isEmpty == false) ? base! : FileManager.default.currentDirectoryPath
-            let candidate = self.resolveAgainstBase(root, expanded)
+            let root = (base?.isEmpty == false) ? base! : processCwd
+            let candidate = self.resolveAgainstBase(root, expanded, processCwd: processCwd)
             return self.isExecutableFile(candidate) ? candidate : nil
         }
         let processEnv = ProcessInfo.processInfo.environment
         let pathEnv = env?["PATH"] ?? env?["Path"] ?? processEnv["PATH"] ?? processEnv["Path"] ?? ""
-        return self.resolveExecutableFromPathEnv(expanded, pathEnv: pathEnv)
+        return self.resolveExecutableFromPathEnv(expanded, pathEnv: pathEnv, processCwd: processCwd)
     }
 
-    /// POSIX `path.join(entry, executable)`: the candidate keeps the PATH
-    /// entry's spelling — a relative entry yields a relative candidate that the
-    /// filesystem calls below resolve against the process working directory,
-    /// exactly like core's `resolveExecutableFromPathEnv`.
+    /// POSIX `path.join(entry, executable)`: lexically normalizes dot
+    /// components and duplicate separators while preserving the PATH entry's
+    /// relative/absolute spelling — a relative entry yields a relative
+    /// candidate whose existence check resolves against the injected process
+    /// working directory, exactly like core's `resolveExecutableFromPathEnv`.
     static func joinPath(_ entry: String, _ executable: String) -> String {
-        entry.hasSuffix("/") ? entry + executable : entry + "/" + executable
+        self.collapsePath(entry.hasSuffix("/") ? entry + executable : entry + "/" + executable)
     }
 
-    static func resolveExecutableFromPathEnv(_ executable: String, pathEnv: String) -> String? {
+    static func resolveExecutableFromPathEnv(
+        _ executable: String,
+        pathEnv: String,
+        processCwd: String = FileManager.default.currentDirectoryPath) -> String?
+    {
         for entry in pathEnv.split(separator: ":", omittingEmptySubsequences: true) {
             let candidate = self.joinPath(String(entry), executable)
-            if self.isExecutableFile(candidate) {
+            let checkPath = candidate.hasPrefix("/") ? candidate : self.joinPath(processCwd, candidate)
+            if self.isExecutableFile(checkPath) {
                 return candidate
             }
         }
