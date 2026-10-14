@@ -1049,7 +1049,7 @@ extension MenuSessionsInjector {
         Task { @MainActor in
             guard SessionActions.confirmDestructiveAction(
                 title: "Compact session log?",
-                message: "Keeps the last 400 lines; archives the old file.",
+                message: "Summarizes older messages with the model; full history is kept.",
                 action: "Compact")
             else { return }
 
