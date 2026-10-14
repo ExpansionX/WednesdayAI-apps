@@ -155,6 +155,13 @@ This issues a setup code carrying the `openclaw-mentra-node` bootstrap
 profile. Bootstrap pairing auto-approves; the bootstrap token is single-use
 and the miniapp switches to a durable device token after the first connect.
 
+Known issue ([WednesdayAI-core#1022](https://github.com/ExpansionX/WednesdayAI-core/issues/1022)):
+on a gateway served through Tailscale serve, the first connect of a new
+device does not auto-approve. The phone shows a pairing error and the gateway
+lists a pending request. Approve it with `wednesdayai devices approve
+<requestId>` (see `wednesdayai devices list`), then scan a new setup code.
+Later reconnects use the device token and need no approval.
+
 ### Granted scopes
 
 The client gets a bounded operator profile:

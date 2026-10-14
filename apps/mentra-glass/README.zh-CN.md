@@ -145,6 +145,12 @@ wednesdayai qr --client openclaw-mentra-node
 引导配对会自动批准；引导令牌只能使用一次，首次连接后小应用会改用
 持久化的设备令牌。
 
+已知问题（[WednesdayAI-core#1022](https://github.com/ExpansionX/WednesdayAI-core/issues/1022)）：
+通过 Tailscale serve 提供的网关上，新设备首次连接不会自动批准。手机会显示
+配对错误，网关会列出一个待处理请求。用 `wednesdayai devices approve
+<requestId>` 批准它（参见 `wednesdayai devices list`），然后扫描新的
+setup code。之后的重连使用设备令牌，无需再次批准。
+
 ### 授予的权限范围
 
 该客户端获得一个有界的 operator 配置文件：
