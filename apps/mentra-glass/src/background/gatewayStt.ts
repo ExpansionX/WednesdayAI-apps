@@ -37,7 +37,9 @@
  * immediately from the cache. Continuations resumed after an await
  * re-check the utterance identity, so a stale capture can never touch the
  * fields or timers of its replacement. LC3 or non-16 kHz chunks never
- * reach appendAudio. `talk.event` payloads are parsed defensively:
+ * reach appendAudio. finish pads real-audio utterances with 500 ms of
+ * trailing silence before close: the relay's endpointing otherwise drops
+ * clips that end on speech. `talk.event` payloads are parsed defensively:
  * anything without a string `type` and `sessionId`, or
  * naming another session, is ignored.
  */
@@ -58,6 +60,11 @@ export const MAX_CAPTURE_MS = 20000
 /** Max decoded PCM bytes per appendAudio frame: 3 s of PCM16@16 kHz, about a
  * quarter of the gateway's 512 KiB base64 frame limit. */
 export const MAX_APPEND_BYTES = 96_000
+/** Digital silence padded before close so relay endpointing keeps a last word
+ * that would otherwise be cut off (live E2E). */
+export const TRAILING_SILENCE_MS = 500
+/** Decoded bytes of that tail (16 kHz PCM16 = 32 bytes per ms). */
+const TRAILING_SILENCE_BYTES = TRAILING_SILENCE_MS * 32
 
 export interface SttRequester {
   request<T = unknown>(method: string, params?: unknown, timeoutMs?: number): Promise<T>
@@ -92,6 +99,8 @@ export class GatewaySttCapture {
   private pending: string[] = []
   /** Serializes appends: at most one in flight, drained in queue order. */
   private appendChain: Promise<void> = Promise.resolve()
+  /** This utterance buffered at least one real audio chunk (for the tail). */
+  private sawAudio = false
   private sessionId: string | null = null
   /** The session a close request was sent for; one close per session id. */
   private closedSessionId: string | null = null
@@ -150,6 +159,7 @@ export class GatewaySttCapture {
     // A session the server retired (session.error/session.closed) collects
     // no further audio; its cached terminal settles a later finish.
     if ((this.stateValue === "opening" || this.stateValue === "open") && !this.terminalSeen) {
+      this.sawAudio = true
       this.pending.push(chunk.data)
     }
   }
@@ -165,6 +175,7 @@ export class GatewaySttCapture {
     const utterance = this.utterance
     this.abortRequested = false
     this.finishSettled = false
+    this.sawAudio = false
     this.readySeen = false
     this.readyWaiter = null
     this.signalReady = null
@@ -361,8 +372,11 @@ export class GatewaySttCapture {
       if (utterance !== this.utterance || this.finishPromise === null) return
     }
     // One ordered drain: waits for any in-flight append, then appends the
-    // rest in bounded frames — nothing is sent after the close below.
-    await this.flushOnce()
+    // rest in bounded frames — nothing is sent after the close below. When
+    // this utterance carried audio, the drain ends with a frame of digital
+    // silence: the relay's endpointing drops clips that end on speech
+    // (live E2E), the tail keeps the last word.
+    await this.flushOnce(this.sawAudio)
     if (utterance !== this.utterance || this.finishPromise === null) return
     this.stateValue = "closing"
     this.requestClose(this.sessionId)
@@ -410,13 +424,13 @@ export class GatewaySttCapture {
    * before it) has settled — finish awaits it, so close is only ever sent
    * after all queued audio was appended.
    */
-  private flushOnce(): Promise<void> {
+  private flushOnce(withTail = false): Promise<void> {
     // Bind the queued drain to the utterance and session it was queued for:
     // a queue position can outlive both (terminal settlement, replacement).
     const utterance = this.utterance
     const sessionId = this.sessionId
     if (sessionId === null) return this.appendChain
-    const run = this.appendChain.then(() => this.drainPending(utterance, sessionId))
+    const run = this.appendChain.then(() => this.drainPending(utterance, sessionId, withTail))
     // drainPending handles its own failures; keep the shared chain alive.
     this.appendChain = run.then(
       () => undefined,
@@ -428,14 +442,21 @@ export class GatewaySttCapture {
   /**
    * Send the buffered audio as ordered frames of at most MAX_APPEND_BYTES.
    * Bound to the utterance and session at queue time: a drain whose utterance
-   * was replaced (or whose session was settled/retired) discards itself.
+   * was replaced (or whose session was settled/retired) discards itself. With
+   * `withTail`, one frame of digital silence follows the last real chunk.
    */
-  private async drainPending(utterance: number, sessionId: string): Promise<void> {
+  private async drainPending(utterance: number, sessionId: string, withTail = false): Promise<void> {
     if (utterance !== this.utterance || sessionId !== this.sessionId || this.terminalSeen) return
-    while (this.pending.length > 0) {
+    while (this.pending.length > 0 || withTail) {
       // A settle (abort/dispose) or a terminal event invalidates this drain;
       // never touch a replacement capture's buffer or a retired session.
       if (utterance !== this.utterance || sessionId !== this.sessionId || this.terminalSeen) return
+      // Real audio drained: emit the endpointing tail once — after the last
+      // real chunk, before the close that follows this drain.
+      if (this.pending.length === 0) {
+        withTail = false
+        this.pending.push(btoa("\0".repeat(TRAILING_SILENCE_BYTES)))
+      }
       // Whole chunks only — a batch takes chunks until the byte budget is
       // full; a lone chunk larger than the budget is never split.
       const batch: string[] = []
