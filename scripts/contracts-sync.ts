@@ -34,6 +34,7 @@ const FIXTURE_FILES = [
   "system-run-approval-binding-contract.json",
   "system-run-approval-mismatch-contract.json",
   "system-run-command-contract.json",
+  "exec-allowlist-glob-parity.json",
 ] as const;
 
 type Args = {
