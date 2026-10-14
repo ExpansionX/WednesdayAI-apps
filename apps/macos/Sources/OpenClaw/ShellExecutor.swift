@@ -69,11 +69,12 @@ enum ShellExecutor {
 
         if let timeout, timeout > 0 {
             let nanos = UInt64(timeout * 1_000_000_000)
+            let state = TimeoutTracker()
             return await withTaskGroup(of: ShellResult.self) { group in
                 group.addTask { await waitTask.value }
                 group.addTask {
                     try? await Task.sleep(nanoseconds: nanos)
-                    if process.isRunning { process.terminate() }
+                    state.markFiredIfRunning(process)
                     _ = await waitTask.value // drain pipes after termination
                     return ShellResult(
                         stdout: "",
@@ -85,6 +86,17 @@ enum ShellExecutor {
                 }
                 let first = await group.next()!
                 group.cancelAll()
+                // The timeout branch always awaits waitTask, so completion order is
+                // racy; the fired flag — not which result arrived first — decides.
+                if state.didFire {
+                    return ShellResult(
+                        stdout: first.stdout,
+                        stderr: first.stderr,
+                        exitCode: first.exitCode,
+                        timedOut: true,
+                        success: false,
+                        errorMessage: "timeout")
+                }
                 return first
             }
         }
@@ -97,5 +109,26 @@ enum ShellExecutor {
         let combined = result.stdout.isEmpty ? result.stderr : result.stdout
         let payload = combined.isEmpty ? nil : Data(combined.utf8)
         return Response(ok: result.success, message: result.errorMessage, payload: payload)
+    }
+}
+
+/// Thread-safe flag recording whether the timeout branch terminated the process.
+private final class TimeoutTracker: @unchecked Sendable {
+    private let lock = NSLock()
+    private var fired = false
+
+    func markFiredIfRunning(_ process: Process) {
+        self.lock.lock()
+        if process.isRunning {
+            process.terminate()
+            self.fired = true
+        }
+        self.lock.unlock()
+    }
+
+    var didFire: Bool {
+        self.lock.lock()
+        defer { self.lock.unlock() }
+        return self.fired
     }
 }
