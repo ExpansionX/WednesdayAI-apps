@@ -1,13 +1,15 @@
 package ai.openclaw.android.ui
 
-import androidx.compose.foundation.background
+import ai.openclaw.android.MainViewModel
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.WindowInsetsSides
+import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
@@ -17,7 +19,6 @@ import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.windowInsetsPadding
-import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ScreenShare
@@ -30,8 +31,8 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -44,7 +45,6 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import ai.openclaw.android.MainViewModel
 
 private enum class HomeTab(
   val label: String,
@@ -66,7 +66,10 @@ private enum class StatusVisual {
 }
 
 @Composable
-fun PostOnboardingTabs(viewModel: MainViewModel, modifier: Modifier = Modifier) {
+fun PostOnboardingTabs(
+  viewModel: MainViewModel,
+  modifier: Modifier = Modifier,
+) {
   var activeTab by rememberSaveable { mutableStateOf(HomeTab.Connect) }
 
   // Stop TTS when user navigates away from voice tab
@@ -183,41 +186,50 @@ private fun TopStatusBar(
 
   val (chipBg, chipDot, chipText, chipBorder) =
     when (statusVisual) {
-      StatusVisual.Connected ->
+      StatusVisual.Connected -> {
         listOf(
           mobileSuccessSoft,
           mobileSuccess,
           mobileSuccess,
           Color(0xFFCFEBD8),
         )
-      StatusVisual.Connecting ->
+      }
+
+      StatusVisual.Connecting -> {
         listOf(
           mobileAccentSoft,
           mobileAccent,
           mobileAccent,
           Color(0xFFD5E2FA),
         )
-      StatusVisual.Warning ->
+      }
+
+      StatusVisual.Warning -> {
         listOf(
           mobileWarningSoft,
           mobileWarning,
           mobileWarning,
           Color(0xFFEED8B8),
         )
-      StatusVisual.Error ->
+      }
+
+      StatusVisual.Error -> {
         listOf(
           mobileDangerSoft,
           mobileDanger,
           mobileDanger,
           Color(0xFFF3C8C8),
         )
-      StatusVisual.Offline ->
+      }
+
+      StatusVisual.Offline -> {
         listOf(
           mobileSurface,
           mobileTextTertiary,
           mobileTextSecondary,
           mobileBorder,
         )
+      }
     }
 
   Surface(

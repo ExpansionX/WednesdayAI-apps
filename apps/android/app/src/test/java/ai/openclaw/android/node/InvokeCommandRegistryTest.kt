@@ -156,11 +156,17 @@ class InvokeCommandRegistryTest {
       debugBuild = debugBuild,
     )
 
-  private fun assertContainsAll(actual: List<String>, expected: Set<String>) {
+  private fun assertContainsAll(
+    actual: List<String>,
+    expected: Set<String>,
+  ) {
     expected.forEach { value -> assertTrue(actual.contains(value)) }
   }
 
-  private fun assertMissingAll(actual: List<String>, forbidden: Set<String>) {
+  private fun assertMissingAll(
+    actual: List<String>,
+    forbidden: Set<String>,
+  ) {
     forbidden.forEach { value -> assertFalse(actual.contains(value)) }
   }
 }

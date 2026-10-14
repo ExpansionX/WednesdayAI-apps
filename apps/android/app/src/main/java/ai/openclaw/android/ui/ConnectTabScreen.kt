@@ -1,5 +1,6 @@
 package ai.openclaw.android.ui
 
+import ai.openclaw.android.MainViewModel
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
@@ -46,7 +47,6 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
-import ai.openclaw.android.MainViewModel
 
 private enum class ConnectInputMode {
   SetupCode,
@@ -108,9 +108,10 @@ fun ConnectTabScreen(viewModel: MainViewModel) {
   }
 
   val setupResolvedEndpoint = remember(setupCode) { decodeGatewaySetupCode(setupCode)?.url?.let { parseGatewayEndpoint(it)?.displayUrl } }
-  val manualResolvedEndpoint = remember(manualHostInput, manualPortInput, manualTlsInput) {
-    composeGatewayManualUrl(manualHostInput, manualPortInput, manualTlsInput)?.let { parseGatewayEndpoint(it)?.displayUrl }
-  }
+  val manualResolvedEndpoint =
+    remember(manualHostInput, manualPortInput, manualTlsInput) {
+      composeGatewayManualUrl(manualHostInput, manualPortInput, manualTlsInput)?.let { parseGatewayEndpoint(it)?.displayUrl }
+    }
 
   val activeEndpoint =
     remember(isConnected, remoteAddress, setupResolvedEndpoint, manualResolvedEndpoint, inputMode) {
@@ -416,7 +417,11 @@ fun ConnectTabScreen(viewModel: MainViewModel) {
 }
 
 @Composable
-private fun MethodChip(label: String, active: Boolean, onClick: () -> Unit) {
+private fun MethodChip(
+  label: String,
+  active: Boolean,
+  onClick: () -> Unit,
+) {
   Button(
     onClick = onClick,
     modifier = Modifier.height(40.dp),
@@ -434,7 +439,10 @@ private fun MethodChip(label: String, active: Boolean, onClick: () -> Unit) {
 }
 
 @Composable
-private fun QuickFillChip(label: String, onClick: () -> Unit) {
+private fun QuickFillChip(
+  label: String,
+  onClick: () -> Unit,
+) {
   Button(
     onClick = onClick,
     shape = RoundedCornerShape(999.dp),

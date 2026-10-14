@@ -1,17 +1,19 @@
 package ai.openclaw.android
 
-import android.app.Application
-import androidx.lifecycle.AndroidViewModel
-import ai.openclaw.android.gateway.GatewayEndpoint
 import ai.openclaw.android.chat.OutgoingAttachment
+import ai.openclaw.android.gateway.GatewayEndpoint
 import ai.openclaw.android.node.CameraCaptureManager
 import ai.openclaw.android.node.CanvasController
 import ai.openclaw.android.node.ScreenRecordManager
 import ai.openclaw.android.node.SmsManager
 import ai.openclaw.android.voice.VoiceConversationEntry
+import android.app.Application
+import androidx.lifecycle.AndroidViewModel
 import kotlinx.coroutines.flow.StateFlow
 
-class MainViewModel(app: Application) : AndroidViewModel(app) {
+class MainViewModel(
+  app: Application,
+) : AndroidViewModel(app) {
   private val runtime: NodeRuntime = (app as NodeApp).runtime
 
   val canvas: CanvasController = runtime.canvas
@@ -199,7 +201,11 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     runtime.abortChat()
   }
 
-  fun sendChat(message: String, thinking: String, attachments: List<OutgoingAttachment>) {
+  fun sendChat(
+    message: String,
+    thinking: String,
+    attachments: List<OutgoingAttachment>,
+  ) {
     runtime.sendChat(message = message, thinking = thinking, attachments = attachments)
   }
 }

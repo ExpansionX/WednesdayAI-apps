@@ -1,25 +1,27 @@
 package ai.openclaw.android
 
-import android.content.pm.PackageManager
-import android.content.Intent
 import android.Manifest
+import android.content.Intent
+import android.content.pm.PackageManager
 import android.net.Uri
 import android.provider.Settings
-import androidx.appcompat.app.AlertDialog
 import androidx.activity.ComponentActivity
 import androidx.activity.result.ActivityResultLauncher
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.core.content.ContextCompat
+import androidx.appcompat.app.AlertDialog
 import androidx.core.app.ActivityCompat
+import androidx.core.content.ContextCompat
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
-import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlin.coroutines.resume
 
-class PermissionRequester(private val activity: ComponentActivity) {
+class PermissionRequester(
+  private val activity: ComponentActivity,
+) {
   private val mutex = Mutex()
   private var pending: CompletableDeferred<Map<String, Boolean>>? = null
 
@@ -68,10 +70,10 @@ class PermissionRequester(private val activity: ComponentActivity) {
       // Merge: if something was already granted, treat it as granted even if launcher omitted it.
       val merged =
         permissions.associateWith { perm ->
-        val nowGranted =
-          ContextCompat.checkSelfPermission(activity, perm) == PackageManager.PERMISSION_GRANTED
-        result[perm] == true || nowGranted
-      }
+          val nowGranted =
+            ContextCompat.checkSelfPermission(activity, perm) == PackageManager.PERMISSION_GRANTED
+          result[perm] == true || nowGranted
+        }
 
       val denied =
         merged.filterValues { !it }.keys.filter {
@@ -87,7 +89,8 @@ class PermissionRequester(private val activity: ComponentActivity) {
   private suspend fun showRationaleDialog(permissions: List<String>): Boolean =
     withContext(Dispatchers.Main) {
       suspendCancellableCoroutine { cont ->
-        AlertDialog.Builder(activity)
+        AlertDialog
+          .Builder(activity)
           .setTitle("Permission required")
           .setMessage(buildRationaleMessage(permissions))
           .setPositiveButton("Continue") { _, _ -> cont.resume(true) }
@@ -98,7 +101,8 @@ class PermissionRequester(private val activity: ComponentActivity) {
     }
 
   private fun showSettingsDialog(permissions: List<String>) {
-    AlertDialog.Builder(activity)
+    AlertDialog
+      .Builder(activity)
       .setTitle("Enable permission in Settings")
       .setMessage(buildSettingsMessage(permissions))
       .setPositiveButton("Open Settings") { _, _ ->
@@ -108,8 +112,7 @@ class PermissionRequester(private val activity: ComponentActivity) {
             Uri.fromParts("package", activity.packageName, null),
           )
         activity.startActivity(intent)
-      }
-      .setNegativeButton("Cancel", null)
+      }.setNegativeButton("Cancel", null)
       .show()
   }
 

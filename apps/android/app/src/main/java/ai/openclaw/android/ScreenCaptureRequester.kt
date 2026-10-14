@@ -10,15 +10,20 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AlertDialog
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
-import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlin.coroutines.resume
 
-class ScreenCaptureRequester(private val activity: ComponentActivity) {
-  data class CaptureResult(val resultCode: Int, val data: Intent)
+class ScreenCaptureRequester(
+  private val activity: ComponentActivity,
+) {
+  data class CaptureResult(
+    val resultCode: Int,
+    val data: Intent,
+  )
 
   private val mutex = Mutex()
   private var pending: CompletableDeferred<CaptureResult?>? = null
@@ -53,7 +58,8 @@ class ScreenCaptureRequester(private val activity: ComponentActivity) {
   private suspend fun showRationaleDialog(): Boolean =
     withContext(Dispatchers.Main) {
       suspendCancellableCoroutine { cont ->
-        AlertDialog.Builder(activity)
+        AlertDialog
+          .Builder(activity)
           .setTitle("Screen recording required")
           .setMessage("OpenClaw needs to record the screen for this command.")
           .setPositiveButton("Continue") { _, _ -> cont.resume(true) }

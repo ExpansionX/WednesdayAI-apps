@@ -1,8 +1,8 @@
 package ai.openclaw.android.voice
 
 import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
@@ -14,7 +14,8 @@ class TalkModeConfigParsingTest {
   @Test
   fun prefersNormalizedTalkProviderPayload() {
     val talk =
-      json.parseToJsonElement(
+      json
+        .parseToJsonElement(
           """
           {
             "provider": "elevenlabs",
@@ -26,34 +27,54 @@ class TalkModeConfigParsingTest {
             "voiceId": "voice-legacy"
           }
           """.trimIndent(),
-        )
-        .jsonObject
+        ).jsonObject
 
     val selection = TalkModeManager.selectTalkProviderConfig(talk)
     assertNotNull(selection)
     assertEquals("elevenlabs", selection?.provider)
     assertTrue(selection?.normalizedPayload == true)
-    assertEquals("voice-normalized", selection?.config?.get("voiceId")?.jsonPrimitive?.content)
+    assertEquals(
+      "voice-normalized",
+      selection
+        ?.config
+        ?.get("voiceId")
+        ?.jsonPrimitive
+        ?.content,
+    )
   }
 
   @Test
   fun fallsBackToLegacyTalkFieldsWhenNormalizedPayloadMissing() {
     val talk =
-      json.parseToJsonElement(
+      json
+        .parseToJsonElement(
           """
           {
             "voiceId": "voice-legacy",
             "apiKey": "legacy-key"
           }
           """.trimIndent(),
-        )
-        .jsonObject
+        ).jsonObject
 
     val selection = TalkModeManager.selectTalkProviderConfig(talk)
     assertNotNull(selection)
     assertEquals("elevenlabs", selection?.provider)
     assertTrue(selection?.normalizedPayload == false)
-    assertEquals("voice-legacy", selection?.config?.get("voiceId")?.jsonPrimitive?.content)
-    assertEquals("legacy-key", selection?.config?.get("apiKey")?.jsonPrimitive?.content)
+    assertEquals(
+      "voice-legacy",
+      selection
+        ?.config
+        ?.get("voiceId")
+        ?.jsonPrimitive
+        ?.content,
+    )
+    assertEquals(
+      "legacy-key",
+      selection
+        ?.config
+        ?.get("apiKey")
+        ?.jsonPrimitive
+        ?.content,
+    )
   }
 }

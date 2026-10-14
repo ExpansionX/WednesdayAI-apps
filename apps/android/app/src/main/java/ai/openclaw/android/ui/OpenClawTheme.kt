@@ -27,6 +27,4 @@ fun overlayContainerColor(): Color {
 }
 
 @Composable
-fun overlayIconColor(): Color {
-  return MaterialTheme.colorScheme.onSurfaceVariant
-}
+fun overlayIconColor(): Color = MaterialTheme.colorScheme.onSurfaceVariant

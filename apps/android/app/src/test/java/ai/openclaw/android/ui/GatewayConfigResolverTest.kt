@@ -1,9 +1,9 @@
 package ai.openclaw.android.ui
 
-import java.util.Base64
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Test
+import java.util.Base64
 
 class GatewayConfigResolverTest {
   @Test
@@ -53,7 +53,5 @@ class GatewayConfigResolverTest {
     assertNull(resolved)
   }
 
-  private fun encodeSetupCode(payloadJson: String): String {
-    return Base64.getUrlEncoder().withoutPadding().encodeToString(payloadJson.toByteArray(Charsets.UTF_8))
-  }
+  private fun encodeSetupCode(payloadJson: String): String = Base64.getUrlEncoder().withoutPadding().encodeToString(payloadJson.toByteArray(Charsets.UTF_8))
 }

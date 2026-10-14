@@ -7,17 +7,21 @@ import android.location.Location
 import android.location.LocationManager
 import android.os.CancellationSignal
 import androidx.core.content.ContextCompat
-import java.time.Instant
-import java.time.format.DateTimeFormatter
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
+import java.time.Instant
+import java.time.format.DateTimeFormatter
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
-import kotlinx.coroutines.suspendCancellableCoroutine
 
-class LocationCaptureManager(private val context: Context) {
-  data class Payload(val payloadJson: String)
+class LocationCaptureManager(
+  private val context: Context,
+) {
+  data class Payload(
+    val payloadJson: String,
+  )
 
   suspend fun getLocation(
     desiredProviders: List<String>,

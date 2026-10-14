@@ -7,7 +7,10 @@ import android.content.pm.PackageInstaller
 import android.util.Log
 
 class InstallResultReceiver : BroadcastReceiver() {
-  override fun onReceive(context: Context, intent: Intent) {
+  override fun onReceive(
+    context: Context,
+    intent: Intent,
+  ) {
     val status = intent.getIntExtra(PackageInstaller.EXTRA_STATUS, PackageInstaller.STATUS_FAILURE)
     val message = intent.getStringExtra(PackageInstaller.EXTRA_STATUS_MESSAGE)
 
@@ -22,9 +25,11 @@ class InstallResultReceiver : BroadcastReceiver() {
           Log.w("openclaw", "app.update: user confirmation requested, launching install dialog")
         }
       }
+
       PackageInstaller.STATUS_SUCCESS -> {
         Log.w("openclaw", "app.update: install SUCCESS")
       }
+
       else -> {
         Log.e("openclaw", "app.update: install FAILED status=$status message=$message")
       }

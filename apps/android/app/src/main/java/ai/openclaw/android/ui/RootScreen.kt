@@ -1,11 +1,11 @@
 package ai.openclaw.android.ui
 
+import ai.openclaw.android.MainViewModel
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
-import ai.openclaw.android.MainViewModel
 
 @Composable
 fun RootScreen(viewModel: MainViewModel) {

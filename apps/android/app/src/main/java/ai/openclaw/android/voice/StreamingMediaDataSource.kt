@@ -4,7 +4,10 @@ import android.media.MediaDataSource
 import kotlin.math.min
 
 internal class StreamingMediaDataSource : MediaDataSource() {
-  private data class Chunk(val start: Long, val data: ByteArray)
+  private data class Chunk(
+    val start: Long,
+    val data: ByteArray,
+  )
 
   private val lock = Object()
   private val chunks = ArrayList<Chunk>()
@@ -39,7 +42,12 @@ internal class StreamingMediaDataSource : MediaDataSource() {
     }
   }
 
-  override fun readAt(position: Long, buffer: ByteArray, offset: Int, size: Int): Int {
+  override fun readAt(
+    position: Long,
+    buffer: ByteArray,
+    offset: Int,
+    size: Int,
+  ): Int {
     if (position < 0) return -1
     synchronized(lock) {
       while (!closed && !finished && position >= totalSize) {

@@ -1,9 +1,9 @@
 package ai.openclaw.android.node
 
-import java.io.File
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertThrows
 import org.junit.Test
+import java.io.File
 
 class AppUpdateHandlerTest {
   @Test

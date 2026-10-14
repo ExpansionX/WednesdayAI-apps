@@ -2,9 +2,9 @@ package ai.openclaw.android.node
 
 import ai.openclaw.android.gateway.GatewaySession
 import ai.openclaw.android.protocol.OpenClawCalendarCommand
+import ai.openclaw.android.protocol.OpenClawCameraCommand
 import ai.openclaw.android.protocol.OpenClawCanvasA2UICommand
 import ai.openclaw.android.protocol.OpenClawCanvasCommand
-import ai.openclaw.android.protocol.OpenClawCameraCommand
 import ai.openclaw.android.protocol.OpenClawContactsCommand
 import ai.openclaw.android.protocol.OpenClawDeviceCommand
 import ai.openclaw.android.protocol.OpenClawLocationCommand
@@ -41,7 +41,10 @@ class InvokeDispatcher(
   private val motionActivityAvailable: () -> Boolean,
   private val motionPedometerAvailable: () -> Boolean,
 ) {
-  suspend fun handleInvoke(command: String, paramsJson: String?): GatewaySession.InvokeResult {
+  suspend fun handleInvoke(
+    command: String,
+    paramsJson: String?,
+  ): GatewaySession.InvokeResult {
     val spec =
       InvokeCommandRegistry.find(command)
         ?: return GatewaySession.InvokeResult.error(
@@ -63,12 +66,17 @@ class InvokeDispatcher(
         canvas.navigate(url)
         GatewaySession.InvokeResult.ok(null)
       }
-      OpenClawCanvasCommand.Hide.rawValue -> GatewaySession.InvokeResult.ok(null)
+
+      OpenClawCanvasCommand.Hide.rawValue -> {
+        GatewaySession.InvokeResult.ok(null)
+      }
+
       OpenClawCanvasCommand.Navigate.rawValue -> {
         val url = CanvasController.parseNavigateUrl(paramsJson)
         canvas.navigate(url)
         GatewaySession.InvokeResult.ok(null)
       }
+
       OpenClawCanvasCommand.Eval.rawValue -> {
         val js =
           CanvasController.parseEvalJs(paramsJson)
@@ -81,6 +89,7 @@ class InvokeDispatcher(
           GatewaySession.InvokeResult.ok("""{"result":${result.toJsonString()}}""")
         }
       }
+
       OpenClawCanvasCommand.Snapshot.rawValue -> {
         val snapshotParams = CanvasController.parseSnapshotParams(paramsJson)
         withCanvasAvailable {
@@ -95,7 +104,7 @@ class InvokeDispatcher(
       }
 
       // A2UI commands
-      OpenClawCanvasA2UICommand.Reset.rawValue ->
+      OpenClawCanvasA2UICommand.Reset.rawValue -> {
         withReadyA2ui {
           withCanvasAvailable {
             val res = canvas.eval(A2UIHandler.a2uiResetJS)
@@ -103,6 +112,8 @@ class InvokeDispatcher(
             GatewaySession.InvokeResult.ok(res)
           }
         }
+      }
+
       OpenClawCanvasA2UICommand.Push.rawValue, OpenClawCanvasA2UICommand.PushJSONL.rawValue -> {
         val messages =
           try {
@@ -110,7 +121,7 @@ class InvokeDispatcher(
           } catch (err: Throwable) {
             return GatewaySession.InvokeResult.error(
               code = "INVALID_REQUEST",
-              message = err.message ?: "invalid A2UI payload"
+              message = err.message ?: "invalid A2UI payload",
             )
           }
         withReadyA2ui {
@@ -124,68 +135,127 @@ class InvokeDispatcher(
       }
 
       // Camera commands
-      OpenClawCameraCommand.List.rawValue -> cameraHandler.handleList(paramsJson)
-      OpenClawCameraCommand.Snap.rawValue -> cameraHandler.handleSnap(paramsJson)
-      OpenClawCameraCommand.Clip.rawValue -> cameraHandler.handleClip(paramsJson)
+      OpenClawCameraCommand.List.rawValue -> {
+        cameraHandler.handleList(paramsJson)
+      }
+
+      OpenClawCameraCommand.Snap.rawValue -> {
+        cameraHandler.handleSnap(paramsJson)
+      }
+
+      OpenClawCameraCommand.Clip.rawValue -> {
+        cameraHandler.handleClip(paramsJson)
+      }
 
       // Location command
-      OpenClawLocationCommand.Get.rawValue -> locationHandler.handleLocationGet(paramsJson)
+      OpenClawLocationCommand.Get.rawValue -> {
+        locationHandler.handleLocationGet(paramsJson)
+      }
 
       // Device commands
-      OpenClawDeviceCommand.Status.rawValue -> deviceHandler.handleDeviceStatus(paramsJson)
-      OpenClawDeviceCommand.Info.rawValue -> deviceHandler.handleDeviceInfo(paramsJson)
-      OpenClawDeviceCommand.Permissions.rawValue -> deviceHandler.handleDevicePermissions(paramsJson)
-      OpenClawDeviceCommand.Health.rawValue -> deviceHandler.handleDeviceHealth(paramsJson)
+      OpenClawDeviceCommand.Status.rawValue -> {
+        deviceHandler.handleDeviceStatus(paramsJson)
+      }
+
+      OpenClawDeviceCommand.Info.rawValue -> {
+        deviceHandler.handleDeviceInfo(paramsJson)
+      }
+
+      OpenClawDeviceCommand.Permissions.rawValue -> {
+        deviceHandler.handleDevicePermissions(paramsJson)
+      }
+
+      OpenClawDeviceCommand.Health.rawValue -> {
+        deviceHandler.handleDeviceHealth(paramsJson)
+      }
 
       // Notifications command
-      OpenClawNotificationsCommand.List.rawValue -> notificationsHandler.handleNotificationsList(paramsJson)
-      OpenClawNotificationsCommand.Actions.rawValue -> notificationsHandler.handleNotificationsActions(paramsJson)
+      OpenClawNotificationsCommand.List.rawValue -> {
+        notificationsHandler.handleNotificationsList(paramsJson)
+      }
+
+      OpenClawNotificationsCommand.Actions.rawValue -> {
+        notificationsHandler.handleNotificationsActions(paramsJson)
+      }
 
       // System command
-      OpenClawSystemCommand.Notify.rawValue -> systemHandler.handleSystemNotify(paramsJson)
+      OpenClawSystemCommand.Notify.rawValue -> {
+        systemHandler.handleSystemNotify(paramsJson)
+      }
 
       // Photos command
-      ai.openclaw.android.protocol.OpenClawPhotosCommand.Latest.rawValue -> photosHandler.handlePhotosLatest(
-        paramsJson,
-      )
+      ai.openclaw.android.protocol.OpenClawPhotosCommand.Latest.rawValue -> {
+        photosHandler.handlePhotosLatest(
+          paramsJson,
+        )
+      }
 
       // Contacts command
-      OpenClawContactsCommand.Search.rawValue -> contactsHandler.handleContactsSearch(paramsJson)
-      OpenClawContactsCommand.Add.rawValue -> contactsHandler.handleContactsAdd(paramsJson)
+      OpenClawContactsCommand.Search.rawValue -> {
+        contactsHandler.handleContactsSearch(paramsJson)
+      }
+
+      OpenClawContactsCommand.Add.rawValue -> {
+        contactsHandler.handleContactsAdd(paramsJson)
+      }
 
       // Calendar command
-      OpenClawCalendarCommand.Events.rawValue -> calendarHandler.handleCalendarEvents(paramsJson)
-      OpenClawCalendarCommand.Add.rawValue -> calendarHandler.handleCalendarAdd(paramsJson)
+      OpenClawCalendarCommand.Events.rawValue -> {
+        calendarHandler.handleCalendarEvents(paramsJson)
+      }
+
+      OpenClawCalendarCommand.Add.rawValue -> {
+        calendarHandler.handleCalendarAdd(paramsJson)
+      }
 
       // Motion command
-      OpenClawMotionCommand.Activity.rawValue -> motionHandler.handleMotionActivity(paramsJson)
-      OpenClawMotionCommand.Pedometer.rawValue -> motionHandler.handleMotionPedometer(paramsJson)
+      OpenClawMotionCommand.Activity.rawValue -> {
+        motionHandler.handleMotionActivity(paramsJson)
+      }
+
+      OpenClawMotionCommand.Pedometer.rawValue -> {
+        motionHandler.handleMotionPedometer(paramsJson)
+      }
 
       // Screen command
-      OpenClawScreenCommand.Record.rawValue -> screenHandler.handleScreenRecord(paramsJson)
+      OpenClawScreenCommand.Record.rawValue -> {
+        screenHandler.handleScreenRecord(paramsJson)
+      }
 
       // SMS command
-      OpenClawSmsCommand.Send.rawValue -> smsHandler.handleSmsSend(paramsJson)
+      OpenClawSmsCommand.Send.rawValue -> {
+        smsHandler.handleSmsSend(paramsJson)
+      }
 
       // Debug commands
-      "debug.ed25519" -> debugHandler.handleEd25519()
-      "debug.logs" -> debugHandler.handleLogs()
+      "debug.ed25519" -> {
+        debugHandler.handleEd25519()
+      }
+
+      "debug.logs" -> {
+        debugHandler.handleLogs()
+      }
 
       // App update
-      "app.update" -> appUpdateHandler.handleUpdate(paramsJson)
+      "app.update" -> {
+        appUpdateHandler.handleUpdate(paramsJson)
+      }
 
-      else -> GatewaySession.InvokeResult.error(code = "INVALID_REQUEST", message = "INVALID_REQUEST: unknown command")
+      else -> {
+        GatewaySession.InvokeResult.error(code = "INVALID_REQUEST", message = "INVALID_REQUEST: unknown command")
+      }
     }
   }
 
   private suspend fun withReadyA2ui(
     block: suspend () -> GatewaySession.InvokeResult,
   ): GatewaySession.InvokeResult {
-    var a2uiUrl = a2uiHandler.resolveA2uiHostUrl()
-      ?: return GatewaySession.InvokeResult.error(
-        code = "A2UI_HOST_NOT_CONFIGURED",
-        message = "A2UI_HOST_NOT_CONFIGURED: gateway did not advertise canvas host",
-      )
+    var a2uiUrl =
+      a2uiHandler.resolveA2uiHostUrl()
+        ?: return GatewaySession.InvokeResult.error(
+          code = "A2UI_HOST_NOT_CONFIGURED",
+          message = "A2UI_HOST_NOT_CONFIGURED: gateway did not advertise canvas host",
+        )
     val readyOnFirstCheck = a2uiHandler.ensureA2uiReady(a2uiUrl)
     if (!readyOnFirstCheck) {
       if (!refreshNodeCanvasCapability()) {
@@ -211,8 +281,8 @@ class InvokeDispatcher(
 
   private suspend fun withCanvasAvailable(
     block: suspend () -> GatewaySession.InvokeResult,
-  ): GatewaySession.InvokeResult {
-    return try {
+  ): GatewaySession.InvokeResult =
+    try {
       block()
     } catch (_: Throwable) {
       GatewaySession.InvokeResult.error(
@@ -220,12 +290,14 @@ class InvokeDispatcher(
         message = "NODE_BACKGROUND_UNAVAILABLE: canvas unavailable",
       )
     }
-  }
 
-  private fun availabilityError(availability: InvokeCommandAvailability): GatewaySession.InvokeResult? {
-    return when (availability) {
-      InvokeCommandAvailability.Always -> null
-      InvokeCommandAvailability.CameraEnabled ->
+  private fun availabilityError(availability: InvokeCommandAvailability): GatewaySession.InvokeResult? =
+    when (availability) {
+      InvokeCommandAvailability.Always -> {
+        null
+      }
+
+      InvokeCommandAvailability.CameraEnabled -> {
         if (cameraEnabled()) {
           null
         } else {
@@ -234,7 +306,9 @@ class InvokeDispatcher(
             message = "CAMERA_DISABLED: enable Camera in Settings",
           )
         }
-      InvokeCommandAvailability.LocationEnabled ->
+      }
+
+      InvokeCommandAvailability.LocationEnabled -> {
         if (locationEnabled()) {
           null
         } else {
@@ -243,7 +317,9 @@ class InvokeDispatcher(
             message = "LOCATION_DISABLED: enable Location in Settings",
           )
         }
-      InvokeCommandAvailability.MotionActivityAvailable ->
+      }
+
+      InvokeCommandAvailability.MotionActivityAvailable -> {
         if (motionActivityAvailable()) {
           null
         } else {
@@ -252,7 +328,9 @@ class InvokeDispatcher(
             message = "MOTION_UNAVAILABLE: accelerometer not available",
           )
         }
-      InvokeCommandAvailability.MotionPedometerAvailable ->
+      }
+
+      InvokeCommandAvailability.MotionPedometerAvailable -> {
         if (motionPedometerAvailable()) {
           null
         } else {
@@ -261,7 +339,9 @@ class InvokeDispatcher(
             message = "PEDOMETER_UNAVAILABLE: step counter not available",
           )
         }
-      InvokeCommandAvailability.SmsAvailable ->
+      }
+
+      InvokeCommandAvailability.SmsAvailable -> {
         if (smsAvailable()) {
           null
         } else {
@@ -270,7 +350,9 @@ class InvokeDispatcher(
             message = "SMS_UNAVAILABLE: SMS not available on this device",
           )
         }
-      InvokeCommandAvailability.DebugBuild ->
+      }
+
+      InvokeCommandAvailability.DebugBuild -> {
         if (debugBuild()) {
           null
         } else {
@@ -279,6 +361,6 @@ class InvokeDispatcher(
             message = "INVALID_REQUEST: unknown command",
           )
         }
+      }
     }
-  }
 }

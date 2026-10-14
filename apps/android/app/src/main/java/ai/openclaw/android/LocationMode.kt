@@ -1,6 +1,8 @@
 package ai.openclaw.android
 
-enum class LocationMode(val rawValue: String) {
+enum class LocationMode(
+  val rawValue: String,
+) {
   Off("off"),
   WhileUsing("whileUsing"),
   Always("always"),

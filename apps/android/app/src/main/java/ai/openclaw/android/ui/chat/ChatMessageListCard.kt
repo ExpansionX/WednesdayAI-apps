@@ -1,5 +1,12 @@
 package ai.openclaw.android.ui.chat
 
+import ai.openclaw.android.chat.ChatMessage
+import ai.openclaw.android.chat.ChatPendingToolCall
+import ai.openclaw.android.ui.mobileBorder
+import ai.openclaw.android.ui.mobileCallout
+import ai.openclaw.android.ui.mobileHeadline
+import ai.openclaw.android.ui.mobileText
+import ai.openclaw.android.ui.mobileTextSecondary
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
@@ -15,13 +22,6 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
-import ai.openclaw.android.chat.ChatMessage
-import ai.openclaw.android.chat.ChatPendingToolCall
-import ai.openclaw.android.ui.mobileBorder
-import ai.openclaw.android.ui.mobileCallout
-import ai.openclaw.android.ui.mobileHeadline
-import ai.openclaw.android.ui.mobileText
-import ai.openclaw.android.ui.mobileTextSecondary
 
 @Composable
 fun ChatMessageListCard(
@@ -45,7 +45,9 @@ fun ChatMessageListCard(
       state = listState,
       reverseLayout = true,
       verticalArrangement = Arrangement.spacedBy(10.dp),
-      contentPadding = androidx.compose.foundation.layout.PaddingValues(bottom = 8.dp),
+      contentPadding =
+        androidx.compose.foundation.layout
+          .PaddingValues(bottom = 8.dp),
     ) {
       // With reverseLayout = true, index 0 renders at the BOTTOM.
       // So we emit newest items first: streaming → tools → typing → messages (newest→oldest).
@@ -81,11 +83,16 @@ fun ChatMessageListCard(
 }
 
 @Composable
-private fun EmptyChatHint(modifier: Modifier = Modifier, healthOk: Boolean) {
+private fun EmptyChatHint(
+  modifier: Modifier = Modifier,
+  healthOk: Boolean,
+) {
   Surface(
     modifier = modifier.fillMaxWidth(),
     shape = RoundedCornerShape(14.dp),
-    color = androidx.compose.ui.graphics.Color.White.copy(alpha = 0.9f),
+    color =
+      androidx.compose.ui.graphics.Color.White
+        .copy(alpha = 0.9f),
     border = androidx.compose.foundation.BorderStroke(1.dp, mobileBorder),
   ) {
     androidx.compose.foundation.layout.Column(

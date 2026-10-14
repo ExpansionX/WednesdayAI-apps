@@ -9,13 +9,13 @@ import java.security.SecureRandom
 import java.security.cert.CertificateException
 import java.security.cert.X509Certificate
 import java.util.Locale
-import javax.net.ssl.HttpsURLConnection
 import javax.net.ssl.HostnameVerifier
+import javax.net.ssl.HttpsURLConnection
+import javax.net.ssl.SNIHostName
 import javax.net.ssl.SSLContext
 import javax.net.ssl.SSLParameters
-import javax.net.ssl.SSLSocketFactory
-import javax.net.ssl.SNIHostName
 import javax.net.ssl.SSLSocket
+import javax.net.ssl.SSLSocketFactory
 import javax.net.ssl.TrustManagerFactory
 import javax.net.ssl.X509TrustManager
 
@@ -39,14 +39,21 @@ fun buildGatewayTlsConfig(
   if (params == null) return null
   val expected = params.expectedFingerprint?.let(::normalizeFingerprint)
   val defaultTrust = defaultTrustManager()
+
   @SuppressLint("CustomX509TrustManager")
   val trustManager =
     object : X509TrustManager {
-      override fun checkClientTrusted(chain: Array<X509Certificate>, authType: String) {
+      override fun checkClientTrusted(
+        chain: Array<X509Certificate>,
+        authType: String,
+      ) {
         defaultTrust.checkClientTrusted(chain, authType)
       }
 
-      override fun checkServerTrusted(chain: Array<X509Certificate>, authType: String) {
+      override fun checkServerTrusted(
+        chain: Array<X509Certificate>,
+        authType: String,
+      ) {
         if (chain.isEmpty()) throw CertificateException("empty certificate chain")
         val fingerprint = sha256Hex(chain[0].encoded)
         if (expected != null) {
@@ -95,9 +102,17 @@ suspend fun probeGatewayTlsFingerprint(
       @SuppressLint("CustomX509TrustManager", "TrustAllX509TrustManager")
       object : X509TrustManager {
         @SuppressLint("TrustAllX509TrustManager")
-        override fun checkClientTrusted(chain: Array<X509Certificate>, authType: String) {}
+        override fun checkClientTrusted(
+          chain: Array<X509Certificate>,
+          authType: String,
+        ) {}
+
         @SuppressLint("TrustAllX509TrustManager")
-        override fun checkServerTrusted(chain: Array<X509Certificate>, authType: String) {}
+        override fun checkServerTrusted(
+          chain: Array<X509Certificate>,
+          authType: String,
+        ) {}
+
         override fun getAcceptedIssuers(): Array<X509Certificate> = emptyArray()
       }
 
@@ -153,7 +168,9 @@ private fun sha256Hex(data: ByteArray): String {
 }
 
 private fun normalizeFingerprint(raw: String): String {
-  val stripped = raw.trim()
-    .replace(Regex("^sha-?256\\s*:?\\s*", RegexOption.IGNORE_CASE), "")
+  val stripped =
+    raw
+      .trim()
+      .replace(Regex("^sha-?256\\s*:?\\s*", RegexOption.IGNORE_CASE), "")
   return stripped.lowercase(Locale.US).filter { it in '0'..'9' || it in 'a'..'f' }
 }

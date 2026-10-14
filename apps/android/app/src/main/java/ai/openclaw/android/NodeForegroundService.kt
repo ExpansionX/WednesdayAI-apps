@@ -1,11 +1,11 @@
 package ai.openclaw.android
 
+import android.Manifest
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
-import android.app.Service
 import android.app.PendingIntent
-import android.Manifest
+import android.app.Service
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -63,7 +63,11 @@ class NodeForegroundService : Service() {
       }
   }
 
-  override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+  override fun onStartCommand(
+    intent: Intent?,
+    flags: Int,
+    startId: Int,
+  ): Int {
     when (intent?.action) {
       ACTION_STOP -> {
         (application as NodeApp).runtime.disconnect()
@@ -97,10 +101,14 @@ class NodeForegroundService : Service() {
     mgr.createNotificationChannel(channel)
   }
 
-  private fun buildNotification(title: String, text: String): Notification {
-    val launchIntent = Intent(this, MainActivity::class.java).apply {
-      flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
-    }
+  private fun buildNotification(
+    title: String,
+    text: String,
+  ): Notification {
+    val launchIntent =
+      Intent(this, MainActivity::class.java).apply {
+        flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
+      }
     val launchPending =
       PendingIntent.getActivity(
         this,
@@ -118,7 +126,8 @@ class NodeForegroundService : Service() {
         PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
       )
 
-    return NotificationCompat.Builder(this, CHANNEL_ID)
+    return NotificationCompat
+      .Builder(this, CHANNEL_ID)
       .setSmallIcon(R.mipmap.ic_launcher)
       .setContentTitle(title)
       .setContentText(text)
@@ -135,7 +144,10 @@ class NodeForegroundService : Service() {
     mgr.notify(NOTIFICATION_ID, notification)
   }
 
-  private fun startForegroundWithTypes(notification: Notification, requiresMic: Boolean) {
+  private fun startForegroundWithTypes(
+    notification: Notification,
+    requiresMic: Boolean,
+  ) {
     if (didStartForeground && requiresMic == lastRequiresMic) {
       updateNotification(notification)
       return
@@ -152,12 +164,11 @@ class NodeForegroundService : Service() {
     didStartForeground = true
   }
 
-  private fun hasRecordAudioPermission(): Boolean {
-    return (
+  private fun hasRecordAudioPermission(): Boolean =
+    (
       ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) ==
         PackageManager.PERMISSION_GRANTED
-      )
-  }
+    )
 
   companion object {
     private const val CHANNEL_ID = "connection"
@@ -177,4 +188,10 @@ class NodeForegroundService : Service() {
   }
 }
 
-private data class Quint<A, B, C, D, E>(val first: A, val second: B, val third: C, val fourth: D, val fifth: E)
+private data class Quint<A, B, C, D, E>(
+  val first: A,
+  val second: B,
+  val third: C,
+  val fourth: D,
+  val fifth: E,
+)

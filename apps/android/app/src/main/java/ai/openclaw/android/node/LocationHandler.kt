@@ -1,12 +1,12 @@
 package ai.openclaw.android.node
 
+import ai.openclaw.android.LocationMode
+import ai.openclaw.android.gateway.GatewaySession
 import android.Manifest
 import android.content.Context
 import android.content.pm.PackageManager
 import android.location.LocationManager
 import androidx.core.content.ContextCompat
-import ai.openclaw.android.LocationMode
-import ai.openclaw.android.gateway.GatewaySession
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
@@ -20,26 +20,23 @@ class LocationHandler(
   private val locationMode: () -> LocationMode,
   private val locationPreciseEnabled: () -> Boolean,
 ) {
-  fun hasFineLocationPermission(): Boolean {
-    return (
+  fun hasFineLocationPermission(): Boolean =
+    (
       ContextCompat.checkSelfPermission(appContext, Manifest.permission.ACCESS_FINE_LOCATION) ==
         PackageManager.PERMISSION_GRANTED
-      )
-  }
+    )
 
-  fun hasCoarseLocationPermission(): Boolean {
-    return (
+  fun hasCoarseLocationPermission(): Boolean =
+    (
       ContextCompat.checkSelfPermission(appContext, Manifest.permission.ACCESS_COARSE_LOCATION) ==
         PackageManager.PERMISSION_GRANTED
-      )
-  }
+    )
 
-  fun hasBackgroundLocationPermission(): Boolean {
-    return (
+  fun hasBackgroundLocationPermission(): Boolean =
+    (
       ContextCompat.checkSelfPermission(appContext, Manifest.permission.ACCESS_BACKGROUND_LOCATION) ==
         PackageManager.PERMISSION_GRANTED
-      )
-  }
+    )
 
   suspend fun handleLocationGet(paramsJson: String?): GatewaySession.InvokeResult {
     val mode = locationMode()

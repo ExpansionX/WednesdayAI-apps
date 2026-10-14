@@ -1,12 +1,12 @@
 package ai.openclaw.android.node
 
+import ai.openclaw.android.ScreenCaptureRequester
 import android.content.Context
 import android.hardware.display.DisplayManager
 import android.media.MediaRecorder
 import android.media.projection.MediaProjectionManager
 import android.os.Build
 import android.util.Base64
-import ai.openclaw.android.ScreenCaptureRequester
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
@@ -14,10 +14,15 @@ import kotlinx.serialization.json.JsonObject
 import java.io.File
 import kotlin.math.roundToInt
 
-class ScreenRecordManager(private val context: Context) {
-  data class Payload(val payloadJson: String)
+class ScreenRecordManager(
+  private val context: Context,
+) {
+  data class Payload(
+    val payloadJson: String,
+  )
 
   @Volatile private var screenCaptureRequester: ScreenCaptureRequester? = null
+
   @Volatile private var permissionRequester: ai.openclaw.android.PermissionRequester? = null
 
   fun attachScreenCaptureRequester(requester: ScreenCaptureRequester) {
@@ -50,15 +55,17 @@ class ScreenRecordManager(private val context: Context) {
         throw IllegalArgumentException("INVALID_REQUEST: screenIndex must be 0 on Android")
       }
 
-      val capture = requester.requestCapture()
-        ?: throw IllegalStateException(
-          "SCREEN_PERMISSION_REQUIRED: grant Screen Recording permission",
-        )
+      val capture =
+        requester.requestCapture()
+          ?: throw IllegalStateException(
+            "SCREEN_PERMISSION_REQUIRED: grant Screen Recording permission",
+          )
 
       val mgr =
         context.getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
-      val projection = mgr.getMediaProjection(capture.resultCode, capture.data)
-        ?: throw IllegalStateException("UNAVAILABLE: screen capture unavailable")
+      val projection =
+        mgr.getMediaProjection(capture.resultCode, capture.data)
+          ?: throw IllegalStateException("UNAVAILABLE: screen capture unavailable")
 
       val metrics = context.resources.displayMetrics
       val width = metrics.widthPixels
@@ -143,21 +150,24 @@ class ScreenRecordManager(private val context: Context) {
     }
   }
 
-  private fun parseDurationMs(params: JsonObject?): Int? =
-    parseJsonInt(params, "durationMs")
+  private fun parseDurationMs(params: JsonObject?): Int? = parseJsonInt(params, "durationMs")
 
-  private fun parseFps(params: JsonObject?): Double? =
-    parseJsonDouble(params, "fps")
+  private fun parseFps(params: JsonObject?): Double? = parseJsonDouble(params, "fps")
 
-  private fun parseScreenIndex(params: JsonObject?): Int? =
-    parseJsonInt(params, "screenIndex")
+  private fun parseScreenIndex(params: JsonObject?): Int? = parseJsonInt(params, "screenIndex")
 
   private fun parseIncludeAudio(params: JsonObject?): Boolean? = parseJsonBooleanFlag(params, "includeAudio")
 
-  private fun parseString(params: JsonObject?, key: String): String? =
-    parseJsonString(params, key)
+  private fun parseString(
+    params: JsonObject?,
+    key: String,
+  ): String? = parseJsonString(params, key)
 
-  private fun estimateBitrate(width: Int, height: Int, fps: Int): Int {
+  private fun estimateBitrate(
+    width: Int,
+    height: Int,
+    fps: Int,
+  ): Int {
     val pixels = width.toLong() * height.toLong()
     val raw = (pixels * fps.toLong() * 2L).toInt()
     return raw.coerceIn(1_000_000, 12_000_000)

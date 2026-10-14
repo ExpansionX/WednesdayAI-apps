@@ -1,5 +1,9 @@
 package ai.openclaw.android.ui
 
+import ai.openclaw.android.LocationMode
+import ai.openclaw.android.MainViewModel
+import ai.openclaw.android.R
+import ai.openclaw.android.node.DeviceNotificationListenerService
 import android.Manifest
 import android.content.Context
 import android.content.Intent
@@ -38,27 +42,27 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.ExpandLess
+import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.ExpandLess
-import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.collectAsState
@@ -84,14 +88,13 @@ import androidx.core.net.toUri
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
-import ai.openclaw.android.LocationMode
-import ai.openclaw.android.MainViewModel
-import ai.openclaw.android.R
-import ai.openclaw.android.node.DeviceNotificationListenerService
 import com.journeyapps.barcodescanner.ScanContract
 import com.journeyapps.barcodescanner.ScanOptions
 
-private enum class OnboardingStep(val index: Int, val label: String) {
+private enum class OnboardingStep(
+  val index: Int,
+  val label: String,
+) {
   Welcome(1, "Welcome"),
   Gateway(2, "Gateway"),
   Permissions(3, "Permissions"),
@@ -212,7 +215,10 @@ private val onboardingCaption2Style =
   )
 
 @Composable
-fun OnboardingFlow(viewModel: MainViewModel, modifier: Modifier = Modifier) {
+fun OnboardingFlow(
+  viewModel: MainViewModel,
+  modifier: Modifier = Modifier,
+) {
   val context = androidx.compose.ui.platform.LocalContext.current
   val statusText by viewModel.statusText.collectAsState()
   val isConnected by viewModel.isConnected.collectAsState()
@@ -298,7 +304,10 @@ fun OnboardingFlow(viewModel: MainViewModel, modifier: Modifier = Modifier) {
   var pendingPermissionToggle by remember { mutableStateOf<PermissionToggle?>(null) }
   var pendingSpecialAccessToggle by remember { mutableStateOf<SpecialAccessToggle?>(null) }
 
-  fun setPermissionToggleEnabled(toggle: PermissionToggle, enabled: Boolean) {
+  fun setPermissionToggleEnabled(
+    toggle: PermissionToggle,
+    enabled: Boolean,
+  ) {
     when (toggle) {
       PermissionToggle.Discovery -> enableDiscovery = enabled
       PermissionToggle.Location -> enableLocation = enabled
@@ -315,31 +324,57 @@ fun OnboardingFlow(viewModel: MainViewModel, modifier: Modifier = Modifier) {
 
   fun isPermissionToggleGranted(toggle: PermissionToggle): Boolean =
     when (toggle) {
-      PermissionToggle.Discovery -> isPermissionGranted(context, discoveryPermission)
-      PermissionToggle.Location ->
+      PermissionToggle.Discovery -> {
+        isPermissionGranted(context, discoveryPermission)
+      }
+
+      PermissionToggle.Location -> {
         isPermissionGranted(context, Manifest.permission.ACCESS_FINE_LOCATION) ||
           isPermissionGranted(context, Manifest.permission.ACCESS_COARSE_LOCATION)
-      PermissionToggle.Notifications ->
+      }
+
+      PermissionToggle.Notifications -> {
         !notificationsPermissionRequired ||
           isPermissionGranted(context, Manifest.permission.POST_NOTIFICATIONS)
-      PermissionToggle.Microphone -> isPermissionGranted(context, Manifest.permission.RECORD_AUDIO)
-      PermissionToggle.Camera -> isPermissionGranted(context, Manifest.permission.CAMERA)
-      PermissionToggle.Photos -> isPermissionGranted(context, photosPermission)
-      PermissionToggle.Contacts ->
+      }
+
+      PermissionToggle.Microphone -> {
+        isPermissionGranted(context, Manifest.permission.RECORD_AUDIO)
+      }
+
+      PermissionToggle.Camera -> {
+        isPermissionGranted(context, Manifest.permission.CAMERA)
+      }
+
+      PermissionToggle.Photos -> {
+        isPermissionGranted(context, photosPermission)
+      }
+
+      PermissionToggle.Contacts -> {
         isPermissionGranted(context, Manifest.permission.READ_CONTACTS) &&
           isPermissionGranted(context, Manifest.permission.WRITE_CONTACTS)
-      PermissionToggle.Calendar ->
+      }
+
+      PermissionToggle.Calendar -> {
         isPermissionGranted(context, Manifest.permission.READ_CALENDAR) &&
           isPermissionGranted(context, Manifest.permission.WRITE_CALENDAR)
-      PermissionToggle.Motion ->
+      }
+
+      PermissionToggle.Motion -> {
         !motionAvailable ||
           !motionPermissionRequired ||
           isPermissionGranted(context, Manifest.permission.ACTIVITY_RECOGNITION)
-      PermissionToggle.Sms ->
+      }
+
+      PermissionToggle.Sms -> {
         !smsAvailable || isPermissionGranted(context, Manifest.permission.SEND_SMS)
+      }
     }
 
-  fun setSpecialAccessToggleEnabled(toggle: SpecialAccessToggle, enabled: Boolean) {
+  fun setSpecialAccessToggleEnabled(
+    toggle: SpecialAccessToggle,
+    enabled: Boolean,
+  ) {
     when (toggle) {
       SpecialAccessToggle.NotificationListener -> enableNotificationListener = enabled
       SpecialAccessToggle.AppUpdates -> enableAppUpdates = enabled
@@ -459,6 +494,7 @@ fun OnboardingFlow(viewModel: MainViewModel, modifier: Modifier = Modifier) {
             )
             pendingSpecialAccessToggle = null
           }
+
           SpecialAccessToggle.AppUpdates -> {
             setSpecialAccessToggleEnabled(
               SpecialAccessToggle.AppUpdates,
@@ -466,7 +502,10 @@ fun OnboardingFlow(viewModel: MainViewModel, modifier: Modifier = Modifier) {
             )
             pendingSpecialAccessToggle = null
           }
-          null -> Unit
+
+          null -> {
+            Unit
+          }
         }
       }
     lifecycleOwner.lifecycle.addObserver(observer)
@@ -556,8 +595,11 @@ fun OnboardingFlow(viewModel: MainViewModel, modifier: Modifier = Modifier) {
         StepRailWrap(current = step)
 
         when (step) {
-          OnboardingStep.Welcome -> WelcomeStep()
-          OnboardingStep.Gateway ->
+          OnboardingStep.Welcome -> {
+            WelcomeStep()
+          }
+
+          OnboardingStep.Gateway -> {
             GatewayStep(
               inputMode = gatewayInputMode,
               advancedOpen = gatewayAdvancedOpen,
@@ -600,7 +642,9 @@ fun OnboardingFlow(viewModel: MainViewModel, modifier: Modifier = Modifier) {
               onTokenChange = viewModel::setGatewayToken,
               onPasswordChange = { gatewayPassword = it },
             )
-          OnboardingStep.Permissions ->
+          }
+
+          OnboardingStep.Permissions -> {
             PermissionsStep(
               enableDiscovery = enableDiscovery,
               enableLocation = enableLocation,
@@ -718,7 +762,9 @@ fun OnboardingFlow(viewModel: MainViewModel, modifier: Modifier = Modifier) {
                 }
               },
             )
-          OnboardingStep.FinalCheck ->
+          }
+
+          OnboardingStep.FinalCheck -> {
             FinalStep(
               parsedGateway = parseGatewayEndpoint(gatewayUrl),
               statusText = statusText,
@@ -729,6 +775,7 @@ fun OnboardingFlow(viewModel: MainViewModel, modifier: Modifier = Modifier) {
               enabledPermissions = enabledPermissionSummary,
               methodLabel = if (gatewayInputMode == GatewayInputMode.SetupCode) "QR / Setup Code" else "Manual",
             )
+          }
         }
       }
 
@@ -783,6 +830,7 @@ fun OnboardingFlow(viewModel: MainViewModel, modifier: Modifier = Modifier) {
               Text("Next", style = onboardingHeadlineStyle.copy(fontWeight = FontWeight.Bold))
             }
           }
+
           OnboardingStep.Gateway -> {
             Button(
               onClick = {
@@ -824,6 +872,7 @@ fun OnboardingFlow(viewModel: MainViewModel, modifier: Modifier = Modifier) {
               Text("Next", style = onboardingHeadlineStyle.copy(fontWeight = FontWeight.Bold))
             }
           }
+
           OnboardingStep.Permissions -> {
             Button(
               onClick = {
@@ -844,6 +893,7 @@ fun OnboardingFlow(viewModel: MainViewModel, modifier: Modifier = Modifier) {
               Text("Next", style = onboardingHeadlineStyle.copy(fontWeight = FontWeight.Bold))
             }
           }
+
           OnboardingStep.FinalCheck -> {
             if (isConnected) {
               Button(
@@ -1574,7 +1624,10 @@ private fun FinalStep(
 }
 
 @Composable
-private fun SummaryField(label: String, value: String) {
+private fun SummaryField(
+  label: String,
+  value: String,
+) {
   Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
     Text(
       label,
@@ -1627,17 +1680,14 @@ private fun Bullet(text: String) {
   }
 }
 
-private fun isPermissionGranted(context: Context, permission: String): Boolean {
-  return ContextCompat.checkSelfPermission(context, permission) == PackageManager.PERMISSION_GRANTED
-}
+private fun isPermissionGranted(
+  context: Context,
+  permission: String,
+): Boolean = ContextCompat.checkSelfPermission(context, permission) == PackageManager.PERMISSION_GRANTED
 
-private fun isNotificationListenerEnabled(context: Context): Boolean {
-  return DeviceNotificationListenerService.isAccessEnabled(context)
-}
+private fun isNotificationListenerEnabled(context: Context): Boolean = DeviceNotificationListenerService.isAccessEnabled(context)
 
-private fun canInstallUnknownApps(context: Context): Boolean {
-  return context.packageManager.canRequestPackageInstalls()
-}
+private fun canInstallUnknownApps(context: Context): Boolean = context.packageManager.canRequestPackageInstalls()
 
 private fun openNotificationListenerSettings(context: Context) {
   val intent = Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)

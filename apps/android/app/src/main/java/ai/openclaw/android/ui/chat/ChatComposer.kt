@@ -1,5 +1,16 @@
 package ai.openclaw.android.ui.chat
 
+import ai.openclaw.android.ui.mobileAccent
+import ai.openclaw.android.ui.mobileAccentSoft
+import ai.openclaw.android.ui.mobileBorder
+import ai.openclaw.android.ui.mobileBorderStrong
+import ai.openclaw.android.ui.mobileCallout
+import ai.openclaw.android.ui.mobileCaption1
+import ai.openclaw.android.ui.mobileHeadline
+import ai.openclaw.android.ui.mobileSurface
+import ai.openclaw.android.ui.mobileText
+import ai.openclaw.android.ui.mobileTextSecondary
+import ai.openclaw.android.ui.mobileTextTertiary
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -46,17 +57,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import ai.openclaw.android.ui.mobileAccent
-import ai.openclaw.android.ui.mobileAccentSoft
-import ai.openclaw.android.ui.mobileBorder
-import ai.openclaw.android.ui.mobileBorderStrong
-import ai.openclaw.android.ui.mobileCallout
-import ai.openclaw.android.ui.mobileCaption1
-import ai.openclaw.android.ui.mobileHeadline
-import ai.openclaw.android.ui.mobileSurface
-import ai.openclaw.android.ui.mobileText
-import ai.openclaw.android.ui.mobileTextSecondary
-import ai.openclaw.android.ui.mobileTextTertiary
 
 @Composable
 fun ChatComposer(
@@ -268,14 +268,13 @@ private fun ThinkingMenuItem(
   )
 }
 
-private fun thinkingLabel(raw: String): String {
-  return when (raw.trim().lowercase()) {
+private fun thinkingLabel(raw: String): String =
+  when (raw.trim().lowercase()) {
     "low" -> "Low"
     "medium" -> "Medium"
     "high" -> "High"
     else -> "Off"
   }
-}
 
 @Composable
 private fun AttachmentsStrip(
@@ -296,7 +295,10 @@ private fun AttachmentsStrip(
 }
 
 @Composable
-private fun AttachmentChip(fileName: String, onRemove: () -> Unit) {
+private fun AttachmentChip(
+  fileName: String,
+  onRemove: () -> Unit,
+) {
   Surface(
     shape = RoundedCornerShape(999.dp),
     color = mobileAccentSoft,

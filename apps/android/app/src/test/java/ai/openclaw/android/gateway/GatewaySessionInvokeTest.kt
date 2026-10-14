@@ -36,9 +36,16 @@ private const val CONNECT_CHALLENGE_FRAME =
 private class InMemoryDeviceAuthStore : DeviceAuthTokenStore {
   private val tokens = mutableMapOf<String, String>()
 
-  override fun loadToken(deviceId: String, role: String): String? = tokens["${deviceId.trim()}|${role.trim()}"]?.trim()?.takeIf { it.isNotEmpty() }
+  override fun loadToken(
+    deviceId: String,
+    role: String,
+  ): String? = tokens["${deviceId.trim()}|${role.trim()}"]?.trim()?.takeIf { it.isNotEmpty() }
 
-  override fun saveToken(deviceId: String, role: String, token: String) {
+  override fun saveToken(
+    deviceId: String,
+    role: String,
+    token: String,
+  ) {
     tokens["${deviceId.trim()}|${role.trim()}"] = token.trim()
   }
 }
@@ -57,121 +64,157 @@ private data class InvokeScenarioResult(
 @Config(sdk = [34])
 class GatewaySessionInvokeTest {
   @Test
-  fun nodeInvokeRequest_roundTripsInvokeResult() = runBlocking {
-    val handshakeOrigin = AtomicReference<String?>(null)
-    val result =
-      runInvokeScenario(
-        invokeEventFrame =
-          """{"type":"event","event":"node.invoke.request","payload":{"id":"invoke-1","nodeId":"node-1","command":"debug.ping","params":{"ping":"pong"},"timeoutMs":5000}}""",
-        onHandshake = { request -> handshakeOrigin.compareAndSet(null, request.getHeader("Origin")) },
-      ) {
-        GatewaySession.InvokeResult.ok("""{"handled":true}""")
-      }
+  fun nodeInvokeRequest_roundTripsInvokeResult() =
+    runBlocking {
+      val handshakeOrigin = AtomicReference<String?>(null)
+      val result =
+        runInvokeScenario(
+          invokeEventFrame =
+            """{"type":"event","event":"node.invoke.request","payload":{"id":"invoke-1","nodeId":"node-1","command":"debug.ping","params":{"ping":"pong"},"timeoutMs":5000}}""",
+          onHandshake = { request -> handshakeOrigin.compareAndSet(null, request.getHeader("Origin")) },
+        ) {
+          GatewaySession.InvokeResult.ok("""{"handled":true}""")
+        }
 
-    assertEquals("invoke-1", result.request.id)
-    assertEquals("node-1", result.request.nodeId)
-    assertEquals("debug.ping", result.request.command)
-    assertEquals("""{"ping":"pong"}""", result.request.paramsJson)
-    assertNull(handshakeOrigin.get())
-    assertEquals("invoke-1", result.resultParams["id"]?.jsonPrimitive?.content)
-    assertEquals("node-1", result.resultParams["nodeId"]?.jsonPrimitive?.content)
-    assertEquals(true, result.resultParams["ok"]?.jsonPrimitive?.content?.toBooleanStrict())
-    assertEquals(
-      true,
-      result.resultParams["payload"]?.jsonObject?.get("handled")?.jsonPrimitive?.content?.toBooleanStrict(),
-    )
-  }
-
-  @Test
-  fun nodeInvokeRequest_usesParamsJsonWhenProvided() = runBlocking {
-    val result =
-      runInvokeScenario(
-        invokeEventFrame =
-          """{"type":"event","event":"node.invoke.request","payload":{"id":"invoke-2","nodeId":"node-2","command":"debug.raw","paramsJSON":"{\"raw\":true}","params":{"ignored":1},"timeoutMs":5000}}""",
-      ) {
-        GatewaySession.InvokeResult.ok("""{"handled":true}""")
-      }
-
-    assertEquals("invoke-2", result.request.id)
-    assertEquals("node-2", result.request.nodeId)
-    assertEquals("debug.raw", result.request.command)
-    assertEquals("""{"raw":true}""", result.request.paramsJson)
-    assertEquals("invoke-2", result.resultParams["id"]?.jsonPrimitive?.content)
-    assertEquals("node-2", result.resultParams["nodeId"]?.jsonPrimitive?.content)
-    assertEquals(true, result.resultParams["ok"]?.jsonPrimitive?.content?.toBooleanStrict())
-  }
+      assertEquals("invoke-1", result.request.id)
+      assertEquals("node-1", result.request.nodeId)
+      assertEquals("debug.ping", result.request.command)
+      assertEquals("""{"ping":"pong"}""", result.request.paramsJson)
+      assertNull(handshakeOrigin.get())
+      assertEquals("invoke-1", result.resultParams["id"]?.jsonPrimitive?.content)
+      assertEquals("node-1", result.resultParams["nodeId"]?.jsonPrimitive?.content)
+      assertEquals(
+        true,
+        result.resultParams["ok"]
+          ?.jsonPrimitive
+          ?.content
+          ?.toBooleanStrict(),
+      )
+      assertEquals(
+        true,
+        result.resultParams["payload"]
+          ?.jsonObject
+          ?.get("handled")
+          ?.jsonPrimitive
+          ?.content
+          ?.toBooleanStrict(),
+      )
+    }
 
   @Test
-  fun nodeInvokeRequest_mapsCodePrefixedErrorsIntoInvokeResult() = runBlocking {
-    val result =
-      runInvokeScenario(
-        invokeEventFrame =
-          """{"type":"event","event":"node.invoke.request","payload":{"id":"invoke-3","nodeId":"node-3","command":"camera.snap","params":{"facing":"front"},"timeoutMs":5000}}""",
-      ) {
-        throw IllegalStateException("CAMERA_PERMISSION_REQUIRED: grant Camera permission")
-      }
+  fun nodeInvokeRequest_usesParamsJsonWhenProvided() =
+    runBlocking {
+      val result =
+        runInvokeScenario(
+          invokeEventFrame =
+            """{"type":"event","event":"node.invoke.request","payload":{"id":"invoke-2","nodeId":"node-2","command":"debug.raw","paramsJSON":"{\"raw\":true}","params":{"ignored":1},"timeoutMs":5000}}""",
+        ) {
+          GatewaySession.InvokeResult.ok("""{"handled":true}""")
+        }
 
-    assertEquals("invoke-3", result.resultParams["id"]?.jsonPrimitive?.content)
-    assertEquals("node-3", result.resultParams["nodeId"]?.jsonPrimitive?.content)
-    assertEquals(false, result.resultParams["ok"]?.jsonPrimitive?.content?.toBooleanStrict())
-    assertEquals(
-      "CAMERA_PERMISSION_REQUIRED",
-      result.resultParams["error"]?.jsonObject?.get("code")?.jsonPrimitive?.content,
-    )
-    assertEquals(
-      "grant Camera permission",
-      result.resultParams["error"]?.jsonObject?.get("message")?.jsonPrimitive?.content,
-    )
-  }
+      assertEquals("invoke-2", result.request.id)
+      assertEquals("node-2", result.request.nodeId)
+      assertEquals("debug.raw", result.request.command)
+      assertEquals("""{"raw":true}""", result.request.paramsJson)
+      assertEquals("invoke-2", result.resultParams["id"]?.jsonPrimitive?.content)
+      assertEquals("node-2", result.resultParams["nodeId"]?.jsonPrimitive?.content)
+      assertEquals(
+        true,
+        result.resultParams["ok"]
+          ?.jsonPrimitive
+          ?.content
+          ?.toBooleanStrict(),
+      )
+    }
 
   @Test
-  fun refreshNodeCanvasCapability_sendsObjectParamsAndUpdatesScopedUrl() = runBlocking {
-    val json = testJson()
-    val connected = CompletableDeferred<Unit>()
-    val refreshRequestParams = CompletableDeferred<String?>()
-    val lastDisconnect = AtomicReference("")
+  fun nodeInvokeRequest_mapsCodePrefixedErrorsIntoInvokeResult() =
+    runBlocking {
+      val result =
+        runInvokeScenario(
+          invokeEventFrame =
+            """{"type":"event","event":"node.invoke.request","payload":{"id":"invoke-3","nodeId":"node-3","command":"camera.snap","params":{"facing":"front"},"timeoutMs":5000}}""",
+        ) {
+          throw IllegalStateException("CAMERA_PERMISSION_REQUIRED: grant Camera permission")
+        }
 
-    val server =
-      startGatewayServer(json) { webSocket, id, method, frame ->
-        when (method) {
-          "connect" -> {
-            webSocket.send(connectResponseFrame(id, canvasHostUrl = "http://127.0.0.1/__openclaw__/cap/old-cap"))
-          }
-          "node.canvas.capability.refresh" -> {
-            if (!refreshRequestParams.isCompleted) {
-              refreshRequestParams.complete(frame["params"]?.toString())
+      assertEquals("invoke-3", result.resultParams["id"]?.jsonPrimitive?.content)
+      assertEquals("node-3", result.resultParams["nodeId"]?.jsonPrimitive?.content)
+      assertEquals(
+        false,
+        result.resultParams["ok"]
+          ?.jsonPrimitive
+          ?.content
+          ?.toBooleanStrict(),
+      )
+      assertEquals(
+        "CAMERA_PERMISSION_REQUIRED",
+        result.resultParams["error"]
+          ?.jsonObject
+          ?.get("code")
+          ?.jsonPrimitive
+          ?.content,
+      )
+      assertEquals(
+        "grant Camera permission",
+        result.resultParams["error"]
+          ?.jsonObject
+          ?.get("message")
+          ?.jsonPrimitive
+          ?.content,
+      )
+    }
+
+  @Test
+  fun refreshNodeCanvasCapability_sendsObjectParamsAndUpdatesScopedUrl() =
+    runBlocking {
+      val json = testJson()
+      val connected = CompletableDeferred<Unit>()
+      val refreshRequestParams = CompletableDeferred<String?>()
+      val lastDisconnect = AtomicReference("")
+
+      val server =
+        startGatewayServer(json) { webSocket, id, method, frame ->
+          when (method) {
+            "connect" -> {
+              webSocket.send(connectResponseFrame(id, canvasHostUrl = "http://127.0.0.1/__openclaw__/cap/old-cap"))
             }
-            webSocket.send(
-              """{"type":"res","id":"$id","ok":true,"payload":{"canvasCapability":"new-cap"}}""",
-            )
-            webSocket.close(1000, "done")
+
+            "node.canvas.capability.refresh" -> {
+              if (!refreshRequestParams.isCompleted) {
+                refreshRequestParams.complete(frame["params"]?.toString())
+              }
+              webSocket.send(
+                """{"type":"res","id":"$id","ok":true,"payload":{"canvasCapability":"new-cap"}}""",
+              )
+              webSocket.close(1000, "done")
+            }
           }
         }
+
+      val harness =
+        createNodeHarness(
+          connected = connected,
+          lastDisconnect = lastDisconnect,
+        ) { GatewaySession.InvokeResult.ok("""{"handled":true}""") }
+
+      try {
+        connectNodeSession(harness.session, server.port)
+        awaitConnectedOrThrow(connected, lastDisconnect, server)
+
+        val refreshed = harness.session.refreshNodeCanvasCapability(timeoutMs = TEST_TIMEOUT_MS)
+        val refreshParamsJson = withTimeout(TEST_TIMEOUT_MS) { refreshRequestParams.await() }
+
+        assertEquals(true, refreshed)
+        assertEquals("{}", refreshParamsJson)
+        assertEquals(
+          "http://127.0.0.1:${server.port}/__openclaw__/cap/new-cap",
+          harness.session.currentCanvasHostUrl(),
+        )
+      } finally {
+        shutdownHarness(harness, server)
       }
-
-    val harness =
-      createNodeHarness(
-        connected = connected,
-        lastDisconnect = lastDisconnect,
-      ) { GatewaySession.InvokeResult.ok("""{"handled":true}""") }
-
-    try {
-      connectNodeSession(harness.session, server.port)
-      awaitConnectedOrThrow(connected, lastDisconnect, server)
-
-      val refreshed = harness.session.refreshNodeCanvasCapability(timeoutMs = TEST_TIMEOUT_MS)
-      val refreshParamsJson = withTimeout(TEST_TIMEOUT_MS) { refreshRequestParams.await() }
-
-      assertEquals(true, refreshed)
-      assertEquals("{}", refreshParamsJson)
-      assertEquals(
-        "http://127.0.0.1:${server.port}/__openclaw__/cap/new-cap",
-        harness.session.currentCanvasHostUrl(),
-      )
-    } finally {
-      shutdownHarness(harness, server)
     }
-  }
 
   private fun testJson(): Json = Json { ignoreUnknownKeys = true }
 
@@ -200,7 +243,10 @@ class GatewaySessionInvokeTest {
     return NodeHarness(session = session, sessionJob = sessionJob)
   }
 
-  private suspend fun connectNodeSession(session: GatewaySession, port: Int) {
+  private suspend fun connectNodeSession(
+    session: GatewaySession,
+    port: Int,
+  ) {
     session.connect(
       endpoint =
         GatewayEndpoint(
@@ -250,7 +296,10 @@ class GatewaySessionInvokeTest {
     }
   }
 
-  private suspend fun shutdownHarness(harness: NodeHarness, server: MockWebServer) {
+  private suspend fun shutdownHarness(
+    harness: NodeHarness,
+    server: MockWebServer,
+  ) {
     harness.session.disconnect()
     harness.sessionJob.cancelAndJoin()
     server.shutdown()
@@ -276,6 +325,7 @@ class GatewaySessionInvokeTest {
             webSocket.send(connectResponseFrame(id))
             webSocket.send(invokeEventFrame)
           }
+
           "node.invoke.result" -> {
             if (!invokeResultParams.isCompleted) {
               invokeResultParams.complete(frame["params"]?.toString().orEmpty())
@@ -306,7 +356,10 @@ class GatewaySessionInvokeTest {
     }
   }
 
-  private fun connectResponseFrame(id: String, canvasHostUrl: String? = null): String {
+  private fun connectResponseFrame(
+    id: String,
+    canvasHostUrl: String? = null,
+  ): String {
     val canvas = canvasHostUrl?.let { "\"canvasHostUrl\":\"$it\"," } ?: ""
     return """{"type":"res","id":"$id","ok":true,"payload":{$canvas"snapshot":{"sessionDefaults":{"mainSessionKey":"main"}}}}"""
   }
@@ -323,11 +376,17 @@ class GatewaySessionInvokeTest {
             onHandshake?.invoke(request)
             return MockResponse().withWebSocketUpgrade(
               object : WebSocketListener() {
-                override fun onOpen(webSocket: WebSocket, response: Response) {
+                override fun onOpen(
+                  webSocket: WebSocket,
+                  response: Response,
+                ) {
                   webSocket.send(CONNECT_CHALLENGE_FRAME)
                 }
 
-                override fun onMessage(webSocket: WebSocket, text: String) {
+                override fun onMessage(
+                  webSocket: WebSocket,
+                  text: String,
+                ) {
                   val frame = json.parseToJsonElement(text).jsonObject
                   if (frame["type"]?.jsonPrimitive?.content != "req") return
                   val id = frame["id"]?.jsonPrimitive?.content ?: return

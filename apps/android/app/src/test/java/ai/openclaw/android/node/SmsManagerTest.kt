@@ -63,12 +63,13 @@ class SmsManagerTest {
 
   @Test
   fun buildPayloadJsonEscapesFields() {
-    val payload = SmsManager.buildPayloadJson(
-      json = json,
-      ok = false,
-      to = "+1\"23",
-      error = "SMS_SEND_FAILED: \"nope\"",
-    )
+    val payload =
+      SmsManager.buildPayloadJson(
+        json = json,
+        ok = false,
+        to = "+1\"23",
+        error = "SMS_SEND_FAILED: \"nope\"",
+      )
     val parsed = json.parseToJsonElement(payload).jsonObject
     assertEquals("false", parsed["ok"]?.jsonPrimitive?.content)
     assertEquals("+1\"23", parsed["to"]?.jsonPrimitive?.content)

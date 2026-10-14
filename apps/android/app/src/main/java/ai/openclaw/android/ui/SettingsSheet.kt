@@ -1,5 +1,9 @@
 package ai.openclaw.android.ui
 
+import ai.openclaw.android.BuildConfig
+import ai.openclaw.android.LocationMode
+import ai.openclaw.android.MainViewModel
+import ai.openclaw.android.node.DeviceNotificationListenerService
 import android.Manifest
 import android.content.Context
 import android.content.Intent
@@ -13,16 +17,16 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
@@ -55,21 +59,17 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.unit.sp
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import androidx.core.net.toUri
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
-import ai.openclaw.android.BuildConfig
-import ai.openclaw.android.LocationMode
-import ai.openclaw.android.MainViewModel
-import ai.openclaw.android.node.DeviceNotificationListenerService
 
 @Composable
 fun SettingsSheet(viewModel: MainViewModel) {
@@ -270,30 +270,30 @@ fun SettingsSheet(viewModel: MainViewModel) {
         if (event == Lifecycle.Event.ON_RESUME) {
           micPermissionGranted =
             ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) ==
-              PackageManager.PERMISSION_GRANTED
+            PackageManager.PERMISSION_GRANTED
           notificationsPermissionGranted = hasNotificationsPermission(context)
           notificationListenerEnabled = isNotificationListenerEnabled(context)
           photosPermissionGranted =
             ContextCompat.checkSelfPermission(context, photosPermission) ==
-              PackageManager.PERMISSION_GRANTED
+            PackageManager.PERMISSION_GRANTED
           contactsPermissionGranted =
             ContextCompat.checkSelfPermission(context, Manifest.permission.READ_CONTACTS) ==
-              PackageManager.PERMISSION_GRANTED &&
-              ContextCompat.checkSelfPermission(context, Manifest.permission.WRITE_CONTACTS) ==
-              PackageManager.PERMISSION_GRANTED
+            PackageManager.PERMISSION_GRANTED &&
+            ContextCompat.checkSelfPermission(context, Manifest.permission.WRITE_CONTACTS) ==
+            PackageManager.PERMISSION_GRANTED
           calendarPermissionGranted =
             ContextCompat.checkSelfPermission(context, Manifest.permission.READ_CALENDAR) ==
-              PackageManager.PERMISSION_GRANTED &&
-              ContextCompat.checkSelfPermission(context, Manifest.permission.WRITE_CALENDAR) ==
-              PackageManager.PERMISSION_GRANTED
+            PackageManager.PERMISSION_GRANTED &&
+            ContextCompat.checkSelfPermission(context, Manifest.permission.WRITE_CALENDAR) ==
+            PackageManager.PERMISSION_GRANTED
           motionPermissionGranted =
             !motionPermissionRequired ||
-              ContextCompat.checkSelfPermission(context, Manifest.permission.ACTIVITY_RECOGNITION) ==
-              PackageManager.PERMISSION_GRANTED
+            ContextCompat.checkSelfPermission(context, Manifest.permission.ACTIVITY_RECOGNITION) ==
+            PackageManager.PERMISSION_GRANTED
           appUpdateInstallEnabled = canInstallUnknownApps(context)
           smsPermissionGranted =
             ContextCompat.checkSelfPermission(context, Manifest.permission.SEND_SMS) ==
-              PackageManager.PERMISSION_GRANTED
+            PackageManager.PERMISSION_GRANTED
         }
       }
     lifecycleOwner.lifecycle.addObserver(observer)
@@ -391,7 +391,7 @@ fun SettingsSheet(viewModel: MainViewModel) {
       }
       item { HorizontalDivider(color = mobileBorder) }
 
-    // Order parity: Node → Voice → Camera → Messaging → Location → Screen.
+      // Order parity: Node → Voice → Camera → Messaging → Location → Screen.
       item {
         Text(
           "NODE",
@@ -399,16 +399,16 @@ fun SettingsSheet(viewModel: MainViewModel) {
           color = mobileAccent,
         )
       }
-    item {
-      OutlinedTextField(
-        value = displayName,
-        onValueChange = viewModel::setDisplayName,
-        label = { Text("Name", style = mobileCaption1, color = mobileTextSecondary) },
-        modifier = Modifier.fillMaxWidth(),
-        textStyle = mobileBody.copy(color = mobileText),
-        colors = settingsTextFieldColors(),
-      )
-    }
+      item {
+        OutlinedTextField(
+          value = displayName,
+          onValueChange = viewModel::setDisplayName,
+          label = { Text("Name", style = mobileCaption1, color = mobileTextSecondary) },
+          modifier = Modifier.fillMaxWidth(),
+          textStyle = mobileBody.copy(color = mobileText),
+          colors = settingsTextFieldColors(),
+        )
+      }
       item { Text("Instance ID: $instanceId", style = mobileCallout.copy(fontFamily = FontFamily.Monospace), color = mobileTextSecondary) }
       item { Text("Device: $deviceModel", style = mobileCallout, color = mobileTextSecondary) }
       item { Text("Version: $appVersion", style = mobileCallout, color = mobileTextSecondary) }
@@ -468,7 +468,7 @@ fun SettingsSheet(viewModel: MainViewModel) {
 
       item { HorizontalDivider(color = mobileBorder) }
 
-    // Camera
+      // Camera
       item {
         Text(
           "CAMERA",
@@ -476,26 +476,26 @@ fun SettingsSheet(viewModel: MainViewModel) {
           color = mobileAccent,
         )
       }
-    item {
-      ListItem(
-        modifier = Modifier.settingsRowModifier(),
-        colors = listItemColors,
-        headlineContent = { Text("Allow Camera", style = mobileHeadline) },
-        supportingContent = { Text("Allows the gateway to request photos or short video clips (foreground only).", style = mobileCallout) },
-        trailingContent = { Switch(checked = cameraEnabled, onCheckedChange = ::setCameraEnabledChecked) },
-      )
-    }
-    item {
-      Text(
-        "Tip: grant Microphone permission for video clips with audio.",
-        style = mobileCallout,
-        color = mobileTextSecondary,
-      )
-    }
+      item {
+        ListItem(
+          modifier = Modifier.settingsRowModifier(),
+          colors = listItemColors,
+          headlineContent = { Text("Allow Camera", style = mobileHeadline) },
+          supportingContent = { Text("Allows the gateway to request photos or short video clips (foreground only).", style = mobileCallout) },
+          trailingContent = { Switch(checked = cameraEnabled, onCheckedChange = ::setCameraEnabledChecked) },
+        )
+      }
+      item {
+        Text(
+          "Tip: grant Microphone permission for video clips with audio.",
+          style = mobileCallout,
+          color = mobileTextSecondary,
+        )
+      }
 
       item { HorizontalDivider(color = mobileBorder) }
 
-    // Messaging
+      // Messaging
       item {
         Text(
           "MESSAGING",
@@ -503,50 +503,50 @@ fun SettingsSheet(viewModel: MainViewModel) {
           color = mobileAccent,
         )
       }
-    item {
-      val buttonLabel =
-        when {
-          !smsPermissionAvailable -> "Unavailable"
-          smsPermissionGranted -> "Manage"
-          else -> "Grant"
-        }
-      ListItem(
-        modifier = Modifier.settingsRowModifier(),
-        colors = listItemColors,
-        headlineContent = { Text("SMS Permission", style = mobileHeadline) },
-        supportingContent = {
-          Text(
-            if (smsPermissionAvailable) {
-              "Allow the gateway to send SMS from this device."
-            } else {
-              "SMS requires a device with telephony hardware."
-            },
-            style = mobileCallout,
-          )
-        },
-        trailingContent = {
-          Button(
-            onClick = {
-              if (!smsPermissionAvailable) return@Button
-              if (smsPermissionGranted) {
-                openAppSettings(context)
-              } else {
-                smsPermissionLauncher.launch(Manifest.permission.SEND_SMS)
-              }
-            },
-            enabled = smsPermissionAvailable,
-            colors = settingsPrimaryButtonColors(),
-            shape = RoundedCornerShape(14.dp),
-          ) {
-            Text(buttonLabel, style = mobileCallout.copy(fontWeight = FontWeight.Bold))
+      item {
+        val buttonLabel =
+          when {
+            !smsPermissionAvailable -> "Unavailable"
+            smsPermissionGranted -> "Manage"
+            else -> "Grant"
           }
-        },
-      )
-    }
+        ListItem(
+          modifier = Modifier.settingsRowModifier(),
+          colors = listItemColors,
+          headlineContent = { Text("SMS Permission", style = mobileHeadline) },
+          supportingContent = {
+            Text(
+              if (smsPermissionAvailable) {
+                "Allow the gateway to send SMS from this device."
+              } else {
+                "SMS requires a device with telephony hardware."
+              },
+              style = mobileCallout,
+            )
+          },
+          trailingContent = {
+            Button(
+              onClick = {
+                if (!smsPermissionAvailable) return@Button
+                if (smsPermissionGranted) {
+                  openAppSettings(context)
+                } else {
+                  smsPermissionLauncher.launch(Manifest.permission.SEND_SMS)
+                }
+              },
+              enabled = smsPermissionAvailable,
+              colors = settingsPrimaryButtonColors(),
+              shape = RoundedCornerShape(14.dp),
+            ) {
+              Text(buttonLabel, style = mobileCallout.copy(fontWeight = FontWeight.Bold))
+            }
+          },
+        )
+      }
 
       item { HorizontalDivider(color = mobileBorder) }
 
-    // Notifications
+      // Notifications
       item {
         Text(
           "NOTIFICATIONS",
@@ -615,7 +615,7 @@ fun SettingsSheet(viewModel: MainViewModel) {
       }
       item { HorizontalDivider(color = mobileBorder) }
 
-    // Data access
+      // Data access
       item {
         Text(
           "DATA ACCESS",
@@ -759,7 +759,7 @@ fun SettingsSheet(viewModel: MainViewModel) {
       }
       item { HorizontalDivider(color = mobileBorder) }
 
-    // System
+      // System
       item {
         Text(
           "SYSTEM",
@@ -794,7 +794,7 @@ fun SettingsSheet(viewModel: MainViewModel) {
       }
       item { HorizontalDivider(color = mobileBorder) }
 
-    // Location
+      // Location
       item {
         Text(
           "LOCATION",
@@ -858,17 +858,17 @@ fun SettingsSheet(viewModel: MainViewModel) {
           )
         }
       }
-    item {
-      Text(
-        "Always may require Android Settings to allow background location.",
-        style = mobileCallout,
-        color = mobileTextSecondary,
-      )
-    }
+      item {
+        Text(
+          "Always may require Android Settings to allow background location.",
+          style = mobileCallout,
+          color = mobileTextSecondary,
+        )
+      }
 
       item { HorizontalDivider(color = mobileBorder) }
 
-    // Screen
+      // Screen
       item {
         Text(
           "SCREEN",
@@ -876,19 +876,19 @@ fun SettingsSheet(viewModel: MainViewModel) {
           color = mobileAccent,
         )
       }
-    item {
-      ListItem(
-        modifier = Modifier.settingsRowModifier(),
-        colors = listItemColors,
-        headlineContent = { Text("Prevent Sleep", style = mobileHeadline) },
-        supportingContent = { Text("Keeps the screen awake while OpenClaw is open.", style = mobileCallout) },
-        trailingContent = { Switch(checked = preventSleep, onCheckedChange = viewModel::setPreventSleep) },
-      )
-    }
+      item {
+        ListItem(
+          modifier = Modifier.settingsRowModifier(),
+          colors = listItemColors,
+          headlineContent = { Text("Prevent Sleep", style = mobileHeadline) },
+          supportingContent = { Text("Keeps the screen awake while OpenClaw is open.", style = mobileCallout) },
+          trailingContent = { Switch(checked = preventSleep, onCheckedChange = viewModel::setPreventSleep) },
+        )
+      }
 
       item { HorizontalDivider(color = mobileBorder) }
 
-    // Debug
+      // Debug
       item {
         Text(
           "DEBUG",
@@ -896,20 +896,20 @@ fun SettingsSheet(viewModel: MainViewModel) {
           color = mobileAccent,
         )
       }
-    item {
-      ListItem(
-        modifier = Modifier.settingsRowModifier(),
-        colors = listItemColors,
-        headlineContent = { Text("Debug Canvas Status", style = mobileHeadline) },
-        supportingContent = { Text("Show status text in the canvas when debug is enabled.", style = mobileCallout) },
-        trailingContent = {
-          Switch(
-            checked = canvasDebugStatusEnabled,
-            onCheckedChange = viewModel::setCanvasDebugStatusEnabled,
-          )
-        },
-      )
-    }
+      item {
+        ListItem(
+          modifier = Modifier.settingsRowModifier(),
+          colors = listItemColors,
+          headlineContent = { Text("Debug Canvas Status", style = mobileHeadline) },
+          supportingContent = { Text("Show status text in the canvas when debug is enabled.", style = mobileCallout) },
+          trailingContent = {
+            Switch(
+              checked = canvasDebugStatusEnabled,
+              onCheckedChange = viewModel::setCanvasDebugStatusEnabled,
+            )
+          },
+        )
+      }
 
       item { Spacer(modifier = Modifier.height(24.dp)) }
     }
@@ -989,13 +989,9 @@ private fun hasNotificationsPermission(context: Context): Boolean {
     PackageManager.PERMISSION_GRANTED
 }
 
-private fun isNotificationListenerEnabled(context: Context): Boolean {
-  return DeviceNotificationListenerService.isAccessEnabled(context)
-}
+private fun isNotificationListenerEnabled(context: Context): Boolean = DeviceNotificationListenerService.isAccessEnabled(context)
 
-private fun canInstallUnknownApps(context: Context): Boolean {
-  return context.packageManager.canRequestPackageInstalls()
-}
+private fun canInstallUnknownApps(context: Context): Boolean = context.packageManager.canRequestPackageInstalls()
 
 private fun hasMotionCapabilities(context: Context): Boolean {
   val sensorManager = context.getSystemService(SensorManager::class.java) ?: return false

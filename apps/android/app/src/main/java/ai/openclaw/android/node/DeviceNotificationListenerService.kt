@@ -34,8 +34,8 @@ data class DeviceNotificationEntry(
   val isClearable: Boolean,
 )
 
-internal fun DeviceNotificationEntry.toJsonObject(): JsonObject {
-  return buildJsonObject {
+internal fun DeviceNotificationEntry.toJsonObject(): JsonObject =
+  buildJsonObject {
     put("key", JsonPrimitive(key))
     put("packageName", JsonPrimitive(packageName))
     put("postTimeMs", JsonPrimitive(postTimeMs))
@@ -47,7 +47,6 @@ internal fun DeviceNotificationEntry.toJsonObject(): JsonObject {
     category?.let { put("category", JsonPrimitive(it)) }
     channelId?.let { put("channelId", JsonPrimitive(it)) }
   }
-}
 
 data class DeviceNotificationSnapshot(
   val enabled: Boolean,
@@ -73,9 +72,7 @@ data class NotificationActionResult(
   val message: String? = null,
 )
 
-internal fun actionRequiresClearableNotification(kind: NotificationActionKind): Boolean {
-  return kind == NotificationActionKind.Dismiss
-}
+internal fun actionRequiresClearableNotification(kind: NotificationActionKind): Boolean = kind == NotificationActionKind.Dismiss
 
 private object DeviceNotificationStore {
   private val lock = Any()
@@ -229,11 +226,10 @@ class DeviceNotificationListenerService : NotificationListenerService() {
 
   companion object {
     @Volatile private var activeService: DeviceNotificationListenerService? = null
+
     @Volatile private var nodeEventSink: ((event: String, payloadJson: String?) -> Unit)? = null
 
-    private fun serviceComponent(context: Context): ComponentName {
-      return ComponentName(context, DeviceNotificationListenerService::class.java)
-    }
+    private fun serviceComponent(context: Context): ComponentName = ComponentName(context, DeviceNotificationListenerService::class.java)
 
     fun setNodeEventSink(sink: ((event: String, payloadJson: String?) -> Unit)?) {
       nodeEventSink = sink
@@ -244,9 +240,10 @@ class DeviceNotificationListenerService : NotificationListenerService() {
       return manager.isNotificationListenerAccessGranted(serviceComponent(context))
     }
 
-    fun snapshot(context: Context, enabled: Boolean = isAccessEnabled(context)): DeviceNotificationSnapshot {
-      return DeviceNotificationStore.snapshot(enabled = enabled)
-    }
+    fun snapshot(
+      context: Context,
+      enabled: Boolean = isAccessEnabled(context),
+    ): DeviceNotificationSnapshot = DeviceNotificationStore.snapshot(enabled = enabled)
 
     fun requestServiceRebind(context: Context) {
       runCatching {
@@ -254,7 +251,10 @@ class DeviceNotificationListenerService : NotificationListenerService() {
       }
     }
 
-    fun executeAction(context: Context, request: NotificationActionRequest): NotificationActionResult {
+    fun executeAction(
+      context: Context,
+      request: NotificationActionRequest,
+    ): NotificationActionResult {
       if (!isAccessEnabled(context)) {
         return NotificationActionResult(
           ok = false,
@@ -262,12 +262,13 @@ class DeviceNotificationListenerService : NotificationListenerService() {
           message = "NOTIFICATIONS_DISABLED: enable notification access in system Settings",
         )
       }
-      val service = activeService
-        ?: return NotificationActionResult(
-          ok = false,
-          code = "NOTIFICATIONS_UNAVAILABLE",
-          message = "NOTIFICATIONS_UNAVAILABLE: notification listener not connected",
-        )
+      val service =
+        activeService
+          ?: return NotificationActionResult(
+            ok = false,
+            code = "NOTIFICATIONS_UNAVAILABLE",
+            message = "NOTIFICATIONS_UNAVAILABLE: notification listener not connected",
+          )
       return service.executeActionInternal(request)
     }
 
@@ -297,12 +298,13 @@ class DeviceNotificationListenerService : NotificationListenerService() {
 
     return when (request.kind) {
       NotificationActionKind.Open -> {
-        val pendingIntent = sbn.notification.contentIntent
-          ?: return NotificationActionResult(
-            ok = false,
-            code = "ACTION_UNAVAILABLE",
-            message = "ACTION_UNAVAILABLE: notification has no open action",
-          )
+        val pendingIntent =
+          sbn.notification.contentIntent
+            ?: return NotificationActionResult(
+              ok = false,
+              code = "ACTION_UNAVAILABLE",
+              message = "ACTION_UNAVAILABLE: notification has no open action",
+            )
         runCatching {
           pendingIntent.send()
         }.fold(

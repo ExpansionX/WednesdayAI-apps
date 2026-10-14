@@ -1,5 +1,6 @@
 package ai.openclaw.android.ui
 
+import ai.openclaw.android.MainViewModel
 import android.annotation.SuppressLint
 import android.util.Log
 import android.view.View
@@ -21,11 +22,13 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.webkit.WebSettingsCompat
 import androidx.webkit.WebViewFeature
-import ai.openclaw.android.MainViewModel
 
 @SuppressLint("SetJavaScriptEnabled")
 @Composable
-fun CanvasScreen(viewModel: MainViewModel, modifier: Modifier = Modifier) {
+fun CanvasScreen(
+  viewModel: MainViewModel,
+  modifier: Modifier = Modifier,
+) {
   val context = LocalContext.current
   val isDebuggable = (context.applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE) != 0
   val webViewRef = remember { mutableStateOf<WebView?>(null) }
@@ -88,7 +91,10 @@ fun CanvasScreen(viewModel: MainViewModel, modifier: Modifier = Modifier) {
               )
             }
 
-            override fun onPageFinished(view: WebView, url: String?) {
+            override fun onPageFinished(
+              view: WebView,
+              url: String?,
+            ) {
               if (isDebuggable) {
                 Log.d("OpenClawWebView", "onPageFinished: $url")
               }
@@ -136,7 +142,9 @@ private fun disableForceDarkIfSupported(settings: WebSettings) {
   WebSettingsCompat.setForceDark(settings, WebSettingsCompat.FORCE_DARK_OFF)
 }
 
-private class CanvasA2UIActionBridge(private val onMessage: (String) -> Unit) {
+private class CanvasA2UIActionBridge(
+  private val onMessage: (String) -> Unit,
+) {
   @JavascriptInterface
   fun postMessage(payload: String?) {
     val msg = payload?.trim().orEmpty()

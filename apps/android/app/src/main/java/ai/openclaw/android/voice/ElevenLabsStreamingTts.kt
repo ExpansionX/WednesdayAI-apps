@@ -42,14 +42,15 @@ class ElevenLabsStreamingTts(
     private const val BASE_URL = "wss://api.elevenlabs.io/v1/text-to-speech"
 
     /** Models that support WebSocket input streaming */
-    val STREAMING_MODELS = setOf(
-      "eleven_flash_v2_5",
-      "eleven_flash_v2",
-      "eleven_multilingual_v2",
-      "eleven_turbo_v2_5",
-      "eleven_turbo_v2",
-      "eleven_monolingual_v1",
-    )
+    val STREAMING_MODELS =
+      setOf(
+        "eleven_flash_v2_5",
+        "eleven_flash_v2",
+        "eleven_multilingual_v2",
+        "eleven_turbo_v2_5",
+        "eleven_turbo_v2",
+        "eleven_monolingual_v1",
+      )
 
     fun supportsStreaming(modelId: String): Boolean = modelId in STREAMING_MODELS
   }
@@ -61,14 +62,18 @@ class ElevenLabsStreamingTts(
   private var audioTrack: AudioTrack? = null
   private var trackStarted = false
   private var client: OkHttpClient? = null
+
   @Volatile private var stopped = false
+
   @Volatile private var finished = false
+
   @Volatile var hasReceivedAudio = false
     private set
   private var drainJob: Job? = null
 
   // Track text already sent so we only send incremental chunks
   private var sentTextLength = 0
+
   @Volatile private var wsReady = false
   private val pendingText = mutableListOf<String>()
 
@@ -87,26 +92,30 @@ class ElevenLabsStreamingTts(
     synchronized(pendingText) { pendingText.clear() }
 
     // Prepare AudioTrack
-    val minBuffer = AudioTrack.getMinBufferSize(
-      sampleRate,
-      AudioFormat.CHANNEL_OUT_MONO,
-      AudioFormat.ENCODING_PCM_16BIT,
-    )
+    val minBuffer =
+      AudioTrack.getMinBufferSize(
+        sampleRate,
+        AudioFormat.CHANNEL_OUT_MONO,
+        AudioFormat.ENCODING_PCM_16BIT,
+      )
     val bufferSize = max(minBuffer * 2, 8 * 1024)
-    val track = AudioTrack(
-      AudioAttributes.Builder()
-        .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
-        .setUsage(AudioAttributes.USAGE_MEDIA)
-        .build(),
-      AudioFormat.Builder()
-        .setSampleRate(sampleRate)
-        .setChannelMask(AudioFormat.CHANNEL_OUT_MONO)
-        .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
-        .build(),
-      bufferSize,
-      AudioTrack.MODE_STREAM,
-      AudioManager.AUDIO_SESSION_ID_GENERATE,
-    )
+    val track =
+      AudioTrack(
+        AudioAttributes
+          .Builder()
+          .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
+          .setUsage(AudioAttributes.USAGE_MEDIA)
+          .build(),
+        AudioFormat
+          .Builder()
+          .setSampleRate(sampleRate)
+          .setChannelMask(AudioFormat.CHANNEL_OUT_MONO)
+          .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
+          .build(),
+        bufferSize,
+        AudioTrack.MODE_STREAM,
+        AudioManager.AUDIO_SESSION_ID_GENERATE,
+      )
     if (track.state != AudioTrack.STATE_INITIALIZED) {
       track.release()
       Log.e(TAG, "AudioTrack init failed")
@@ -117,80 +126,110 @@ class ElevenLabsStreamingTts(
 
     // Open WebSocket
     val url = "$BASE_URL/$voiceId/stream-input?model_id=$modelId&output_format=$outputFormat"
-    val okClient = OkHttpClient.Builder()
-      .readTimeout(30, java.util.concurrent.TimeUnit.SECONDS)
-      .writeTimeout(10, java.util.concurrent.TimeUnit.SECONDS)
-      .build()
+    val okClient =
+      OkHttpClient
+        .Builder()
+        .readTimeout(30, java.util.concurrent.TimeUnit.SECONDS)
+        .writeTimeout(10, java.util.concurrent.TimeUnit.SECONDS)
+        .build()
     client = okClient
 
-    val request = Request.Builder()
-      .url(url)
-      .header("xi-api-key", apiKey)
-      .build()
+    val request =
+      Request
+        .Builder()
+        .url(url)
+        .header("xi-api-key", apiKey)
+        .build()
 
-    webSocket = okClient.newWebSocket(request, object : WebSocketListener() {
-      override fun onOpen(webSocket: WebSocket, response: Response) {
-        Log.d(TAG, "WebSocket connected")
-        // Send initial config with voice settings
-        val config = JSONObject().apply {
-          put("text", " ")
-          put("voice_settings", JSONObject().apply {
-            put("stability", 0.5)
-            put("similarity_boost", 0.8)
-            put("use_speaker_boost", false)
-          })
-          put("generation_config", JSONObject().apply {
-            put("chunk_length_schedule", org.json.JSONArray(listOf(120, 160, 250, 290)))
-          })
-        }
-        webSocket.send(config.toString())
-        wsReady = true
-        // Flush any text that was queued before WebSocket was ready
-        synchronized(pendingText) {
-          for (queued in pendingText) {
-            val msg = JSONObject().apply { put("text", queued) }
-            webSocket.send(msg.toString())
-            Log.d(TAG, "flushed queued chunk: ${queued.length} chars")
+    webSocket =
+      okClient.newWebSocket(
+        request,
+        object : WebSocketListener() {
+          override fun onOpen(
+            webSocket: WebSocket,
+            response: Response,
+          ) {
+            Log.d(TAG, "WebSocket connected")
+            // Send initial config with voice settings
+            val config =
+              JSONObject().apply {
+                put("text", " ")
+                put(
+                  "voice_settings",
+                  JSONObject().apply {
+                    put("stability", 0.5)
+                    put("similarity_boost", 0.8)
+                    put("use_speaker_boost", false)
+                  },
+                )
+                put(
+                  "generation_config",
+                  JSONObject().apply {
+                    put("chunk_length_schedule", org.json.JSONArray(listOf(120, 160, 250, 290)))
+                  },
+                )
+              }
+            webSocket.send(config.toString())
+            wsReady = true
+            // Flush any text that was queued before WebSocket was ready
+            synchronized(pendingText) {
+              for (queued in pendingText) {
+                val msg = JSONObject().apply { put("text", queued) }
+                webSocket.send(msg.toString())
+                Log.d(TAG, "flushed queued chunk: ${queued.length} chars")
+              }
+              pendingText.clear()
+            }
+            // Send deferred EOS if finish() was called before WebSocket was ready
+            if (finished) {
+              val eos = JSONObject().apply { put("text", "") }
+              webSocket.send(eos.toString())
+              Log.d(TAG, "sent deferred EOS")
+            }
           }
-          pendingText.clear()
-        }
-        // Send deferred EOS if finish() was called before WebSocket was ready
-        if (finished) {
-          val eos = JSONObject().apply { put("text", "") }
-          webSocket.send(eos.toString())
-          Log.d(TAG, "sent deferred EOS")
-        }
-      }
 
-      override fun onMessage(webSocket: WebSocket, text: String) {
-        if (stopped) return
-        try {
-          val json = JSONObject(text)
-          val audio = json.optString("audio", "")
-          if (audio.isNotEmpty()) {
-            val pcmBytes = Base64.decode(audio, Base64.DEFAULT)
-            writeToTrack(pcmBytes)
+          override fun onMessage(
+            webSocket: WebSocket,
+            text: String,
+          ) {
+            if (stopped) return
+            try {
+              val json = JSONObject(text)
+              val audio = json.optString("audio", "")
+              if (audio.isNotEmpty()) {
+                val pcmBytes = Base64.decode(audio, Base64.DEFAULT)
+                writeToTrack(pcmBytes)
+              }
+            } catch (e: Exception) {
+              Log.e(TAG, "Error parsing WebSocket message: ${e.message}")
+            }
           }
-        } catch (e: Exception) {
-          Log.e(TAG, "Error parsing WebSocket message: ${e.message}")
-        }
-      }
 
-      override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
-        Log.e(TAG, "WebSocket error: ${t.message}")
-        stopped = true
-        cleanup()
-      }
+          override fun onFailure(
+            webSocket: WebSocket,
+            t: Throwable,
+            response: Response?,
+          ) {
+            Log.e(TAG, "WebSocket error: ${t.message}")
+            stopped = true
+            cleanup()
+          }
 
-      override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
-        Log.d(TAG, "WebSocket closed: $code $reason")
-        // Wait for AudioTrack to finish playing buffered audio, then cleanup
-        drainJob = scope.launch(Dispatchers.IO) {
-          drainAudioTrack()
-          cleanup()
-        }
-      }
-    })
+          override fun onClosed(
+            webSocket: WebSocket,
+            code: Int,
+            reason: String,
+          ) {
+            Log.d(TAG, "WebSocket closed: $code $reason")
+            // Wait for AudioTrack to finish playing buffered audio, then cleanup
+            drainJob =
+              scope.launch(Dispatchers.IO) {
+                drainAudioTrack()
+                cleanup()
+              }
+          }
+        },
+      )
   }
 
   /**
@@ -201,15 +240,15 @@ class ElevenLabsStreamingTts(
   private var sentFullText = ""
 
   /**
-      // If we already sent a superset of this text, it's just a stale/out-of-order
-      // event from a different thread — not a real divergence. Ignore it.
-      if (sentFullText.startsWith(fullText)) return true
+   // If we already sent a superset of this text, it's just a stale/out-of-order
+   // event from a different thread — not a real divergence. Ignore it.
+   if (sentFullText.startsWith(fullText)) return true
    * Returns true if text was accepted, false if text diverged (caller should restart).
    */
   @Synchronized
   fun sendText(fullText: String): Boolean {
     if (stopped) return false
-    if (finished) return true  // Already finishing — not a diverge, don't restart
+    if (finished) return true // Already finishing — not a diverge, don't restart
 
     // Detect text replacement: if the new text doesn't start with what we already sent,
     // the stream has diverged (e.g., tool call interrupted and text was replaced).
@@ -275,7 +314,8 @@ class ElevenLabsStreamingTts(
         track.pause()
         track.flush()
         track.release()
-      } catch (_: Throwable) {}
+      } catch (_: Throwable) {
+      }
     }
     _isPlaying.value = false
     client?.dispatcher?.executorService?.shutdown()
@@ -329,7 +369,8 @@ class ElevenLabsStreamingTts(
       try {
         track.stop()
         track.release()
-      } catch (_: Throwable) {}
+      } catch (_: Throwable) {
+      }
     }
     _isPlaying.value = false
     client?.dispatcher?.executorService?.shutdown()

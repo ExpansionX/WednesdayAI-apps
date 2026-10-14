@@ -1,8 +1,6 @@
 package ai.openclaw.android.chat
 
 import ai.openclaw.android.gateway.GatewaySession
-import java.util.UUID
-import java.util.concurrent.ConcurrentHashMap
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -17,6 +15,8 @@ import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
+import java.util.UUID
+import java.util.concurrent.ConcurrentHashMap
 
 class ChatController(
   private val scope: CoroutineScope,
@@ -143,12 +143,12 @@ class ChatController(
       }
     _messages.value =
       _messages.value +
-        ChatMessage(
-          id = UUID.randomUUID().toString(),
-          role = "user",
-          content = userContent,
-          timestampMs = System.currentTimeMillis(),
-        )
+      ChatMessage(
+        id = UUID.randomUUID().toString(),
+        role = "user",
+        content = userContent,
+        timestampMs = System.currentTimeMillis(),
+      )
 
     armPendingRunTimeout(runId)
     synchronized(pendingRuns) {
@@ -225,23 +225,30 @@ class ChatController(
     }
   }
 
-  fun handleGatewayEvent(event: String, payloadJson: String?) {
+  fun handleGatewayEvent(
+    event: String,
+    payloadJson: String?,
+  ) {
     when (event) {
       "tick" -> {
         scope.launch { pollHealthIfNeeded(force = false) }
       }
+
       "health" -> {
         // If we receive a health snapshot, the gateway is reachable.
         _healthOk.value = true
       }
+
       "seqGap" -> {
         _errorText.value = "Event stream interrupted; try refreshing."
         clearPendingRuns()
       }
+
       "chat" -> {
         if (payloadJson.isNullOrBlank()) return
         handleChatEvent(payloadJson)
       }
+
       "agent" -> {
         if (payloadJson.isNullOrBlank()) return
         handleAgentEvent(payloadJson)
@@ -268,7 +275,10 @@ class ChatController(
       val history = parseHistory(historyJson, sessionKey = key)
       _messages.value = history.messages
       _sessionId.value = history.sessionId
-      history.thinkingLevel?.trim()?.takeIf { it.isNotEmpty() }?.let { _thinkingLevel.value = it }
+      history.thinkingLevel
+        ?.trim()
+        ?.takeIf { it.isNotEmpty() }
+        ?.let { _thinkingLevel.value = it }
 
       pollHealthIfNeeded(force = forceHealth)
       fetchSessions(limit = 50)
@@ -324,6 +334,7 @@ class ChatController(
           _streamingAssistantText.value = text
         }
       }
+
       "final", "aborted", "error" -> {
         if (state == "error") {
           _errorText.value = payload["errorMessage"].asStringOrNull() ?: "Chat failed"
@@ -339,7 +350,10 @@ class ChatController(
             val history = parseHistory(historyJson, sessionKey = _sessionKey.value)
             _messages.value = history.messages
             _sessionId.value = history.sessionId
-            history.thinkingLevel?.trim()?.takeIf { it.isNotEmpty() }?.let { _thinkingLevel.value = it }
+            history.thinkingLevel
+              ?.trim()
+              ?.takeIf { it.isNotEmpty() }
+              ?.let { _thinkingLevel.value = it }
           } catch (_: Throwable) {
             // best-effort
           }
@@ -363,6 +377,7 @@ class ChatController(
           _streamingAssistantText.value = text
         }
       }
+
       "tool" -> {
         val phase = data?.get("phase")?.asStringOrNull()
         val name = data?.get("name")?.asStringOrNull()
@@ -386,6 +401,7 @@ class ChatController(
           publishPendingToolCalls()
         }
       }
+
       "error" -> {
         _errorText.value = "Event stream interrupted; try refreshing."
         clearPendingRuns()
@@ -450,7 +466,10 @@ class ChatController(
     }
   }
 
-  private fun parseHistory(historyJson: String, sessionKey: String): ChatHistory {
+  private fun parseHistory(
+    historyJson: String,
+    sessionKey: String,
+  ): ChatHistory {
     val root = json.parseToJsonElement(historyJson).asObjectOrNull() ?: return ChatHistory(sessionKey, null, null, emptyList())
     val sid = root["sessionId"].asStringOrNull()
     val thinkingLevel = root["thinkingLevel"].asStringOrNull()
@@ -501,22 +520,24 @@ class ChatController(
     }
   }
 
-  private fun parseRunId(resJson: String): String? {
-    return try {
-      json.parseToJsonElement(resJson).asObjectOrNull()?.get("runId").asStringOrNull()
+  private fun parseRunId(resJson: String): String? =
+    try {
+      json
+        .parseToJsonElement(resJson)
+        .asObjectOrNull()
+        ?.get("runId")
+        .asStringOrNull()
     } catch (_: Throwable) {
       null
     }
-  }
 
-  private fun normalizeThinking(raw: String): String {
-    return when (raw.trim().lowercase()) {
+  private fun normalizeThinking(raw: String): String =
+    when (raw.trim().lowercase()) {
       "low" -> "low"
       "medium" -> "medium"
       "high" -> "high"
       else -> "off"
     }
-  }
 }
 
 private fun JsonElement?.asObjectOrNull(): JsonObject? = this as? JsonObject

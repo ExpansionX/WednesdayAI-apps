@@ -1,5 +1,8 @@
 package ai.openclaw.android.ui
 
+import ai.openclaw.android.MainViewModel
+import ai.openclaw.android.voice.VoiceConversationEntry
+import ai.openclaw.android.voice.VoiceConversationRole
 import android.Manifest
 import android.app.Activity
 import android.content.Context
@@ -33,10 +36,10 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Mic
-import androidx.compose.material.icons.filled.MicOff
 import androidx.compose.material.icons.automirrored.filled.VolumeOff
 import androidx.compose.material.icons.automirrored.filled.VolumeUp
+import androidx.compose.material.icons.filled.Mic
+import androidx.compose.material.icons.filled.MicOff
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
@@ -66,9 +69,6 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
-import ai.openclaw.android.MainViewModel
-import ai.openclaw.android.voice.VoiceConversationEntry
-import ai.openclaw.android.voice.VoiceConversationRole
 import kotlin.math.max
 
 @Composable
@@ -264,7 +264,14 @@ fun VoiceTabScreen(viewModel: MainViewModel) {
             modifier = Modifier.size(60.dp),
             colors =
               ButtonDefaults.buttonColors(
-                containerColor = if (micCooldown) mobileTextSecondary else if (micEnabled) mobileDanger else mobileAccent,
+                containerColor =
+                  if (micCooldown) {
+                    mobileTextSecondary
+                  } else if (micEnabled) {
+                    mobileDanger
+                  } else {
+                    mobileAccent
+                  },
                 contentColor = Color.White,
                 disabledContainerColor = mobileTextSecondary,
                 disabledContentColor = Color.White.copy(alpha = 0.5f),
@@ -390,7 +397,10 @@ private fun ThinkingDots(color: Color) {
 }
 
 @Composable
-private fun ThinkingDot(alpha: Float, color: Color) {
+private fun ThinkingDot(
+  alpha: Float,
+  color: Color,
+) {
   Surface(
     modifier = Modifier.size(6.dp).alpha(alpha),
     shape = CircleShape,
@@ -398,12 +408,11 @@ private fun ThinkingDot(alpha: Float, color: Color) {
   ) {}
 }
 
-private fun Context.hasRecordAudioPermission(): Boolean {
-  return (
+private fun Context.hasRecordAudioPermission(): Boolean =
+  (
     ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) ==
       PackageManager.PERMISSION_GRANTED
-    )
-}
+  )
 
 private fun Context.findActivity(): Activity? =
   when (this) {

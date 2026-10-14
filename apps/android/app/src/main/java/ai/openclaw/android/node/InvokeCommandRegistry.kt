@@ -1,9 +1,9 @@
 package ai.openclaw.android.node
 
 import ai.openclaw.android.protocol.OpenClawCalendarCommand
+import ai.openclaw.android.protocol.OpenClawCameraCommand
 import ai.openclaw.android.protocol.OpenClawCanvasA2UICommand
 import ai.openclaw.android.protocol.OpenClawCanvasCommand
-import ai.openclaw.android.protocol.OpenClawCameraCommand
 import ai.openclaw.android.protocol.OpenClawCapability
 import ai.openclaw.android.protocol.OpenClawContactsCommand
 import ai.openclaw.android.protocol.OpenClawDeviceCommand
@@ -209,8 +209,8 @@ object InvokeCommandRegistry {
 
   fun find(command: String): InvokeCommandSpec? = byNameInternal[command]
 
-  fun advertisedCapabilities(flags: NodeRuntimeFlags): List<String> {
-    return capabilityManifest
+  fun advertisedCapabilities(flags: NodeRuntimeFlags): List<String> =
+    capabilityManifest
       .filter { spec ->
         when (spec.availability) {
           NodeCapabilityAvailability.Always -> true
@@ -220,12 +220,10 @@ object InvokeCommandRegistry {
           NodeCapabilityAvailability.VoiceWakeEnabled -> flags.voiceWakeEnabled
           NodeCapabilityAvailability.MotionAvailable -> flags.motionActivityAvailable || flags.motionPedometerAvailable
         }
-      }
-      .map { it.name }
-  }
+      }.map { it.name }
 
-  fun advertisedCommands(flags: NodeRuntimeFlags): List<String> {
-    return all
+  fun advertisedCommands(flags: NodeRuntimeFlags): List<String> =
+    all
       .filter { spec ->
         when (spec.availability) {
           InvokeCommandAvailability.Always -> true
@@ -236,7 +234,5 @@ object InvokeCommandRegistry {
           InvokeCommandAvailability.MotionPedometerAvailable -> flags.motionPedometerAvailable
           InvokeCommandAvailability.DebugBuild -> flags.debugBuild
         }
-      }
-      .map { it.name }
-  }
+      }.map { it.name }
 }

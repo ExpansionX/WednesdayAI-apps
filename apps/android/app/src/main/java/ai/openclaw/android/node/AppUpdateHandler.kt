@@ -1,16 +1,12 @@
 package ai.openclaw.android.node
 
-import android.app.PendingIntent
-import android.content.Context
-import android.content.Intent
 import ai.openclaw.android.InstallResultReceiver
 import ai.openclaw.android.MainActivity
 import ai.openclaw.android.gateway.GatewayEndpoint
 import ai.openclaw.android.gateway.GatewaySession
-import java.io.File
-import java.net.URI
-import java.security.MessageDigest
-import java.util.Locale
+import android.app.PendingIntent
+import android.content.Context
+import android.content.Intent
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -19,6 +15,10 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
+import java.io.File
+import java.net.URI
+import java.security.MessageDigest
+import java.util.Locale
 
 private val SHA256_HEX = Regex("^[a-fA-F0-9]{64}$")
 
@@ -27,7 +27,10 @@ internal data class AppUpdateRequest(
   val expectedSha256: String,
 )
 
-internal fun parseAppUpdateRequest(paramsJson: String?, connectedHost: String?): AppUpdateRequest {
+internal fun parseAppUpdateRequest(
+  paramsJson: String?,
+  connectedHost: String?,
+): AppUpdateRequest {
   val params =
     try {
       paramsJson?.let { Json.parseToJsonElement(it).jsonObject }
@@ -36,10 +39,18 @@ internal fun parseAppUpdateRequest(paramsJson: String?, connectedHost: String?):
     } ?: throw IllegalArgumentException("missing 'url' parameter")
 
   val urlRaw =
-    params["url"]?.jsonPrimitive?.content?.trim().orEmpty()
+    params["url"]
+      ?.jsonPrimitive
+      ?.content
+      ?.trim()
+      .orEmpty()
       .ifEmpty { throw IllegalArgumentException("missing 'url' parameter") }
   val sha256Raw =
-    params["sha256"]?.jsonPrimitive?.content?.trim().orEmpty()
+    params["sha256"]
+      ?.jsonPrimitive
+      ?.content
+      ?.trim()
+      .orEmpty()
       .ifEmpty { throw IllegalArgumentException("missing 'sha256' parameter") }
   if (!SHA256_HEX.matches(sha256Raw)) {
     throw IllegalArgumentException("invalid 'sha256' parameter (expected 64 hex chars)")
@@ -92,7 +103,6 @@ class AppUpdateHandler(
   private val appContext: Context,
   private val connectedEndpoint: () -> GatewayEndpoint?,
 ) {
-
   fun handleUpdate(paramsJson: String?): GatewaySession.InvokeResult {
     try {
       val updateRequest =
@@ -118,9 +128,10 @@ class AppUpdateHandler(
       notifManager.createNotificationChannel(channel)
 
       // PendingIntent to open the app when notification is tapped
-      val launchIntent = Intent(appContext, MainActivity::class.java).apply {
-        flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
-      }
+      val launchIntent =
+        Intent(appContext, MainActivity::class.java).apply {
+          flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+        }
       val launchPi = PendingIntent.getActivity(appContext, 0, launchIntent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
 
       // Launch download async so the invoke returns immediately
@@ -132,42 +143,55 @@ class AppUpdateHandler(
           if (file.exists()) file.delete()
 
           // Show initial progress notification
-          fun buildProgressNotif(progress: Int, max: Int, text: String): android.app.Notification {
-            return android.app.Notification.Builder(appContext, channelId)
+          fun buildProgressNotif(
+            progress: Int,
+            max: Int,
+            text: String,
+          ): android.app.Notification =
+            android.app.Notification
+              .Builder(appContext, channelId)
               .setSmallIcon(android.R.drawable.stat_sys_download)
               .setContentTitle("OpenClaw Update")
               .setContentText(text)
               .setProgress(max, progress, max == 0)
-              
               .setContentIntent(launchPi)
               .setOngoing(true)
               .build()
-          }
           notifManager.notify(notifId, buildProgressNotif(0, 0, "Connecting..."))
 
-          val client = okhttp3.OkHttpClient.Builder()
-            .connectTimeout(30, java.util.concurrent.TimeUnit.SECONDS)
-            .readTimeout(300, java.util.concurrent.TimeUnit.SECONDS)
-            .build()
-          val request = okhttp3.Request.Builder().url(url).build()
+          val client =
+            okhttp3.OkHttpClient
+              .Builder()
+              .connectTimeout(30, java.util.concurrent.TimeUnit.SECONDS)
+              .readTimeout(300, java.util.concurrent.TimeUnit.SECONDS)
+              .build()
+          val request =
+            okhttp3.Request
+              .Builder()
+              .url(url)
+              .build()
           val response = client.newCall(request).execute()
           if (!response.isSuccessful) {
             notifManager.cancel(notifId)
-            notifManager.notify(notifId, android.app.Notification.Builder(appContext, channelId)
-              .setSmallIcon(android.R.drawable.stat_notify_error)
-              .setContentTitle("Update Failed")
-              
-              .setContentIntent(launchPi)
-              .setContentText("HTTP ${response.code}")
-              .build())
+            notifManager.notify(
+              notifId,
+              android.app.Notification
+                .Builder(appContext, channelId)
+                .setSmallIcon(android.R.drawable.stat_notify_error)
+                .setContentTitle("Update Failed")
+                .setContentIntent(launchPi)
+                .setContentText("HTTP ${response.code}")
+                .build(),
+            )
             return@launch
           }
 
           val contentLength = response.body?.contentLength() ?: -1L
-          val body = response.body ?: run {
-            notifManager.cancel(notifId)
-            return@launch
-          }
+          val body =
+            response.body ?: run {
+              notifManager.cancel(notifId)
+              return@launch
+            }
 
           // Download with progress tracking
           var totalBytes = 0L
@@ -192,7 +216,7 @@ class AppUpdateHandler(
                     notifManager.notify(notifId, buildProgressNotif(pct, 100, "$mb / $totalMb MB ($pct%)"))
                   } else {
                     val mb = String.format(Locale.US, "%.1f", totalBytes / 1048576.0)
-                    notifManager.notify(notifId, buildProgressNotif(0, 0, "${mb} MB downloaded"))
+                    notifManager.notify(notifId, buildProgressNotif(0, 0, "$mb MB downloaded"))
                   }
                 }
               }
@@ -210,7 +234,8 @@ class AppUpdateHandler(
             notifManager.cancel(notifId)
             notifManager.notify(
               notifId,
-              android.app.Notification.Builder(appContext, channelId)
+              android.app.Notification
+                .Builder(appContext, channelId)
                 .setSmallIcon(android.R.drawable.stat_notify_error)
                 .setContentTitle("Update Failed")
                 .setContentIntent(launchPi)
@@ -226,13 +251,16 @@ class AppUpdateHandler(
             android.util.Log.e("openclaw", "app.update: invalid APK (bad magic: ${magic.first}, ${magic.second})")
             file.delete()
             notifManager.cancel(notifId)
-            notifManager.notify(notifId, android.app.Notification.Builder(appContext, channelId)
-              .setSmallIcon(android.R.drawable.stat_notify_error)
-              .setContentTitle("Update Failed")
-              
-              .setContentIntent(launchPi)
-              .setContentText("Downloaded file is not a valid APK")
-              .build())
+            notifManager.notify(
+              notifId,
+              android.app.Notification
+                .Builder(appContext, channelId)
+                .setSmallIcon(android.R.drawable.stat_notify_error)
+                .setContentTitle("Update Failed")
+                .setContentIntent(launchPi)
+                .setContentText("Downloaded file is not a valid APK")
+                .build(),
+            )
             return@launch
           }
 
@@ -241,7 +269,8 @@ class AppUpdateHandler(
           notifManager.cancel(notifId)
           notifManager.notify(
             notifId,
-            android.app.Notification.Builder(appContext, channelId)
+            android.app.Notification
+              .Builder(appContext, channelId)
               .setSmallIcon(android.R.drawable.stat_sys_download_done)
               .setContentTitle("Installing Update...")
               .setContentIntent(launchPi)
@@ -250,9 +279,10 @@ class AppUpdateHandler(
           )
 
           val installer = appContext.packageManager.packageInstaller
-          val params = android.content.pm.PackageInstaller.SessionParams(
-            android.content.pm.PackageInstaller.SessionParams.MODE_FULL_INSTALL
-          )
+          val params =
+            android.content.pm.PackageInstaller.SessionParams(
+              android.content.pm.PackageInstaller.SessionParams.MODE_FULL_INSTALL,
+            )
           params.setSize(file.length())
           val sessionId = installer.createSession(params)
           val session = installer.openSession(sessionId)
@@ -262,31 +292,39 @@ class AppUpdateHandler(
           }
           // Commit with FLAG_MUTABLE PendingIntent — system requires mutable for PackageInstaller status
           val callbackIntent = android.content.Intent(appContext, InstallResultReceiver::class.java)
-          val pi = android.app.PendingIntent.getBroadcast(
-            appContext, sessionId, callbackIntent,
-            android.app.PendingIntent.FLAG_UPDATE_CURRENT or android.app.PendingIntent.FLAG_MUTABLE
-          )
+          val pi =
+            android.app.PendingIntent.getBroadcast(
+              appContext,
+              sessionId,
+              callbackIntent,
+              android.app.PendingIntent.FLAG_UPDATE_CURRENT or android.app.PendingIntent.FLAG_MUTABLE,
+            )
           session.commit(pi.intentSender)
           android.util.Log.w("openclaw", "app.update: PackageInstaller session committed, waiting for user confirmation")
         } catch (err: Throwable) {
           android.util.Log.e("openclaw", "app.update: async error", err)
           notifManager.cancel(notifId)
-          notifManager.notify(notifId, android.app.Notification.Builder(appContext, channelId)
-            .setSmallIcon(android.R.drawable.stat_notify_error)
-            .setContentTitle("Update Failed")
-            
+          notifManager.notify(
+            notifId,
+            android.app.Notification
+              .Builder(appContext, channelId)
+              .setSmallIcon(android.R.drawable.stat_notify_error)
+              .setContentTitle("Update Failed")
               .setContentIntent(launchPi)
               .setContentText(err.message ?: "Unknown error")
-            .build())
+              .build(),
+          )
         }
       }
 
       // Return immediately — download happens in background
-      return GatewaySession.InvokeResult.ok(buildJsonObject {
+      return GatewaySession.InvokeResult.ok(
+        buildJsonObject {
           put("status", "downloading")
           put("url", url)
           put("sha256", expectedSha256)
-        }.toString())
+        }.toString(),
+      )
     } catch (err: Throwable) {
       android.util.Log.e("openclaw", "app.update: error", err)
       return GatewaySession.InvokeResult.error(code = "UNAVAILABLE", message = err.message ?: "update failed")

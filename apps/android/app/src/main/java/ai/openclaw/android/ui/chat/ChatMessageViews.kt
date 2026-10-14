@@ -1,5 +1,23 @@
 package ai.openclaw.android.ui.chat
 
+import ai.openclaw.android.chat.ChatMessage
+import ai.openclaw.android.chat.ChatMessageContent
+import ai.openclaw.android.chat.ChatPendingToolCall
+import ai.openclaw.android.tools.ToolDisplayRegistry
+import ai.openclaw.android.ui.mobileAccent
+import ai.openclaw.android.ui.mobileAccentSoft
+import ai.openclaw.android.ui.mobileBorder
+import ai.openclaw.android.ui.mobileBorderStrong
+import ai.openclaw.android.ui.mobileCallout
+import ai.openclaw.android.ui.mobileCaption1
+import ai.openclaw.android.ui.mobileCaption2
+import ai.openclaw.android.ui.mobileCodeBg
+import ai.openclaw.android.ui.mobileCodeText
+import ai.openclaw.android.ui.mobileHeadline
+import ai.openclaw.android.ui.mobileText
+import ai.openclaw.android.ui.mobileTextSecondary
+import ai.openclaw.android.ui.mobileWarning
+import ai.openclaw.android.ui.mobileWarningSoft
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Arrangement
@@ -25,24 +43,6 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import ai.openclaw.android.chat.ChatMessage
-import ai.openclaw.android.chat.ChatMessageContent
-import ai.openclaw.android.chat.ChatPendingToolCall
-import ai.openclaw.android.tools.ToolDisplayRegistry
-import ai.openclaw.android.ui.mobileAccent
-import ai.openclaw.android.ui.mobileAccentSoft
-import ai.openclaw.android.ui.mobileBorder
-import ai.openclaw.android.ui.mobileBorderStrong
-import ai.openclaw.android.ui.mobileCallout
-import ai.openclaw.android.ui.mobileCaption1
-import ai.openclaw.android.ui.mobileCaption2
-import ai.openclaw.android.ui.mobileCodeBg
-import ai.openclaw.android.ui.mobileCodeText
-import ai.openclaw.android.ui.mobileHeadline
-import ai.openclaw.android.ui.mobileText
-import ai.openclaw.android.ui.mobileTextSecondary
-import ai.openclaw.android.ui.mobileWarning
-import ai.openclaw.android.ui.mobileWarningSoft
 import java.util.Locale
 
 private data class ChatBubbleStyle(
@@ -108,7 +108,10 @@ private fun ChatBubbleContainer(
 }
 
 @Composable
-private fun ChatMessageBody(content: List<ChatMessageContent>, textColor: Color) {
+private fun ChatMessageBody(
+  content: List<ChatMessageContent>,
+  textColor: Color,
+) {
   Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
     for (part in content) {
       when (part.type) {
@@ -116,6 +119,7 @@ private fun ChatMessageBody(content: List<ChatMessageContent>, textColor: Color)
           val text = part.text ?: continue
           ChatMarkdown(text = text, textColor = textColor)
         }
+
         else -> {
           val b64 = part.base64 ?: continue
           ChatBase64Image(base64 = b64, mimeType = part.mimeType)
@@ -194,44 +198,48 @@ fun ChatStreamingAssistantBubble(text: String) {
   }
 }
 
-private fun bubbleStyle(role: String): ChatBubbleStyle {
-  return when (role) {
-    "user" ->
+private fun bubbleStyle(role: String): ChatBubbleStyle =
+  when (role) {
+    "user" -> {
       ChatBubbleStyle(
         alignEnd = true,
         containerColor = mobileAccentSoft,
         borderColor = mobileAccent,
         roleColor = mobileAccent,
       )
+    }
 
-    "system" ->
+    "system" -> {
       ChatBubbleStyle(
         alignEnd = false,
         containerColor = mobileWarningSoft,
         borderColor = mobileWarning.copy(alpha = 0.45f),
         roleColor = mobileWarning,
       )
+    }
 
-    else ->
+    else -> {
       ChatBubbleStyle(
         alignEnd = false,
         containerColor = Color.White,
         borderColor = mobileBorderStrong,
         roleColor = mobileTextSecondary,
       )
+    }
   }
-}
 
-private fun roleLabel(role: String): String {
-  return when (role) {
+private fun roleLabel(role: String): String =
+  when (role) {
     "user" -> "USER"
     "system" -> "SYSTEM"
     else -> "ASSISTANT"
   }
-}
 
 @Composable
-private fun ChatBase64Image(base64: String, mimeType: String?) {
+private fun ChatBase64Image(
+  base64: String,
+  mimeType: String?,
+) {
   val imageState = rememberBase64ImageState(base64)
   val image = imageState.image
 
@@ -264,7 +272,10 @@ private fun DotPulse(color: Color) {
 }
 
 @Composable
-private fun PulseDot(alpha: Float, color: Color) {
+private fun PulseDot(
+  alpha: Float,
+  color: Color,
+) {
   Surface(
     modifier = Modifier.size(6.dp).alpha(alpha),
     shape = CircleShape,
@@ -273,7 +284,10 @@ private fun PulseDot(alpha: Float, color: Color) {
 }
 
 @Composable
-fun ChatCodeBlock(code: String, language: String?) {
+fun ChatCodeBlock(
+  code: String,
+  language: String?,
+) {
   Surface(
     shape = RoundedCornerShape(8.dp),
     color = mobileCodeBg,

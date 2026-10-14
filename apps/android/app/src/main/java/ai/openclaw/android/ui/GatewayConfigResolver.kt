@@ -1,13 +1,13 @@
 package ai.openclaw.android.ui
 
 import androidx.core.net.toUri
-import java.util.Base64
-import java.util.Locale
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonObject
+import java.util.Base64
+import java.util.Locale
 
 internal data class GatewayEndpointConfig(
   val host: String,
@@ -73,7 +73,11 @@ internal fun parseGatewayEndpoint(rawInput: String): GatewayEndpointConfig? {
   val host = uri.host?.trim().orEmpty()
   if (host.isEmpty()) return null
 
-  val scheme = uri.scheme?.trim()?.lowercase(Locale.US).orEmpty()
+  val scheme =
+    uri.scheme
+      ?.trim()
+      ?.lowercase(Locale.US)
+      .orEmpty()
   val tls =
     when (scheme) {
       "ws", "http" -> false
@@ -117,7 +121,11 @@ internal fun resolveScannedSetupCode(rawInput: String): String? {
   return setupCode.takeIf { decodeGatewaySetupCode(it) != null }
 }
 
-internal fun composeGatewayManualUrl(hostInput: String, portInput: String, tls: Boolean): String? {
+internal fun composeGatewayManualUrl(
+  hostInput: String,
+  portInput: String,
+  tls: Boolean,
+): String? {
   val host = hostInput.trim()
   val port = portInput.trim().toIntOrNull() ?: return null
   if (host.isEmpty() || port !in 1..65535) return null
@@ -125,9 +133,7 @@ internal fun composeGatewayManualUrl(hostInput: String, portInput: String, tls: 
   return "$scheme://$host:$port"
 }
 
-private fun parseJsonObject(input: String): JsonObject? {
-  return runCatching { gatewaySetupJson.parseToJsonElement(input).jsonObject }.getOrNull()
-}
+private fun parseJsonObject(input: String): JsonObject? = runCatching { gatewaySetupJson.parseToJsonElement(input).jsonObject }.getOrNull()
 
 private fun resolveSetupCodeCandidate(rawInput: String): String? {
   val trimmed = rawInput.trim()
@@ -136,7 +142,10 @@ private fun resolveSetupCodeCandidate(rawInput: String): String? {
   return qrSetupCode ?: trimmed
 }
 
-private fun jsonField(obj: JsonObject, key: String): String? {
+private fun jsonField(
+  obj: JsonObject,
+  key: String,
+): String? {
   val value = (obj[key] as? JsonPrimitive)?.contentOrNull?.trim().orEmpty()
   return value.ifEmpty { null }
 }

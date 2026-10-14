@@ -1,10 +1,6 @@
 package ai.openclaw.android.gateway
 
 import android.util.Log
-import java.util.Locale
-import java.util.UUID
-import java.util.concurrent.ConcurrentHashMap
-import java.util.concurrent.atomic.AtomicBoolean
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -30,6 +26,10 @@ import okhttp3.Request
 import okhttp3.Response
 import okhttp3.WebSocket
 import okhttp3.WebSocketListener
+import java.util.Locale
+import java.util.UUID
+import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicBoolean
 
 data class GatewayClientInfo(
   val id: String,
@@ -75,21 +75,32 @@ class GatewaySession(
     val timeoutMs: Long?,
   )
 
-  data class InvokeResult(val ok: Boolean, val payloadJson: String?, val error: ErrorShape?) {
+  data class InvokeResult(
+    val ok: Boolean,
+    val payloadJson: String?,
+    val error: ErrorShape?,
+  ) {
     companion object {
       fun ok(payloadJson: String?) = InvokeResult(ok = true, payloadJson = payloadJson, error = null)
-      fun error(code: String, message: String) =
-        InvokeResult(ok = false, payloadJson = null, error = ErrorShape(code = code, message = message))
+
+      fun error(
+        code: String,
+        message: String,
+      ) = InvokeResult(ok = false, payloadJson = null, error = ErrorShape(code = code, message = message))
     }
   }
 
-  data class ErrorShape(val code: String, val message: String)
+  data class ErrorShape(
+    val code: String,
+    val message: String,
+  )
 
   private val json = Json { ignoreUnknownKeys = true }
   private val writeLock = Mutex()
   private val pending = ConcurrentHashMap<String, CompletableDeferred<RpcResponse>>()
 
   @Volatile private var canvasHostUrl: String? = null
+
   @Volatile private var mainSessionKey: String? = null
 
   private data class DesiredConnection(
@@ -102,6 +113,7 @@ class GatewaySession(
 
   private var desired: DesiredConnection? = null
   private var job: Job? = null
+
   @Volatile private var currentConnection: Connection? = null
 
   fun connect(
@@ -134,9 +146,13 @@ class GatewaySession(
   }
 
   fun currentCanvasHostUrl(): String? = canvasHostUrl
+
   fun currentMainSessionKey(): String? = mainSessionKey
 
-  suspend fun sendNodeEvent(event: String, payloadJson: String?): Boolean {
+  suspend fun sendNodeEvent(
+    event: String,
+    payloadJson: String?,
+  ): Boolean {
     val conn = currentConnection ?: return false
     val parsedPayload = payloadJson?.let { parseJsonOrNull(it) }
     val params =
@@ -159,7 +175,11 @@ class GatewaySession(
     }
   }
 
-  suspend fun request(method: String, paramsJson: String?, timeoutMs: Long = 15_000): String {
+  suspend fun request(
+    method: String,
+    paramsJson: String?,
+    timeoutMs: Long = 15_000,
+  ): String {
     val conn = currentConnection ?: throw IllegalStateException("not connected")
     val params =
       if (paramsJson.isNullOrBlank()) {
@@ -195,7 +215,12 @@ class GatewaySession(
       return false
     }
     val payloadObj = response.payloadJson?.let(::parseJsonOrNull)?.asObjectOrNull()
-    val refreshedCapability = payloadObj?.get("canvasCapability").asStringOrNull()?.trim().orEmpty()
+    val refreshedCapability =
+      payloadObj
+        ?.get("canvasCapability")
+        .asStringOrNull()
+        ?.trim()
+        .orEmpty()
     if (refreshedCapability.isEmpty()) {
       Log.w("OpenClawGateway", "node.canvas.capability.refresh missing canvasCapability")
       return false
@@ -214,7 +239,12 @@ class GatewaySession(
     return true
   }
 
-  private data class RpcResponse(val id: String, val ok: Boolean, val payloadJson: String?, val error: ErrorShape?)
+  private data class RpcResponse(
+    val id: String,
+    val ok: Boolean,
+    val payloadJson: String?,
+    val error: ErrorShape?,
+  )
 
   private inner class Connection(
     private val endpoint: GatewayEndpoint,
@@ -250,7 +280,11 @@ class GatewaySession(
       }
     }
 
-    suspend fun request(method: String, params: JsonElement?, timeoutMs: Long): RpcResponse {
+    suspend fun request(
+      method: String,
+      params: JsonElement?,
+      timeoutMs: Long,
+    ): RpcResponse {
       val id = UUID.randomUUID().toString()
       val deferred = CompletableDeferred<RpcResponse>()
       pending[id] = deferred
@@ -288,13 +322,16 @@ class GatewaySession(
     }
 
     private fun buildClient(): OkHttpClient {
-      val builder = OkHttpClient.Builder()
-        .writeTimeout(60, java.util.concurrent.TimeUnit.SECONDS)
-        .readTimeout(0, java.util.concurrent.TimeUnit.SECONDS)
-        .pingInterval(30, java.util.concurrent.TimeUnit.SECONDS)
-      val tlsConfig = buildGatewayTlsConfig(tls) { fingerprint ->
-        onTlsFingerprint?.invoke(tls?.stableId ?: endpoint.stableId, fingerprint)
-      }
+      val builder =
+        OkHttpClient
+          .Builder()
+          .writeTimeout(60, java.util.concurrent.TimeUnit.SECONDS)
+          .readTimeout(0, java.util.concurrent.TimeUnit.SECONDS)
+          .pingInterval(30, java.util.concurrent.TimeUnit.SECONDS)
+      val tlsConfig =
+        buildGatewayTlsConfig(tls) { fingerprint ->
+          onTlsFingerprint?.invoke(tls?.stableId ?: endpoint.stableId, fingerprint)
+        }
       if (tlsConfig != null) {
         builder.sslSocketFactory(tlsConfig.sslSocketFactory, tlsConfig.trustManager)
         builder.hostnameVerifier(tlsConfig.hostnameVerifier)
@@ -303,7 +340,10 @@ class GatewaySession(
     }
 
     private inner class Listener : WebSocketListener() {
-      override fun onOpen(webSocket: WebSocket, response: Response) {
+      override fun onOpen(
+        webSocket: WebSocket,
+        response: Response,
+      ) {
         scope.launch {
           try {
             val nonce = awaitConnectNonce()
@@ -315,11 +355,18 @@ class GatewaySession(
         }
       }
 
-      override fun onMessage(webSocket: WebSocket, text: String) {
+      override fun onMessage(
+        webSocket: WebSocket,
+        text: String,
+      ) {
         scope.launch { handleMessage(text) }
       }
 
-      override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
+      override fun onFailure(
+        webSocket: WebSocket,
+        t: Throwable,
+        response: Response?,
+      ) {
         if (!connectDeferred.isCompleted) {
           connectDeferred.completeExceptionally(t)
         }
@@ -330,7 +377,11 @@ class GatewaySession(
         }
       }
 
-      override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
+      override fun onClosed(
+        webSocket: WebSocket,
+        code: Int,
+        reason: String,
+      ) {
         if (!connectDeferred.isCompleted) {
           connectDeferred.completeExceptionally(IllegalStateException("Gateway closed: $reason"))
         }
@@ -358,7 +409,10 @@ class GatewaySession(
       connectDeferred.complete(Unit)
     }
 
-    private fun handleConnectSuccess(res: RpcResponse, deviceId: String) {
+    private fun handleConnectSuccess(
+      res: RpcResponse,
+      deviceId: String,
+    ) {
       val payloadJson = res.payloadJson ?: throw IllegalStateException("connect failed: missing payload")
       val obj = json.parseToJsonElement(payloadJson).asObjectOrNull() ?: throw IllegalStateException("connect failed")
       val serverName = obj["server"].asObjectOrNull()?.get("host").asStringOrNull()
@@ -371,8 +425,10 @@ class GatewaySession(
       val rawCanvas = obj["canvasHostUrl"].asStringOrNull()
       canvasHostUrl = normalizeCanvasHostUrl(rawCanvas, endpoint, isTlsConnection = tls != null)
       val sessionDefaults =
-        obj["snapshot"].asObjectOrNull()
-          ?.get("sessionDefaults").asObjectOrNull()
+        obj["snapshot"]
+          .asObjectOrNull()
+          ?.get("sessionDefaults")
+          .asObjectOrNull()
       mainSessionKey = sessionDefaults?.get("mainSessionKey").asStringOrNull()
       onConnected(serverName, remoteAddress, mainSessionKey)
     }
@@ -400,15 +456,21 @@ class GatewaySession(
       val password = authPassword?.trim().orEmpty()
       val authJson =
         when {
-          authToken.isNotEmpty() ->
+          authToken.isNotEmpty() -> {
             buildJsonObject {
               put("token", JsonPrimitive(authToken))
             }
-          password.isNotEmpty() ->
+          }
+
+          password.isNotEmpty() -> {
             buildJsonObject {
               put("password", JsonPrimitive(password))
             }
-          else -> null
+          }
+
+          else -> {
+            null
+          }
         }
 
       val signedAtMs = System.currentTimeMillis()
@@ -506,13 +568,12 @@ class GatewaySession(
       onEvent(event, payloadJson)
     }
 
-    private suspend fun awaitConnectNonce(): String {
-      return try {
+    private suspend fun awaitConnectNonce(): String =
+      try {
         withTimeout(2_000) { connectNonceDeferred.await() }
       } catch (err: Throwable) {
         throw IllegalStateException("connect challenge timeout", err)
       }
-    }
 
     private fun extractConnectNonce(payloadJson: String?): String? {
       if (payloadJson.isNullOrBlank()) return null
@@ -621,18 +682,19 @@ class GatewaySession(
     }
   }
 
-  private suspend fun connectOnce(target: DesiredConnection) = withContext(Dispatchers.IO) {
-    val conn = Connection(target.endpoint, target.token, target.password, target.options, target.tls)
-    currentConnection = conn
-    try {
-      conn.connect()
-      conn.awaitClose()
-    } finally {
-      currentConnection = null
-      canvasHostUrl = null
-      mainSessionKey = null
+  private suspend fun connectOnce(target: DesiredConnection) =
+    withContext(Dispatchers.IO) {
+      val conn = Connection(target.endpoint, target.token, target.password, target.options, target.tls)
+      currentConnection = conn
+      try {
+        conn.connect()
+        conn.awaitClose()
+      } finally {
+        currentConnection = null
+        canvasHostUrl = null
+        mainSessionKey = null
+      }
     }
-  }
 
   private fun normalizeCanvasHostUrl(
     raw: String?,
@@ -643,7 +705,12 @@ class GatewaySession(
     val parsed = trimmed.takeIf { it.isNotBlank() }?.let { runCatching { java.net.URI(it) }.getOrNull() }
     val host = parsed?.host?.trim().orEmpty()
     val port = parsed?.port ?: -1
-    val scheme = parsed?.scheme?.trim().orEmpty().ifBlank { "http" }
+    val scheme =
+      parsed
+        ?.scheme
+        ?.trim()
+        .orEmpty()
+        .ifBlank { "http" }
     val suffix = buildUrlSuffix(parsed)
 
     // If raw URL is a non-loopback address and this connection uses TLS,
@@ -655,7 +722,7 @@ class GatewaySession(
             !scheme.equals("https", ignoreCase = true) ||
               (port > 0 && port != endpoint.port) ||
               (port <= 0 && endpoint.port != 443)
-            )
+          )
       if (needsTlsRewrite) {
         return buildCanvasUrl(host = host, scheme = "https", port = endpoint.port, suffix = suffix)
       }
@@ -675,9 +742,14 @@ class GatewaySession(
     return buildCanvasUrl(host = fallbackHost, scheme = fallbackScheme, port = fallbackPort, suffix = suffix)
   }
 
-  private fun buildCanvasUrl(host: String, scheme: String, port: Int, suffix: String): String {
+  private fun buildCanvasUrl(
+    host: String,
+    scheme: String,
+    port: Int,
+    suffix: String,
+  ): String {
     val loweredScheme = scheme.lowercase()
-    val formattedHost = if (host.contains(":")) "[${host}]" else host
+    val formattedHost = if (host.contains(":")) "[$host]" else host
     val portSuffix = if ((loweredScheme == "https" && port == 443) || (loweredScheme == "http" && port == 80)) "" else ":$port"
     return "$loweredScheme://$formattedHost$portSuffix$suffix"
   }
@@ -719,7 +791,10 @@ private fun JsonElement?.asBooleanOrNull(): Boolean? =
         else -> null
       }
     }
-    else -> null
+
+    else -> {
+      null
+    }
   }
 
 private fun JsonElement?.asLongOrNull(): Long? =

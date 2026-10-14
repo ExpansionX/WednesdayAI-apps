@@ -15,7 +15,9 @@ import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonPrimitive
 import java.util.UUID
 
-class SecurePrefs(context: Context) {
+class SecurePrefs(
+  context: Context,
+) {
   companion object {
     val defaultWakeWords: List<String> = listOf("openclaw", "claude")
     private const val displayNameKey = "node.displayName"
@@ -30,7 +32,8 @@ class SecurePrefs(context: Context) {
     appContext.getSharedPreferences(plainPrefsName, Context.MODE_PRIVATE)
 
   private val masterKey by lazy {
-    MasterKey.Builder(appContext)
+    MasterKey
+      .Builder(appContext)
       .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
       .build()
   }
@@ -209,16 +212,20 @@ class SecurePrefs(context: Context) {
     return plainPrefs.getString(key, null)?.trim()?.takeIf { it.isNotEmpty() }
   }
 
-  fun saveGatewayTlsFingerprint(stableId: String, fingerprint: String) {
+  fun saveGatewayTlsFingerprint(
+    stableId: String,
+    fingerprint: String,
+  ) {
     val key = "gateway.tls.$stableId"
     plainPrefs.edit { putString(key, fingerprint.trim()) }
   }
 
-  fun getString(key: String): String? {
-    return securePrefs.getString(key, null)
-  }
+  fun getString(key: String): String? = securePrefs.getString(key, null)
 
-  fun putString(key: String, value: String) {
+  fun putString(
+    key: String,
+    value: String,
+  ) {
     securePrefs.edit { putString(key, value) }
   }
 
@@ -226,15 +233,17 @@ class SecurePrefs(context: Context) {
     securePrefs.edit { remove(key) }
   }
 
-  private fun createSecurePrefs(context: Context, name: String): SharedPreferences {
-    return EncryptedSharedPreferences.create(
+  private fun createSecurePrefs(
+    context: Context,
+    name: String,
+  ): SharedPreferences =
+    EncryptedSharedPreferences.create(
       context,
       name,
       masterKey,
       EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
       EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM,
     )
-  }
 
   private fun loadOrCreateInstanceId(): String {
     val existing = plainPrefs.getString("node.instanceId", null)?.trim()
