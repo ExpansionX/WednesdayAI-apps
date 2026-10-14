@@ -60,16 +60,19 @@ jobs:
             git checkout -B "$BRANCH"
           fi
           if [ -z "$(git status --porcelain)" ]; then
-            echo "Branch $BRANCH already matches wednesdayai@$VERSION; nothing to do."
-            exit 0
+            echo "Branch $BRANCH already matches wednesdayai@$VERSION; nothing to commit."
+          else
+            # contracts:sync touches only the contracts feed, the generated tool-display
+            # resource and the app version stamps, all of which live under apps/.
+            git add apps
+            git commit -m "chore(contracts): sync to wednesdayai@${CORE_VERSION}"
+            git push origin "$BRANCH"
           fi
-          # contracts:sync touches only the contracts feed, the generated tool-display
-          # resource and the app version stamps, all of which live under apps/.
-          git add apps
-          git commit -m "chore(contracts): sync to wednesdayai@${CORE_VERSION}"
-          git push origin "$BRANCH"
+          # Reconcile the PR even when the branch was already up to date: a previous run may
+          # have pushed the branch without creating the PR, or the PR may have been closed
+          # without merging. On a clean rerun the branch exists on origin, so creation works.
           if gh pr view "$BRANCH" --json number >/dev/null 2>&1; then
-            echo "PR for ${BRANCH} already exists; pushed an update to it."
+            echo "PR for ${BRANCH} already exists."
           else
             gh pr create --fill --base main
           fi
