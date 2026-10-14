@@ -21,13 +21,22 @@ struct ExecApprovalsStoreRefactorTests {
         try await self.withTempStateDir { _ in
             _ = ExecApprovalsStore.ensureFile()
             let url = ExecApprovalsStore.fileURL()
-            let firstWriteDate = try Self.modificationDate(at: url)
+            // Stamp a known past mtime so a rewrite is detectable regardless of
+            // filesystem timestamp granularity: a rewrite would move mtime to
+            // ~now, which can never equal the stamped date.
+            let knownPast = Date(timeIntervalSinceNow: -3600)
+            try FileManager.default.setAttributes(
+                [.modificationDate: knownPast],
+                ofItemAtPath: url.path)
+            let stampedDate = try Self.modificationDate(at: url)
+            let original = try String(contentsOf: url, encoding: .utf8)
 
-            try await Task.sleep(nanoseconds: 1_100_000_000)
             _ = ExecApprovalsStore.ensureFile()
-            let secondWriteDate = try Self.modificationDate(at: url)
 
-            #expect(firstWriteDate == secondWriteDate)
+            let writeDate = try Self.modificationDate(at: url)
+            #expect(writeDate == stampedDate)
+            let current = try String(contentsOf: url, encoding: .utf8)
+            #expect(current == original)
         }
     }
 
