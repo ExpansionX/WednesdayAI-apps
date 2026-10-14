@@ -169,9 +169,14 @@ try {
       setTimeout(sleep.resolve, 100)
       await sleep.promise
     }
-    const transcript = await withTimeout(capture.finish(), STT_TIMEOUT_MS, "gateway transcript")
-    talkEventHandler = null
-    capture.dispose()
+    let transcript: string | null
+    try {
+      transcript = await withTimeout(capture.finish(), STT_TIMEOUT_MS, "gateway transcript")
+    } finally {
+      // A timeout must not leak the capture or its talk events.
+      talkEventHandler = null
+      capture.dispose()
+    }
     if (!transcript) fail("gateway transcription returned nothing")
     console.log(`stt: ${transcript}`)
   }
