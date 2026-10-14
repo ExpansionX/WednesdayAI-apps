@@ -54,6 +54,10 @@ enum ShellExecutor {
         // starve the cooperative pool (a starved pool delayed the timeout task past
         // the child's natural exit on loaded CI runners). Drains must run concurrently
         // with the wait: a child that fills the pipe buffer never exits otherwise.
+        // Use terminationHandler + semaphore instead of waitUntilExit: the latter
+        // pumps a nested run loop and deadlocks against itself when several
+        // ShellExecutor instances wait concurrently (observed as a stuck
+        // __psynch_mutexwait inside NSConcreteTask).
         let waitTask = Task { () -> ShellResult in
             await withCheckedContinuation { (continuation: CheckedContinuation<ShellResult, Never>) in
                 let group = DispatchGroup()
@@ -72,7 +76,10 @@ enum ShellExecutor {
                 }
                 group.enter()
                 DispatchQueue.global().async {
-                    process.waitUntilExit()
+                    let exited = DispatchSemaphore(value: 0)
+                    process.terminationHandler = { _ in exited.signal() }
+                    exited.wait()
+                    process.terminationHandler = nil
                     group.leave()
                 }
 
