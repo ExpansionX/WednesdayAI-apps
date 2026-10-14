@@ -96,7 +96,7 @@ enum ExecApprovalEvaluator {
         // entirely when skill auto-allow is disabled (no gateway dependency for
         // deny/prompt/execute decisions that cannot use skills).
         let skillTrust = approvals.agent.autoAllowSkills
-            ? await SkillBinsCache.shared.currentTrustEntries()
+            ? await SkillBinsCache.shared.currentTrustEntries(processCwd: processCwd)
             : []
         let outcome = Self.evaluatePolicy(
             security: security,
@@ -148,13 +148,13 @@ enum ExecApprovalEvaluator {
         var matches: [ExecAllowlistEntry] = []
 
         if satisfied {
-            let trust = SkillBinTrust.buildIndex(skillTrust)
+            let trust = SkillBinTrust.buildIndex(skillTrust, processCwd: processCwd)
             let allowSkills = autoAllowSkills && !trust.isEmpty
             for segment in analysis.segments {
                 let segmentMatch = Self.allowlistMatch(
                     segment: segment, allowlist: allowlist, cwd: cwd, processCwd: processCwd)
                 let segmentSkillAllow = Self.isSkillAutoAllowed(
-                    segment: segment, allowSkills: allowSkills, trust: trust)
+                    segment: segment, allowSkills: allowSkills, trust: trust, processCwd: processCwd)
                 if let segmentMatch { matches.append(segmentMatch) }
                 satisfied = satisfied && (segmentMatch != nil || segmentSkillAllow)
                 skillAllowAll = skillAllowAll && segmentSkillAllow
@@ -194,11 +194,13 @@ enum ExecApprovalEvaluator {
 
     /// Mirror of core `isSkillAutoAllowedSegment`: skill auto-allow requires a
     /// resolved executable, rejects path-scoped raw executables, and only
-    /// trusts the resolved path registered for that bin name.
+    /// trusts the resolved path registered for that bin name. Both sides
+    /// normalize against the injected process working directory.
     static func isSkillAutoAllowed(
         segment: ExecCommandSegment,
         allowSkills: Bool,
-        trust: [String: Set<String>]) -> Bool
+        trust: [String: Set<String>],
+        processCwd: String = FileManager.default.currentDirectoryPath) -> Bool
     {
         guard allowSkills, let resolution = segment.resolution, !resolution.policyBlocked else { return false }
         guard resolution.resolvedPath != nil else { return false }
@@ -215,7 +217,7 @@ enum ExecApprovalEvaluator {
               let resolvedPath = resolution.resolvedPath?
                   .trimmingCharacters(in: .whitespacesAndNewlines),
                   !resolvedPath.isEmpty,
-                  let normalizedPath = SkillBinTrust.normalizeResolvedPath(resolvedPath)
+                  let normalizedPath = SkillBinTrust.normalizeResolvedPath(resolvedPath, processCwd: processCwd)
         else { return false }
         return trust[executableName]?.contains(normalizedPath) == true
     }
@@ -234,35 +236,29 @@ enum SkillBinTrust {
         return trimmed.isEmpty ? nil : trimmed
     }
 
-    /// Lexical `path.resolve` equivalent: absolute, "."/".." collapsed.
-    static func normalizeResolvedPath(_ value: String, cwd: String? = nil) -> String? {
+    /// Lexical `path.resolve` equivalent: absolute, "."/".." collapsed against
+    /// the injected process working directory.
+    static func normalizeResolvedPath(
+        _ value: String,
+        processCwd: String = FileManager.default.currentDirectoryPath) -> String?
+    {
         let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return nil }
         if trimmed.hasPrefix("/") {
-            return Self.collapse(trimmed)
+            return ExecCommandResolution.collapsePath(trimmed)
         }
-        let base = cwd ?? FileManager.default.currentDirectoryPath
-        return Self.collapse(base.hasSuffix("/") ? base + trimmed : base + "/" + trimmed)
+        let base = processCwd
+        return ExecCommandResolution.collapsePath(base.hasSuffix("/") ? base + trimmed : base + "/" + trimmed)
     }
 
-    private static func collapse(_ path: String) -> String {
-        var parts: [String] = []
-        for component in path.split(separator: "/") {
-            if component == "." { continue }
-            if component == ".." {
-                if !parts.isEmpty { parts.removeLast() }
-                continue
-            }
-            parts.append(String(component))
-        }
-        return "/" + parts.joined(separator: "/")
-    }
-
-    static func buildIndex(_ entries: [Entry]) -> [String: Set<String>] {
+    static func buildIndex(
+        _ entries: [Entry],
+        processCwd: String = FileManager.default.currentDirectoryPath) -> [String: Set<String>]
+    {
         var index: [String: Set<String>] = [:]
         for entry in entries {
             guard let name = normalizeName(entry.name),
-                  let resolvedPath = normalizeResolvedPath(entry.resolvedPath)
+                  let resolvedPath = normalizeResolvedPath(entry.resolvedPath, processCwd: processCwd)
             else { continue }
             index[name, default: []].insert(resolvedPath)
         }

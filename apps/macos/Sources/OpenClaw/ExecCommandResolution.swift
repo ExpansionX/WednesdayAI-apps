@@ -215,10 +215,14 @@ struct ExecCommandResolution: Sendable {
     /// stack (clamped at the root for absolute paths, preserved as leading
     /// segments for relative paths), and keeps the input's absolute/relative
     /// status.
+    ///
+    /// Components split on the ASCII "/" SCALAR: Character-based splitting
+    /// would fuse a separator with a following combining scalar into one
+    /// grapheme and skip the split, mis-nesting parent-directory resolution.
     static func collapsePath(_ path: String) -> String {
         let isAbsolute = path.hasPrefix("/")
         var stack: [String] = []
-        for component in path.split(separator: "/") {
+        for component in Self.splitPathComponents(path) {
             switch component {
             case ".":
                 continue
@@ -231,7 +235,7 @@ struct ExecCommandResolution: Sendable {
                     stack.append("..")
                 }
             default:
-                stack.append(String(component))
+                stack.append(component)
             }
         }
         let joined = stack.joined(separator: "/")
@@ -239,6 +243,31 @@ struct ExecCommandResolution: Sendable {
             return "/" + joined
         }
         return joined.isEmpty ? "." : joined
+    }
+
+    /// Splits on ASCII "/" and ":" scalars (used for path components and
+    /// PATH-list entries respectively) independent of grapheme clustering.
+    private static func splitOnAsciiScalar(_ value: String, _ separator: Unicode.Scalar) -> [String] {
+        var components: [String] = []
+        var current = ""
+        for scalar in value.unicodeScalars {
+            if scalar == separator {
+                components.append(current)
+                current = ""
+            } else {
+                current.unicodeScalars.append(scalar)
+            }
+        }
+        components.append(current)
+        return components.filter { !$0.isEmpty }
+    }
+
+    static func splitPathComponents(_ path: String) -> [String] {
+        self.splitOnAsciiScalar(path, "/")
+    }
+
+    static func splitPathList(_ pathEnv: String) -> [String] {
+        self.splitOnAsciiScalar(pathEnv, ":")
     }
 
     /// Mirror of core `resolveExecutablePath` + `buildCommandResolution`.
@@ -312,8 +341,8 @@ struct ExecCommandResolution: Sendable {
         pathEnv: String,
         processCwd: String = FileManager.default.currentDirectoryPath) -> String?
     {
-        for entry in pathEnv.split(separator: ":", omittingEmptySubsequences: true) {
-            let candidate = self.joinPath(String(entry), executable)
+        for entry in self.splitPathList(pathEnv) {
+            let candidate = self.joinPath(entry, executable)
             let checkPath = candidate.hasPrefix("/") ? candidate : self.joinPath(processCwd, candidate)
             if self.isExecutableFile(checkPath) {
                 return candidate

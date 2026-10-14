@@ -804,7 +804,10 @@ actor SkillBinsCache {
     /// each bin name is resolved against the process PATH so skill auto-allow
     /// can compare the invocation's resolved executable path against the
     /// registered trust entry, not just the name.
-    func currentTrustEntries(force: Bool = false) async -> [SkillBinTrust.Entry] {
+    func currentTrustEntries(
+        force: Bool = false,
+        processCwd: String = FileManager.default.currentDirectoryPath) async -> [SkillBinTrust.Entry]
+    {
         if force || self.isStale() {
             await self.refresh()
         }
@@ -815,7 +818,7 @@ actor SkillBinsCache {
             let name = bin.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !name.isEmpty, !name.contains("/"), !name.contains("\\") else { continue }
             guard let resolvedPath = ExecCommandResolution
-                .resolveExecutableFromPathEnv(name, pathEnv: pathEnv)
+                .resolveExecutableFromPathEnv(name, pathEnv: pathEnv, processCwd: processCwd)
             else { continue }
             let key = "\(name)\u{0}\(resolvedPath)"
             guard seen.insert(key).inserted else { continue }

@@ -902,3 +902,90 @@ struct ExecAllowlistTests {
         #expect(full.count == 2)
     }
 }
+
+/// Directory-context and Unicode-separator conformance for the exec policy
+/// helpers (review rounds 2-3): process-cwd injection and scalar-safe path
+/// splitting.
+struct ExecPathAndSkillContextTests {
+    @Test func `skill trust normalizes against injected process cwd`() {
+        // S1: relative-PATH resolution and skill trust normalization must share
+        // the injected process directory — no global cwd mutation needed.
+        let dir = NSTemporaryDirectory() + "oc-skillcwd-\(UUID().uuidString)"
+        let toolsDir = URL(fileURLWithPath: dir).appendingPathComponent("tools")
+        try? FileManager.default.createDirectory(at: toolsDir, withIntermediateDirectories: true)
+        let bin = toolsDir.appendingPathComponent("skill-bin")
+        let created = FileManager.default.createFile(
+            atPath: bin.path,
+            contents: Data("#!/bin/sh\nexit 0\n".utf8),
+            attributes: [.posixPermissions: 0o755])
+        #expect(created)
+        defer { try? FileManager.default.removeItem(atPath: dir) }
+
+        let analysis = ExecCommandResolution.analyze(
+            command: ["skill-bin", "--help"],
+            rawCommand: nil,
+            cwd: nil,
+            env: ["PATH": "tools"],
+            processCwd: dir)
+        #expect(analysis.ok)
+        #expect(analysis.segments[0].resolution?.resolvedPath == "tools/skill-bin")
+
+        let trustEntry = SkillBinTrust.Entry(name: "skill-bin", resolvedPath: dir + "/tools/skill-bin")
+        let outcome = ExecApprovalEvaluator.evaluatePolicy(
+            security: .allowlist,
+            shellCommand: nil,
+            analysis: analysis,
+            allowlist: [],
+            autoAllowSkills: true,
+            skillTrust: [trustEntry],
+            cwd: nil,
+            processCwd: dir)
+        #expect(outcome.skillAllow)
+        #expect(outcome.allowlistSatisfied)
+
+        // A trust entry registered under a different directory must not match.
+        let foreign = ExecApprovalEvaluator.evaluatePolicy(
+            security: .allowlist,
+            shellCommand: nil,
+            analysis: analysis,
+            allowlist: [],
+            autoAllowSkills: true,
+            skillTrust: [SkillBinTrust.Entry(name: "skill-bin", resolvedPath: "/opt/skills/skill-bin")],
+            cwd: nil,
+            processCwd: dir)
+        #expect(!foreign.skillAllow)
+        #expect(!foreign.allowlistSatisfied)
+    }
+
+    @Test func `path normalization splits separators independently of graphemes`() {
+        // S2: a slash followed by a combining scalar is still a separator —
+        // Character-based splitting would fuse them and mis-nest the ".." pop.
+        #expect(ExecCommandResolution.joinPath("/tmp/base/\u{0301}dir/..", "run") == "/tmp/base/run")
+        #expect(ExecCommandResolution.collapsePath("/a/\u{0301}b/../c") == "/a/c")
+        #expect(ExecCommandResolution.collapsePath("x\u{0301}/../y") == "y")
+        #expect(ExecCommandResolution.splitPathList("/a:\u{0301}/b") == ["/a", "\u{0301}/b"])
+
+        // End-to-end reviewer scenario: executables exist at both the accent
+        // directory and the collapsed parent; PATH through the accent dir with
+        // a parent component must select the collapsed parent's binary.
+        let dir = NSTemporaryDirectory() + "oc-accentpath-\(UUID().uuidString)"
+        let accentDir = URL(fileURLWithPath: dir).appendingPathComponent("base/\u{0301}dir")
+        let baseDir = URL(fileURLWithPath: dir).appendingPathComponent("base")
+        try? FileManager.default.createDirectory(at: accentDir, withIntermediateDirectories: true)
+        for location in [accentDir.appendingPathComponent("run"), baseDir.appendingPathComponent("run")] {
+            let ok = FileManager.default.createFile(
+                atPath: location.path,
+                contents: Data("#!/bin/sh\nexit 0\n".utf8),
+                attributes: [.posixPermissions: 0o755])
+            #expect(ok)
+        }
+        defer { try? FileManager.default.removeItem(atPath: dir) }
+
+        let resolution = ExecCommandResolution.resolve(
+            command: ["run"],
+            cwd: nil,
+            env: ["PATH": dir + "/base/\u{0301}dir/.."],
+            processCwd: dir)
+        #expect(resolution?.resolvedPath == dir + "/base/run")
+    }
+}
