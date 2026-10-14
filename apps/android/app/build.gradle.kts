@@ -110,11 +110,11 @@ ktlint {
 }
 
 dependencies {
-  val composeBom = platform("androidx.compose:compose-bom:2026.06.01")
+  val composeBom = platform("androidx.compose:compose-bom:2026.09.00")
   implementation(composeBom)
   androidTestImplementation(composeBom)
 
-  implementation("androidx.core:core-ktx:1.19.0")
+  implementation("androidx.core:core-ktx:1.19.1")
   implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.11.0")
   implementation("androidx.activity:activity-compose:1.13.0")
   implementation("androidx.webkit:webkit:1.15.0")
@@ -125,7 +125,7 @@ dependencies {
   // material-icons-extended pulled in full icon set (~20 MB DEX). Only ~18 icons used.
   // R8 will tree-shake unused icons when minify is enabled on release builds.
   implementation("androidx.compose.material:material-icons-extended")
-  implementation("androidx.navigation:navigation-compose:2.9.7")
+  implementation("androidx.navigation:navigation-compose:2.10.2")
 
   debugImplementation("androidx.compose.ui:ui-tooling")
 
@@ -137,13 +137,13 @@ dependencies {
 
   implementation("androidx.security:security-crypto:1.1.0")
   implementation("androidx.exifinterface:exifinterface:1.4.2")
-  implementation("com.squareup.okhttp3:okhttp:5.4.0")
-  implementation("org.bouncycastle:bcprov-jdk18on:1.85")
-  implementation("org.commonmark:commonmark:0.29.0")
-  implementation("org.commonmark:commonmark-ext-autolink:0.29.0")
-  implementation("org.commonmark:commonmark-ext-gfm-strikethrough:0.29.0")
-  implementation("org.commonmark:commonmark-ext-gfm-tables:0.29.0")
-  implementation("org.commonmark:commonmark-ext-task-list-items:0.29.0")
+  implementation("com.squareup.okhttp3:okhttp:5.5.0")
+  implementation("org.bouncycastle:bcprov-jdk18on:1.86")
+  implementation("org.commonmark:commonmark:0.30.1")
+  implementation("org.commonmark:commonmark-ext-autolink:0.30.1")
+  implementation("org.commonmark:commonmark-ext-gfm-strikethrough:0.30.1")
+  implementation("org.commonmark:commonmark-ext-gfm-tables:0.30.1")
+  implementation("org.commonmark:commonmark-ext-task-list-items:0.30.1")
 
   // CameraX (for node.invoke camera.* parity)
   implementation("androidx.camera:camera-core:1.5.2")
@@ -158,11 +158,11 @@ dependencies {
 
   testImplementation("junit:junit:4.13.2")
   testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.11.0")
-  testImplementation("io.kotest:kotest-runner-junit5-jvm:6.2.2")
-  testImplementation("io.kotest:kotest-assertions-core-jvm:6.2.2")
-  testImplementation("com.squareup.okhttp3:mockwebserver:5.4.0")
-  testImplementation("org.robolectric:robolectric:4.16.1")
-  testRuntimeOnly("org.junit.vintage:junit-vintage-engine:6.1.2")
+  testImplementation("io.kotest:kotest-runner-junit5-jvm:6.2.5")
+  testImplementation("io.kotest:kotest-assertions-core-jvm:6.2.5")
+  testImplementation("com.squareup.okhttp3:mockwebserver:5.5.0")
+  testImplementation("org.robolectric:robolectric:4.17")
+  testRuntimeOnly("org.junit.vintage:junit-vintage-engine:6.1.3")
 }
 
 tasks.withType<Test>().configureEach {
