@@ -58,24 +58,48 @@ final class TalkAudioPlayer: NSObject, @preconcurrency AVAudioPlayerDelegate {
 
         return await withCheckedContinuation { continuation in
             playback.setContinuation(continuation)
-            do {
-                let player = try AVAudioPlayer(data: data)
-                self.player = player
+            // Arm the watchdog before touching CoreAudio: AVAudioPlayer
+            // init/prepareToPlay/play can stall for seconds on headless or wedged audio
+            // devices, and running them on the main actor would freeze the watchdog and
+            // the whole app.
+            self.armWatchdog(playback: playback)
 
-                player.delegate = self
-                player.prepareToPlay()
-
-                self.armWatchdog(playback: playback)
-
-                let ok = player.play()
-                if !ok {
-                    self.logger.error("talk audio player refused to play")
-                    self.finish(playback: playback, result: TalkPlaybackResult(finished: false, interruptedAt: nil))
+            Task.detached(priority: .userInitiated) { [weak self] in
+                var player: AVAudioPlayer?
+                var failure: String?
+                do {
+                    let constructed = try AVAudioPlayer(data: data)
+                    constructed.delegate = self
+                    constructed.prepareToPlay()
+                    if constructed.play() {
+                        player = constructed
+                    } else {
+                        failure = "talk audio player refused to play"
+                    }
+                } catch {
+                    failure = "talk audio player failed: \(error.localizedDescription)"
                 }
-            } catch {
-                self.logger.error("talk audio player failed: \(error.localizedDescription, privacy: .public)")
-                self.finish(playback: playback, result: TalkPlaybackResult(finished: false, interruptedAt: nil))
+                await MainActor.run {
+                    self?.registerEngineResult(playback: playback, player: player, failure: failure)
+                }
             }
+        }
+    }
+
+    /// Registers an engine that was started off-main; discarded when the watchdog
+    /// already finished the playback while the engine was still starting.
+    @MainActor
+    private func registerEngineResult(playback: Playback, player: AVAudioPlayer?, failure: String?) {
+        guard self.playback === playback else {
+            player?.stop()
+            return
+        }
+        if let failure {
+            self.logger.error("\(failure, privacy: .public)")
+        }
+        self.player = player
+        if player == nil {
+            self.finish(playback: playback, result: TalkPlaybackResult(finished: false, interruptedAt: nil))
         }
     }
 
