@@ -96,6 +96,10 @@ gh workflow run openclaw-macos-publish.yml --repo openclaw/releases-private --re
   -f public_release_branch=release/YYYY.M.D
 ```
 
+## Appcast
+
+Generate the Sparkle appcast with `scripts/make_appcast.sh OpenClaw-<ver>.zip`. Set `CHANGELOG_FILE` to a checkout of the WednesdayAI-core `CHANGELOG.md` for the release version (app version == core version); the script fails without it, and it generates HTML release notes via `scripts/changelog-to-html.sh`.
+
 ## Verify
 
 - `gh release view vYYYY.M.D --repo openclaw/openclaw` shows zip, dmg, dSYM zip, not draft, not prerelease.

@@ -3,7 +3,7 @@ set -euo pipefail
 
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 ZIP=${1:?"Usage: $0 OpenClaw-<ver>.zip"}
-FEED_URL=${2:-"https://raw.githubusercontent.com/ExpansionX/WednesdayAI-core/main/appcast.xml"}
+FEED_URL=${2:-"https://raw.githubusercontent.com/ExpansionX/WednesdayAI-apps/main/appcast.xml"}
 PRIVATE_KEY_FILE=${SPARKLE_PRIVATE_KEY_FILE:-}
 if [[ -z "$PRIVATE_KEY_FILE" ]]; then
   echo "Set SPARKLE_PRIVATE_KEY_FILE to your ed25519 private key (Sparkle)." >&2
@@ -43,7 +43,7 @@ fi
 
 NOTES_HTML="${ZIP_DIR}/${ZIP_BASE}.html"
 if [[ -x "$ROOT/scripts/changelog-to-html.sh" ]]; then
-  "$ROOT/scripts/changelog-to-html.sh" "$VERSION" >"$NOTES_HTML"
+  "$ROOT/scripts/changelog-to-html.sh" "$VERSION" "${CHANGELOG_FILE:?Set CHANGELOG_FILE to WednesdayAI-core CHANGELOG.md for v$VERSION (app version == core version)}" >"$NOTES_HTML"
 else
   echo "Missing scripts/changelog-to-html.sh; cannot generate HTML release notes." >&2
   exit 1
