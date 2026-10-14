@@ -28,6 +28,7 @@ public enum OutputFormat: String {
             return transcript.sentences(maxLength: maxLength).compactMap { (sentence: AttributedString) -> (
                 CMTimeRange,
                 String)? in
+                guard #available(macOS 26.0, iOS 26.0, *) else { return nil }
                 guard let timeRange = sentence.audioTimeRange else { return nil }
                 return (timeRange, String(sentence.characters))
             }.enumerated().map { index, run in

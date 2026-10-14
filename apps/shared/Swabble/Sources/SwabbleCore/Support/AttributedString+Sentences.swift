@@ -45,6 +45,10 @@ extension AttributedString {
         }
 
         return ranges.compactMap { range in
+            // SpeechAttributes (audio time ranges) exists only on macOS/iOS 26; SpeechAnalyzer
+            // is the only producer of these attributes, so dropping the range matches the
+            // no-attributes behavior on older OS versions.
+            guard #available(macOS 26.0, iOS 26.0, *) else { return nil }
             let audioTimeRanges = self[range].runs.filter {
                 !String(self[$0.range].characters)
                     .trimmingCharacters(in: .whitespacesAndNewlines).isEmpty

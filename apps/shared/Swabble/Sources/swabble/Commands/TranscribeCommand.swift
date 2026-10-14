@@ -33,6 +33,12 @@ struct TranscribeCommand: ParsableCommand {
     }
 
     mutating func run() async throws {
+        // main.swift already refuses to run the CLI below macOS 26; this guard satisfies
+        // the compiler for the SpeechAnalyzer APIs and keeps the command safe standalone.
+        guard #available(macOS 26.0, iOS 26.0, *) else {
+            fputs("error: transcribe requires macOS 26 or newer\n", stderr)
+            exit(1)
+        }
         let fileURL = URL(fileURLWithPath: inputFile)
         let audioFile = try AVAudioFile(forReading: fileURL)
 
