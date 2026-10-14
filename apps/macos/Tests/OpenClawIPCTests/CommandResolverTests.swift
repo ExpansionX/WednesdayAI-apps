@@ -15,9 +15,9 @@ import Testing
         return defaults
     }
 
-    private func makeProjectRootWithPnpm() throws -> (tmp: URL, pnpmPath: URL) {
+    private func makeProjectRootWithPnpm(defaults: UserDefaults) throws -> (tmp: URL, pnpmPath: URL) {
         let tmp = try makeTempDirForTests()
-        CommandResolver.setProjectRoot(tmp.path)
+        CommandResolver.setProjectRoot(tmp.path, defaults: defaults)
         let pnpmPath = tmp.appendingPathComponent("node_modules/.bin/pnpm")
         try makeExecutableForTests(at: pnpmPath)
         return (tmp, pnpmPath)
@@ -27,7 +27,7 @@ import Testing
         let defaults = self.makeLocalDefaults()
 
         let tmp = try makeTempDirForTests()
-        CommandResolver.setProjectRoot(tmp.path)
+        CommandResolver.setProjectRoot(tmp.path, defaults: defaults)
 
         let openclawPath = tmp.appendingPathComponent("node_modules/.bin/openclaw")
         try makeExecutableForTests(at: openclawPath)
@@ -40,7 +40,7 @@ import Testing
         let defaults = self.makeLocalDefaults()
 
         let tmp = try makeTempDirForTests()
-        CommandResolver.setProjectRoot(tmp.path)
+        CommandResolver.setProjectRoot(tmp.path, defaults: defaults)
 
         let nodePath = tmp.appendingPathComponent("node_modules/.bin/node")
         let scriptPath = tmp.appendingPathComponent("bin/openclaw.js")
@@ -67,7 +67,7 @@ import Testing
         let defaults = self.makeLocalDefaults()
 
         let tmp = try makeTempDirForTests()
-        CommandResolver.setProjectRoot(tmp.path)
+        CommandResolver.setProjectRoot(tmp.path, defaults: defaults)
 
         let binDir = tmp.appendingPathComponent("bin")
         let openclawPath = binDir.appendingPathComponent("openclaw")
@@ -88,7 +88,7 @@ import Testing
         let defaults = self.makeLocalDefaults()
 
         let tmp = try makeTempDirForTests()
-        CommandResolver.setProjectRoot(tmp.path)
+        CommandResolver.setProjectRoot(tmp.path, defaults: defaults)
 
         let binDir = tmp.appendingPathComponent("bin")
         let openclawPath = binDir.appendingPathComponent("openclaw")
@@ -105,7 +105,7 @@ import Testing
 
     @Test func `falls back to pnpm`() throws {
         let defaults = self.makeLocalDefaults()
-        let (tmp, pnpmPath) = try self.makeProjectRootWithPnpm()
+        let (tmp, pnpmPath) = try self.makeProjectRootWithPnpm(defaults: defaults)
 
         let cmd = CommandResolver.openclawCommand(
             subcommand: "rpc",
@@ -118,7 +118,7 @@ import Testing
 
     @Test func `pnpm keeps extra args after subcommand`() throws {
         let defaults = self.makeLocalDefaults()
-        let (tmp, pnpmPath) = try self.makeProjectRootWithPnpm()
+        let (tmp, pnpmPath) = try self.makeProjectRootWithPnpm(defaults: defaults)
 
         let cmd = CommandResolver.openclawCommand(
             subcommand: "health",
@@ -132,10 +132,11 @@ import Testing
     }
 
     @Test func `preferred paths start with project node bins`() throws {
+        let defaults = self.makeDefaults()
         let tmp = try makeTempDirForTests()
-        CommandResolver.setProjectRoot(tmp.path)
+        CommandResolver.setProjectRoot(tmp.path, defaults: defaults)
 
-        let first = CommandResolver.preferredPaths().first
+        let first = CommandResolver.preferredPaths(defaults: defaults).first
         #expect(first == tmp.appendingPathComponent("node_modules/.bin").path)
     }
 
@@ -182,7 +183,7 @@ import Testing
         defaults.set("openclaw@example.com:2222", forKey: remoteTargetKey)
 
         let tmp = try makeTempDirForTests()
-        CommandResolver.setProjectRoot(tmp.path)
+        CommandResolver.setProjectRoot(tmp.path, defaults: defaults)
 
         let openclawPath = tmp.appendingPathComponent("node_modules/.bin/openclaw")
         try makeExecutableForTests(at: openclawPath)

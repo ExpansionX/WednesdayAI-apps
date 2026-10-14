@@ -46,8 +46,10 @@ enum CommandResolver {
         return ["/bin/sh", "-c", script]
     }
 
-    static func projectRoot() -> URL {
-        if let stored = UserDefaults.standard.string(forKey: self.projectRootDefaultsKey),
+    /// `defaults` is injectable so tests exercise the read path through a
+    /// unique suite instead of mutating `UserDefaults.standard`.
+    static func projectRoot(defaults: UserDefaults = .standard) -> URL {
+        if let stored = defaults.string(forKey: self.projectRootDefaultsKey),
            let url = self.expandPath(stored),
            FileManager().fileExists(atPath: url.path)
         {
@@ -61,19 +63,19 @@ enum CommandResolver {
         return FileManager().homeDirectoryForCurrentUser
     }
 
-    static func setProjectRoot(_ path: String) {
-        UserDefaults.standard.set(path, forKey: self.projectRootDefaultsKey)
+    static func setProjectRoot(_ path: String, defaults: UserDefaults = .standard) {
+        defaults.set(path, forKey: self.projectRootDefaultsKey)
     }
 
     static func projectRootPath() -> String {
         self.projectRoot().path
     }
 
-    static func preferredPaths() -> [String] {
+    static func preferredPaths(defaults: UserDefaults = .standard) -> [String] {
         let current = ProcessInfo.processInfo.environment["PATH"]?
             .split(separator: ":").map(String.init) ?? []
         let home = FileManager().homeDirectoryForCurrentUser
-        let projectRoot = self.projectRoot()
+        let projectRoot = self.projectRoot(defaults: defaults)
         return self.preferredPaths(home: home, current: current, projectRoot: projectRoot)
     }
 
@@ -246,7 +248,7 @@ enum CommandResolver {
             return ssh
         }
 
-        let root = self.projectRoot()
+        let root = self.projectRoot(defaults: defaults)
         if let openclawPath = self.projectOpenClawExecutable(projectRoot: root) {
             return [openclawPath, subcommand] + extraArgs
         }
