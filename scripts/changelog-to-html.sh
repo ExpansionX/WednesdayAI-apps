@@ -34,7 +34,10 @@ extract_version_section() {
   awk -v version="$version" '
     BEGIN { found=0 }
     /^## / {
-      if ($0 ~ "^##[[:space:]]+" version "([[:space:]].*|$)") { found=1; next }
+      heading=$2
+      sub(/^\[/, "", heading)
+      sub(/\].*$/, "", heading)
+      if (heading == version) { found=1; next }
       if (found) { exit }
     }
     found { print }
