@@ -362,11 +362,14 @@ private enum ExecHostExecutor {
             return self.errorResponse(error)
         }
 
-        // rawCommand is forwarded for display only; analysis never consumes it.
+        // rawCommand is display-only: forward the VALIDATED display text so the
+        // approval prompt binds to the authoritative argv-derived display when
+        // the client-supplied text mismatches. Analysis stays argv-derived and
+        // never consumes this field.
         let context = await self.buildContext(
             request: request,
             command: validatedRequest.command,
-            rawCommand: request.rawCommand)
+            rawCommand: validatedRequest.displayCommand)
 
         var approvedByAsk = request.approvalDecision != nil
         switch ExecHostRequestEvaluator.evaluate(
