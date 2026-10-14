@@ -180,11 +180,11 @@ class FakeSession {
   // ── Test drivers ────────────────────────────────────────────────────────
 
   transcript(text: string, isFinal: boolean): void {
-    for (const entry of [...this.transcriptEntries]) entry.handler({text, isFinal})
+    for (const entry of this.transcriptEntries.slice()) entry.handler({text, isFinal})
   }
 
   uiMessage(channel: string, payload: unknown): void {
-    for (const handler of [...(this.uiHandlers.get(channel) ?? [])]) handler(payload)
+    for (const handler of (this.uiHandlers.get(channel) ?? []).slice()) handler(payload)
   }
 
   transcriptSubscriptions(): Array<{forceLocal?: boolean}> {
@@ -195,7 +195,7 @@ class FakeSession {
   accel(deg: number, ts: number): void {
     const rad = (deg * Math.PI) / 180
     const sample: AccelData = {x: 0, y: Math.sin(rad), z: Math.cos(rad), timestamp: ts}
-    for (const handler of [...this.accelEntries]) handler(sample)
+    for (const handler of this.accelEntries.slice()) handler(sample)
   }
 
   notify(data: Partial<PhoneNotificationData>): void {
@@ -209,16 +209,16 @@ class FakeSession {
       timestamp: Date.now(),
       ...data,
     }
-    for (const handler of [...this.notificationEntries]) handler(full)
+    for (const handler of this.notificationEntries.slice()) handler(full)
   }
 
   dismiss(id: string): void {
-    for (const handler of [...this.dismissedEntries]) handler({notificationId: id})
+    for (const handler of this.dismissedEntries.slice()) handler({notificationId: id})
   }
 
   /** One 16 kHz PCM mic chunk in standard base64. */
   audio(data: string, format = "pcm_s16le", sampleRate = 16000): void {
-    for (const handler of [...this.audioEntries]) handler({data, format, sampleRate})
+    for (const handler of this.audioEntries.slice()) handler({data, format, sampleRate})
   }
 
   audioSubscriptions(): number {
@@ -570,7 +570,7 @@ describe("AssistantController", () => {
 
     const starting = makeController(session, connection).start()
     // The disconnect hook is registered synchronously, before the first await.
-    for (const handler of [...session.disconnectHandlers]) handler()
+    for (const handler of session.disconnectHandlers.slice()) handler()
     releaseSettings?.(null)
     await flush()
     await starting
@@ -598,7 +598,7 @@ describe("AssistantController", () => {
     await vi.advanceTimersByTimeAsync(0)
     expect(session.renders.length).toBe(1) // thinking frame
 
-    for (const handler of [...session.disconnectHandlers]) handler()
+    for (const handler of session.disconnectHandlers.slice()) handler()
     await flush()
     const rendersAtDispose = session.renders.length
     const sendsAtDispose = session.uiSends.length
@@ -628,7 +628,7 @@ describe("AssistantController", () => {
     await ask(session, connection, "hello there")
     await vi.advanceTimersByTimeAsync(0)
 
-    for (const handler of [...session.disconnectHandlers]) handler()
+    for (const handler of session.disconnectHandlers.slice()) handler()
     await flush()
     const rendersAtDispose = session.renders.length
 
@@ -737,7 +737,7 @@ describe("AssistantController", () => {
     session.transcript("testing", false)
     expect(session.uiSends.filter((send) => send.channel === "mictest:transcript")).toHaveLength(1)
 
-    for (const handler of [...session.closeHandlers]) handler()
+    for (const handler of session.closeHandlers.slice()) handler()
     await flush()
     session.transcript("after close", false)
     expect(session.uiSends.filter((send) => send.channel === "mictest:transcript")).toHaveLength(1)
@@ -904,7 +904,7 @@ describe("AssistantController", () => {
     expect(lastSnapshot(session).micTestEnabled).toBe(true)
 
     // Closing the phone UI disables the mic test; the snapshot reports it.
-    for (const handler of [...session.closeHandlers]) handler()
+    for (const handler of session.closeHandlers.slice()) handler()
     await flush()
     expect(lastSnapshot(session).micTestEnabled).toBe(false)
   })
@@ -1370,7 +1370,7 @@ describe("AssistantController", () => {
       new TextEncoder().encode(JSON.stringify({url: "wss://late.example.ts.net", bootstrapToken: "boot-2"})),
     )
     session.scanQr.mockImplementation(async () => {
-      for (const handler of [...session.disconnectHandlers]) handler()
+      for (const handler of session.disconnectHandlers.slice()) handler()
       return {cancelled: false, data: setupCode}
     })
 
@@ -2309,7 +2309,7 @@ describe("AssistantController", () => {
       // start() is parked on the seen-apps read: the settings read has
       // resolved and the disconnect lands during the second one.
       await flush()
-      for (const handler of [...session.disconnectHandlers]) handler()
+      for (const handler of session.disconnectHandlers.slice()) handler()
       releaseSeenApps?.(null)
       await flush()
       await starting
@@ -2325,7 +2325,7 @@ describe("AssistantController", () => {
       await startAssistant(session, connection, {querySttMode: "gateway"})
       expect(session.audioSubscriptions()).toBe(1)
 
-      for (const handler of [...session.disconnectHandlers]) handler()
+      for (const handler of session.disconnectHandlers.slice()) handler()
       await flush()
 
       expect(session.audioSubscriptions()).toBe(0)
@@ -2336,8 +2336,8 @@ describe("AssistantController", () => {
       const connection = new FakeConnection()
       await startAssistant(session, connection)
 
-      for (const handler of [...session.disconnectHandlers]) handler()
-      for (const handler of [...session.disconnectHandlers]) handler()
+      for (const handler of session.disconnectHandlers.slice()) handler()
+      for (const handler of session.disconnectHandlers.slice()) handler()
 
       expect(connection.stopCalls).toHaveLength(1)
     })
@@ -2351,7 +2351,7 @@ describe("AssistantController", () => {
       const connection = new FakeConnection()
       let disposeNow = false
       session.imu.onAccel(() => {
-        if (disposeNow) for (const handler of [...session.disconnectHandlers]) handler()
+        if (disposeNow) for (const handler of session.disconnectHandlers.slice()) handler()
       })
       await startAssistant(session, connection)
 
@@ -2373,7 +2373,7 @@ describe("AssistantController", () => {
       const connection = new FakeConnection()
       let disposeNow = false
       session.phone.notifications.on(() => {
-        if (disposeNow) for (const handler of [...session.disconnectHandlers]) handler()
+        if (disposeNow) for (const handler of session.disconnectHandlers.slice()) handler()
       })
       await startAssistant(session, connection)
       session.uiMessage("settings:set", {notificationApps: ["com.google.android.apps.messaging"]})
@@ -2396,7 +2396,7 @@ describe("AssistantController", () => {
       connection.respond("chat.send", () => ({runId: "srv-run-1"}))
       let disposeNow = false
       session.transcription.on(() => {
-        if (disposeNow) for (const handler of [...session.disconnectHandlers]) handler()
+        if (disposeNow) for (const handler of session.disconnectHandlers.slice()) handler()
       })
       await startAssistant(session, connection)
       const rendersBefore = session.renders.length
@@ -2618,7 +2618,7 @@ describe("AssistantController", () => {
       await controller.start()
       const sendsAtDispose = session.uiSends.length
 
-      for (const handler of [...session.disconnectHandlers]) handler()
+      for (const handler of session.disconnectHandlers.slice()) handler()
       // A hello from the dying socket lands after disposal: no hydration at all.
       connection.hello("agent:main:main")
       await flush()
@@ -2646,7 +2646,7 @@ describe("AssistantController", () => {
       gateWrites = true
       session.uiMessage("settings:set", {wakeSttMode: "cloud"})
       await flush()
-      for (const handler of [...session.disconnectHandlers]) handler()
+      for (const handler of session.disconnectHandlers.slice()) handler()
       gateWrites = false
       gate.resolve()
       await flush()
@@ -2715,7 +2715,7 @@ describe("AssistantController", () => {
 
       session.uiMessage("pair:forget", {})
       await flush()
-      for (const handler of [...session.disconnectHandlers]) handler()
+      for (const handler of session.disconnectHandlers.slice()) handler()
       const sendsAtDispose = session.uiSends.length
       const rendersAtDispose = session.renders.length
 
@@ -2749,7 +2749,7 @@ describe("AssistantController", () => {
 
       session.uiMessage("pair:code", {code: setupCode})
       await flush()
-      for (const handler of [...session.disconnectHandlers]) handler()
+      for (const handler of session.disconnectHandlers.slice()) handler()
       const sendsAtDispose = session.uiSends.length
 
       failPair?.(new Error("late pairing failure"))
