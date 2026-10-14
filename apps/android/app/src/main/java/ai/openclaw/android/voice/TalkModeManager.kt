@@ -983,7 +983,7 @@ class TalkModeManager(
             language = TalkModeRuntime.validatedLanguage(directive?.language),
             latencyTier = TalkModeRuntime.validatedLatencyTier(directive?.latencyTier),
           )
-        streamAndPlay(voiceId = voiceId!!, apiKey = apiKey!!, request = request, playbackToken = playbackToken)
+        streamAndPlay(voiceId = voiceId, apiKey = apiKey, request = request, playbackToken = playbackToken)
         Log.d(tag, "elevenlabs stream ok durMs=${SystemClock.elapsedRealtime() - ttsStarted}")
       }
     } catch (err: Throwable) {

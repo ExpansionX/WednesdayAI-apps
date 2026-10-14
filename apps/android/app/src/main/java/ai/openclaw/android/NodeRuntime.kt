@@ -36,6 +36,11 @@ import ai.openclaw.android.node.SmsHandler
 import ai.openclaw.android.node.SmsManager
 import ai.openclaw.android.node.SystemHandler
 import ai.openclaw.android.node.asObjectOrNull
+import ai.openclaw.android.node.asStringOrNull
+import ai.openclaw.android.node.invokeErrorFromThrowable
+import ai.openclaw.android.node.isCanonicalMainSessionKey
+import ai.openclaw.android.node.normalizeMainKey
+import ai.openclaw.android.node.parseHexColorArgb
 import ai.openclaw.android.protocol.OpenClawCanvasA2UIAction
 import ai.openclaw.android.voice.MicCaptureManager
 import ai.openclaw.android.voice.TalkModeManager

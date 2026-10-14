@@ -610,7 +610,7 @@ private fun InlineBase64Image(
 
   if (image != null) {
     Image(
-      bitmap = image!!,
+      bitmap = image,
       contentDescription = mimeType ?: "image",
       contentScale = ContentScale.Fit,
       modifier = Modifier.fillMaxWidth(),

@@ -1,6 +1,7 @@
 package ai.openclaw.android.voice
 
 import android.media.MediaDataSource
+import java.util.concurrent.locks.ReentrantLock
 import kotlin.math.min
 
 internal class StreamingMediaDataSource : MediaDataSource() {
@@ -9,7 +10,8 @@ internal class StreamingMediaDataSource : MediaDataSource() {
     val data: ByteArray,
   )
 
-  private val lock = Object()
+  private val lock = ReentrantLock()
+  private val dataAvailable = lock.newCondition()
   private val chunks = ArrayList<Chunk>()
   private var totalSize: Long = 0
   private var closed = false
@@ -18,27 +20,36 @@ internal class StreamingMediaDataSource : MediaDataSource() {
 
   fun append(data: ByteArray) {
     if (data.isEmpty()) return
-    synchronized(lock) {
+    lock.lock()
+    try {
       if (closed || finished) return
       val chunk = Chunk(totalSize, data)
       chunks.add(chunk)
       totalSize += data.size.toLong()
-      lock.notifyAll()
+      dataAvailable.signalAll()
+    } finally {
+      lock.unlock()
     }
   }
 
   fun finish() {
-    synchronized(lock) {
+    lock.lock()
+    try {
       if (closed) return
       finished = true
-      lock.notifyAll()
+      dataAvailable.signalAll()
+    } finally {
+      lock.unlock()
     }
   }
 
   fun fail() {
-    synchronized(lock) {
+    lock.lock()
+    try {
       closed = true
-      lock.notifyAll()
+      dataAvailable.signalAll()
+    } finally {
+      lock.unlock()
     }
   }
 
@@ -49,9 +60,10 @@ internal class StreamingMediaDataSource : MediaDataSource() {
     size: Int,
   ): Int {
     if (position < 0) return -1
-    synchronized(lock) {
+    lock.lock()
+    try {
       while (!closed && !finished && position >= totalSize) {
-        lock.wait()
+        dataAvailable.await()
       }
       if (closed) return -1
       if (position >= totalSize && finished) return -1
@@ -81,15 +93,20 @@ internal class StreamingMediaDataSource : MediaDataSource() {
       }
 
       return toRead - remaining
+    } finally {
+      lock.unlock()
     }
   }
 
   override fun getSize(): Long = -1
 
   override fun close() {
-    synchronized(lock) {
+    lock.lock()
+    try {
       closed = true
-      lock.notifyAll()
+      dataAvailable.signalAll()
+    } finally {
+      lock.unlock()
     }
   }
 

@@ -503,9 +503,7 @@ fun OnboardingFlow(
             pendingSpecialAccessToggle = null
           }
 
-          null -> {
-            Unit
-          }
+          null -> {}
         }
       }
     lifecycleOwner.lifecycle.addObserver(observer)
