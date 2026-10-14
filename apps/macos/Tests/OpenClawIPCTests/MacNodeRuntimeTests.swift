@@ -40,13 +40,15 @@ struct MacNodeRuntimeTests {
     }
 
     @Test func `handle invoke camera list requires enabled camera`() async {
-        await TestIsolation.withUserDefaultsValues([cameraEnabledKey: false]) {
-            let runtime = MacNodeRuntime()
-            let response = await runtime.handleInvoke(
-                BridgeInvokeRequest(id: "req-4", command: OpenClawCameraCommand.list.rawValue))
-            #expect(response.ok == false)
-            #expect(response.error?.message.contains("CAMERA_DISABLED") == true)
-        }
+        let suiteName = "oc-camera-enabled-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defaults.set(false, forKey: cameraEnabledKey)
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let runtime = MacNodeRuntime(defaultsSuiteName: suiteName)
+        let response = await runtime.handleInvoke(
+            BridgeInvokeRequest(id: "req-4", command: OpenClawCameraCommand.list.rawValue))
+        #expect(response.ok == false)
+        #expect(response.error?.message.contains("CAMERA_DISABLED") == true)
     }
 
     @Test func `handle invoke screen record uses injected services`() async throws {

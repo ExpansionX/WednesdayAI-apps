@@ -31,18 +31,19 @@ struct GatewayEnvironmentTests {
         #expect(Semver(major: 1, minor: 9, patch: 9).compatible(with: required) == false)
     }
 
+    @MainActor
     @Test func `gateway port defaults and respects override`() async {
         let configPath = TestIsolation.tempConfigPath()
-        await TestIsolation.withIsolatedState(
-            env: ["OPENCLAW_CONFIG_PATH": configPath],
-            defaults: ["gatewayPort": nil])
-        {
-            let defaultPort = GatewayEnvironment.gatewayPort()
+        let suiteName = "oc-gateway-port-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        await TestIsolation.withEnvValues(["OPENCLAW_CONFIG_PATH": configPath]) {
+            let defaultPort = GatewayEnvironment.gatewayPort(defaults: defaults)
             #expect(defaultPort == 18789)
 
-            UserDefaults.standard.set(19999, forKey: "gatewayPort")
-            defer { UserDefaults.standard.removeObject(forKey: "gatewayPort") }
-            #expect(GatewayEnvironment.gatewayPort() == 19999)
+            defaults.set(19999, forKey: "gatewayPort")
+            #expect(GatewayEnvironment.gatewayPort(defaults: defaults) == 19999)
         }
     }
 

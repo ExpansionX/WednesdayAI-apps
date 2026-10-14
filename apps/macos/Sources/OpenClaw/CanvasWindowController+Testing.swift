@@ -19,9 +19,13 @@ extension CanvasWindowController {
         self.storedFrameDefaultsKey(sessionKey: sessionKey)
     }
 
-    static func _testStoreAndLoadFrame(sessionKey: String, frame: NSRect) -> NSRect? {
-        self.storeRestoredFrame(frame, sessionKey: sessionKey)
-        return self.loadRestoredFrame(sessionKey: sessionKey)
+    static func _testStoreAndLoadFrame(
+        sessionKey: String,
+        frame: NSRect,
+        defaults: UserDefaults = .standard) -> NSRect?
+    {
+        self.storeRestoredFrame(frame, sessionKey: sessionKey, defaults: defaults)
+        return self.loadRestoredFrame(sessionKey: sessionKey, defaults: defaults)
     }
 
     static func _testParseIPv4(_ host: String) -> (UInt8, UInt8, UInt8, UInt8)? {

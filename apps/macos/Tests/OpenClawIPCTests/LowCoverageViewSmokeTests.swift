@@ -83,8 +83,11 @@ struct LowCoverageViewSmokeTests {
 
     @Test func `dock icon manager updates visibility`() {
         _ = NSApplication.shared
-        UserDefaults.standard.set(false, forKey: showDockIconKey)
-        DockIconManager.shared.updateDockVisibility()
+        let suiteName = "oc-dock-icon-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        defaults.set(false, forKey: showDockIconKey)
+        DockIconManager.shared.updateDockVisibility(defaults: defaults)
         DockIconManager.shared.temporarilyShowDock()
     }
 

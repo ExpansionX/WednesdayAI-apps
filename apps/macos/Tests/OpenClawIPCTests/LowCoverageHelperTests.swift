@@ -242,9 +242,13 @@ struct LowCoverageHelperTests {
         #expect(CanvasWindowController._testJSOptionalStringLiteral(nil) == "null")
 
         let rect = NSRect(x: 10, y: 12, width: 400, height: 420)
-        let key = CanvasWindowController._testStoredFrameKey(sessionKey: "test")
-        let loaded = CanvasWindowController._testStoreAndLoadFrame(sessionKey: "test", frame: rect)
-        UserDefaults.standard.removeObject(forKey: key)
+        let suiteName = "oc-canvas-frame-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let loaded = CanvasWindowController._testStoreAndLoadFrame(
+            sessionKey: "test",
+            frame: rect,
+            defaults: defaults)
         #expect(loaded?.size.width == rect.size.width)
 
         let parsed = CanvasWindowController._testParseIPv4("192.168.1.2")

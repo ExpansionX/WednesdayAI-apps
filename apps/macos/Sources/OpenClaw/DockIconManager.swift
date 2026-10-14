@@ -26,14 +26,16 @@ final class DockIconManager: NSObject, @unchecked Sendable {
         NotificationCenter.default.removeObserver(self)
     }
 
-    func updateDockVisibility() {
+    func updateDockVisibility(defaults: UserDefaults = .standard) {
+        // Read the preference before hopping actors: UserDefaults is not
+        // Sendable, so it cannot cross into the @MainActor task.
+        let userWantsDockHidden = !defaults.bool(forKey: showDockIconKey)
         Task { @MainActor in
             guard NSApp != nil else {
                 self.logger.log(level: .warning, "NSApp not ready, skipping Dock visibility update")
                 return
             }
 
-            let userWantsDockHidden = !UserDefaults.standard.bool(forKey: showDockIconKey)
             let visibleWindows = NSApp?.windows.filter { window in
                 window.isVisible &&
                     window.frame.width > 1 &&

@@ -26,17 +26,24 @@ extension CanvasWindowController {
         "openclaw.canvas.frame.\(self.sanitizeSessionKey(sessionKey))"
     }
 
-    static func loadRestoredFrame(sessionKey: String) -> NSRect? {
+    static func loadRestoredFrame(
+        sessionKey: String,
+        defaults: UserDefaults = .standard) -> NSRect?
+    {
         let key = self.storedFrameDefaultsKey(sessionKey: sessionKey)
-        guard let arr = UserDefaults.standard.array(forKey: key) as? [Double], arr.count == 4 else { return nil }
+        guard let arr = defaults.array(forKey: key) as? [Double], arr.count == 4 else { return nil }
         let rect = NSRect(x: arr[0], y: arr[1], width: arr[2], height: arr[3])
         if rect.width < CanvasLayout.minPanelSize.width || rect.height < CanvasLayout.minPanelSize.height { return nil }
         return rect
     }
 
-    static func storeRestoredFrame(_ frame: NSRect, sessionKey: String) {
+    static func storeRestoredFrame(
+        _ frame: NSRect,
+        sessionKey: String,
+        defaults: UserDefaults = .standard)
+    {
         let key = self.storedFrameDefaultsKey(sessionKey: sessionKey)
-        UserDefaults.standard.set(
+        defaults.set(
             [Double(frame.origin.x), Double(frame.origin.y), Double(frame.size.width), Double(frame.size.height)],
             forKey: key)
     }

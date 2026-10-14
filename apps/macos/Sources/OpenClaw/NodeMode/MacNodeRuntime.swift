@@ -10,12 +10,20 @@ actor MacNodeRuntime {
     private var mainSessionKey: String = "main"
     private var eventSender: (@Sendable (String, String?) async -> Void)?
 
+    /// Thread-safe for concurrent reads; `nonisolated(unsafe)` mirrors the old
+    /// static reads of `UserDefaults.standard` from nonisolated contexts.
+    private nonisolated(unsafe) let defaults: UserDefaults
+
     init(
         makeMainActorServices: @escaping () async -> any MacNodeRuntimeMainActorServices = {
             await MainActor.run { LiveMacNodeRuntimeMainActorServices() }
-        })
+        },
+        // A suite name (Sendable) instead of a UserDefaults instance: tests
+        // pass a unique per-test suite, production keeps `.standard`.
+        defaultsSuiteName: String? = nil)
     {
         self.makeMainActorServices = makeMainActorServices
+        self.defaults = defaultsSuiteName.flatMap(UserDefaults.init(suiteName:)) ?? .standard
     }
 
     func updateMainSessionKey(_ sessionKey: String) {
@@ -30,7 +38,7 @@ actor MacNodeRuntime {
 
     func handleInvoke(_ req: BridgeInvokeRequest) async -> BridgeInvokeResponse {
         let command = req.command
-        if self.isCanvasCommand(command), !Self.canvasEnabled() {
+        if self.isCanvasCommand(command), !self.canvasEnabled() {
             return BridgeInvokeResponse(
                 id: req.id,
                 ok: false,
@@ -166,7 +174,7 @@ actor MacNodeRuntime {
     }
 
     private func handleCameraInvoke(_ req: BridgeInvokeRequest) async throws -> BridgeInvokeResponse {
-        guard Self.cameraEnabled() else {
+        guard self.cameraEnabled() else {
             return BridgeInvokeResponse(
                 id: req.id,
                 ok: false,
@@ -230,7 +238,7 @@ actor MacNodeRuntime {
     }
 
     private func handleLocationInvoke(_ req: BridgeInvokeRequest) async throws -> BridgeInvokeResponse {
-        let mode = Self.locationMode()
+        let mode = self.locationMode()
         guard mode != .off else {
             return BridgeInvokeResponse(
                 id: req.id,
@@ -967,16 +975,16 @@ extension MacNodeRuntime {
         return json
     }
 
-    private nonisolated static func canvasEnabled() -> Bool {
-        UserDefaults.standard.object(forKey: canvasEnabledKey) as? Bool ?? true
+    private nonisolated func canvasEnabled() -> Bool {
+        self.defaults.object(forKey: canvasEnabledKey) as? Bool ?? true
     }
 
-    private nonisolated static func cameraEnabled() -> Bool {
-        UserDefaults.standard.object(forKey: cameraEnabledKey) as? Bool ?? false
+    private nonisolated func cameraEnabled() -> Bool {
+        self.defaults.object(forKey: cameraEnabledKey) as? Bool ?? false
     }
 
-    private nonisolated static func locationMode() -> OpenClawLocationMode {
-        let raw = UserDefaults.standard.string(forKey: locationModeKey) ?? "off"
+    private nonisolated func locationMode() -> OpenClawLocationMode {
+        let raw = self.defaults.string(forKey: locationModeKey) ?? "off"
         return OpenClawLocationMode(rawValue: raw) ?? .off
     }
 

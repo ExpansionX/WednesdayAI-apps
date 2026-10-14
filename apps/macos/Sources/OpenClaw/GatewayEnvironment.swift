@@ -74,7 +74,9 @@ enum GatewayEnvironment {
     private static let logger = Logging.Logger(subsystem: "ai.openclaw", category: "gateway.env")
     private static let supportedBindModes: Set<String> = ["loopback", "tailnet", "lan", "auto"]
 
-    static func gatewayPort() -> Int {
+    /// `defaults` is injectable so tests exercise the read path through a
+    /// unique suite instead of mutating `UserDefaults.standard`.
+    static func gatewayPort(defaults: UserDefaults = .standard) -> Int {
         if let raw = ProcessInfo.processInfo.environment["OPENCLAW_GATEWAY_PORT"] {
             let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
             if let parsed = Int(trimmed), parsed > 0 { return parsed }
@@ -82,7 +84,7 @@ enum GatewayEnvironment {
         if let configPort = OpenClawConfigFile.gatewayPort(), configPort > 0 {
             return configPort
         }
-        let stored = UserDefaults.standard.integer(forKey: "gatewayPort")
+        let stored = defaults.integer(forKey: "gatewayPort")
         return stored > 0 ? stored : 18789
     }
 
