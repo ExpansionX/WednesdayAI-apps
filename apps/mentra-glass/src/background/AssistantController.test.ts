@@ -1,9 +1,20 @@
 import {afterEach, beforeEach, describe, expect, it, vi} from "vitest"
 
-import type {MiniappSession, RenderElement} from "@mentra/miniapp/background"
+import type {
+  AccelData,
+  AudioChunkData,
+  MiniappSession,
+  PhoneNotificationData,
+  RenderElement,
+} from "@mentra/miniapp/background"
 import type {GatewayConnection} from "../gateway/connection"
 import {base64UrlEncode} from "../gateway/encoding"
-import {DEVICE_AUTH_STORAGE_KEY, GATEWAY_STORAGE_KEY, SETTINGS_STORAGE_KEY} from "../gateway/constants"
+import {
+  DEVICE_AUTH_STORAGE_KEY,
+  GATEWAY_STORAGE_KEY,
+  NOTIFICATION_APPS_STORAGE_KEY,
+  SETTINGS_STORAGE_KEY,
+} from "../gateway/constants"
 import type {ConnectionState, KeyValueStore} from "../gateway/types"
 import type {Channels, StateSnapshot} from "../shared/channels"
 
@@ -117,6 +128,50 @@ class FakeSession {
     },
   }
 
+  private readonly accelEntries: Array<(data: AccelData) => void> = []
+  private readonly audioEntries: Array<(data: AudioChunkData) => void> = []
+  private readonly notificationEntries: Array<(data: PhoneNotificationData) => void> = []
+  private readonly dismissedEntries: Array<(data: {notificationId: string}) => void> = []
+
+  readonly mic = {
+    onAudioChunk: (handler: (data: AudioChunkData) => void) => {
+      this.audioEntries.push(handler)
+      return () => {
+        const index = this.audioEntries.indexOf(handler)
+        if (index >= 0) this.audioEntries.splice(index, 1)
+      }
+    },
+  }
+
+  readonly imu = {
+    onAccel: (handler: (data: AccelData) => void) => {
+      this.accelEntries.push(handler)
+      return () => {
+        const index = this.accelEntries.indexOf(handler)
+        if (index >= 0) this.accelEntries.splice(index, 1)
+      }
+    },
+  }
+
+  readonly phone = {
+    notifications: {
+      on: (handler: (data: PhoneNotificationData) => void) => {
+        this.notificationEntries.push(handler)
+        return () => {
+          const index = this.notificationEntries.indexOf(handler)
+          if (index >= 0) this.notificationEntries.splice(index, 1)
+        }
+      },
+      onDismissed: (handler: (data: {notificationId: string}) => void) => {
+        this.dismissedEntries.push(handler)
+        return () => {
+          const index = this.dismissedEntries.indexOf(handler)
+          if (index >= 0) this.dismissedEntries.splice(index, 1)
+        }
+      },
+    },
+  }
+
   on(event: string, cb: () => void): () => void {
     if (event === "disconnect") this.disconnectHandlers.push(cb)
     return () => {}
@@ -125,15 +180,49 @@ class FakeSession {
   // ── Test drivers ────────────────────────────────────────────────────────
 
   transcript(text: string, isFinal: boolean): void {
-    for (const entry of [...this.transcriptEntries]) entry.handler({text, isFinal})
+    for (const entry of this.transcriptEntries.slice()) entry.handler({text, isFinal})
   }
 
   uiMessage(channel: string, payload: unknown): void {
-    for (const handler of [...(this.uiHandlers.get(channel) ?? [])]) handler(payload)
+    for (const handler of (this.uiHandlers.get(channel) ?? []).slice()) handler(payload)
   }
 
   transcriptSubscriptions(): Array<{forceLocal?: boolean}> {
     return this.transcriptEntries.map((entry) => entry.options ?? {})
+  }
+
+  /** One accelerometer reading at `deg` pitch and `ts` unix ms. */
+  accel(deg: number, ts: number): void {
+    const rad = (deg * Math.PI) / 180
+    const sample: AccelData = {x: 0, y: Math.sin(rad), z: Math.cos(rad), timestamp: ts}
+    for (const handler of this.accelEntries.slice()) handler(sample)
+  }
+
+  notify(data: Partial<PhoneNotificationData>): void {
+    const full: PhoneNotificationData = {
+      notificationId: "",
+      title: "",
+      content: "",
+      app: "Messages",
+      packageName: "com.google.android.apps.messaging",
+      priority: "",
+      timestamp: Date.now(),
+      ...data,
+    }
+    for (const handler of this.notificationEntries.slice()) handler(full)
+  }
+
+  dismiss(id: string): void {
+    for (const handler of this.dismissedEntries.slice()) handler({notificationId: id})
+  }
+
+  /** One 16 kHz PCM mic chunk in standard base64. */
+  audio(data: string, format = "pcm_s16le", sampleRate = 16000): void {
+    for (const handler of this.audioEntries.slice()) handler({data, format, sampleRate})
+  }
+
+  audioSubscriptions(): number {
+    return this.audioEntries.length
   }
 }
 
@@ -160,6 +249,7 @@ class FakeConnection {
   }
 
   readonly startCalls: number[] = []
+  readonly stopCalls: number[] = []
 
   async start(): Promise<void> {
     this.startCalls.push(1)
@@ -178,7 +268,9 @@ class FakeConnection {
     this.state = "unpaired"
     if (this.forgetError) throw this.forgetError
   }
-  stop(): void {}
+  stop(): void {
+    this.stopCalls.push(1)
+  }
 
   // ── Test drivers ────────────────────────────────────────────────────────
 
@@ -226,13 +318,53 @@ function makeController(session: FakeSession, connection = new FakeConnection())
   })
 }
 
+/**
+ * Drain pending async work to a macrotask boundary: the microtask queue runs
+ * to completion whatever the await depth, and any due zero-delay timers fire
+ * (later timers are left for the test's explicit advances). Fake timers only:
+ * `advanceTimersByTimeAsync` throws under real timers, and every test in this
+ * file installs them in beforeEach.
+ */
 async function flush(): Promise<void> {
-  for (let index = 0; index < 20; index += 1) {
-    await Promise.resolve()
-  }
+  await vi.advanceTimersByTimeAsync(0)
 }
 
-async function startAssistant(session: FakeSession, connection: FakeConnection): Promise<AssistantController> {
+type Deferred<T> = {promise: Promise<T>; resolve: (value: T) => void; reject: (error: unknown) => void}
+
+/** The app's TS lib is ES2022 — no Promise.withResolvers. */
+function deferred<T>(): Deferred<T> {
+  let resolve!: (value: T) => void
+  let reject!: (error: unknown) => void
+  const pending = new Promise<T>((res, rej) => {
+    resolve = res
+    reject = rej
+  })
+  return {promise: pending, resolve, reject}
+}
+
+/**
+ * Starts a controller against the fake gateway. The stored settings are
+ * seeded with `querySttMode: "mentra"` unless overridden — keeping existing
+ * tests on the Mentra transcription path; gateway-STT tests pass
+ * `{querySttMode: "gateway"}`. A stored value is left alone so tests can
+ * plant malformed settings; an explicit option always overwrites. Seeding is
+ * best-effort: a store whose read or write fails keeps the test's own
+ * storage semantics intact.
+ */
+async function startAssistant(
+  session: FakeSession,
+  connection: FakeConnection,
+  options: {querySttMode?: "gateway" | "mentra"} = {},
+): Promise<AssistantController> {
+  try {
+    const stored = JSON.parse((await session.storage.get(SETTINGS_STORAGE_KEY)) ?? "{}") as Record<string, unknown>
+    if (options.querySttMode !== undefined || stored.querySttMode === undefined) {
+      stored.querySttMode = options.querySttMode ?? "mentra"
+    }
+    await session.storage.set(SETTINGS_STORAGE_KEY, JSON.stringify(stored))
+  } catch {
+    // The test's store is deliberately broken; let the controller see that.
+  }
   stubGateway(connection)
   const controller = makeController(session, connection)
   await controller.start()
@@ -297,6 +429,40 @@ async function ask(
   responder?: (params: unknown) => unknown,
 ): Promise<void> {
   if (responder) connection.respond("chat.send", responder)
+  session.transcript(`hey wednesday ${query}`, true)
+  await flush()
+}
+
+/** Standard base64 for PCM bytes: the gateway path decodes it with atob. */
+function b64(bytes: number[]): string {
+  let binary = ""
+  for (const byte of bytes) binary += String.fromCharCode(byte)
+  return btoa(binary)
+}
+
+/** Stubs the talk.session trio for a transcription session that opens. */
+function stubTalkSession(connection: FakeConnection, sessionId: string): void {
+  connection.respond("talk.session.create", () => ({
+    sessionId,
+    audio: {inputEncoding: "pcm16", inputSampleRateHz: 16000, channels: 1},
+  }))
+  connection.respond("talk.session.appendAudio", () => ({}))
+  connection.respond("talk.session.close", () => ({}))
+}
+
+/**
+ * Drives a spoken question the way the device does: an interim bare wake word
+ * (which opens the gateway capture), then a final transcript carrying the
+ * question. Returns with finish() in flight.
+ */
+async function askViaGateway(
+  session: FakeSession,
+  connection: FakeConnection,
+  query: string,
+): Promise<void> {
+  connection.respond("chat.send", () => ({runId: "srv-run-1"}))
+  session.transcript("hey wednesday", false)
+  await flush()
   session.transcript(`hey wednesday ${query}`, true)
   await flush()
 }
@@ -404,7 +570,7 @@ describe("AssistantController", () => {
 
     const starting = makeController(session, connection).start()
     // The disconnect hook is registered synchronously, before the first await.
-    for (const handler of [...session.disconnectHandlers]) handler()
+    for (const handler of session.disconnectHandlers.slice()) handler()
     releaseSettings?.(null)
     await flush()
     await starting
@@ -432,7 +598,7 @@ describe("AssistantController", () => {
     await vi.advanceTimersByTimeAsync(0)
     expect(session.renders.length).toBe(1) // thinking frame
 
-    for (const handler of [...session.disconnectHandlers]) handler()
+    for (const handler of session.disconnectHandlers.slice()) handler()
     await flush()
     const rendersAtDispose = session.renders.length
     const sendsAtDispose = session.uiSends.length
@@ -462,7 +628,7 @@ describe("AssistantController", () => {
     await ask(session, connection, "hello there")
     await vi.advanceTimersByTimeAsync(0)
 
-    for (const handler of [...session.disconnectHandlers]) handler()
+    for (const handler of session.disconnectHandlers.slice()) handler()
     await flush()
     const rendersAtDispose = session.renders.length
 
@@ -571,7 +737,7 @@ describe("AssistantController", () => {
     session.transcript("testing", false)
     expect(session.uiSends.filter((send) => send.channel === "mictest:transcript")).toHaveLength(1)
 
-    for (const handler of [...session.closeHandlers]) handler()
+    for (const handler of session.closeHandlers.slice()) handler()
     await flush()
     session.transcript("after close", false)
     expect(session.uiSends.filter((send) => send.channel === "mictest:transcript")).toHaveLength(1)
@@ -738,7 +904,7 @@ describe("AssistantController", () => {
     expect(lastSnapshot(session).micTestEnabled).toBe(true)
 
     // Closing the phone UI disables the mic test; the snapshot reports it.
-    for (const handler of [...session.closeHandlers]) handler()
+    for (const handler of session.closeHandlers.slice()) handler()
     await flush()
     expect(lastSnapshot(session).micTestEnabled).toBe(false)
   })
@@ -783,7 +949,12 @@ describe("AssistantController", () => {
     await startAssistant(session, connection)
 
     expect(session.transcriptSubscriptions().at(-1)).toEqual({forceLocal: true})
-    expect(lastSnapshot(session).settings).toEqual({wakeSttMode: "local", agentId: null})
+    expect(lastSnapshot(session).settings).toEqual({
+      wakeSttMode: "local",
+      agentId: null,
+      querySttMode: "gateway",
+      notificationApps: [],
+    })
   })
 
   it("warns when settings cannot be saved but still applies them", async () => {
@@ -802,7 +973,12 @@ describe("AssistantController", () => {
     await flush()
 
     expect(errorMessages(session)).toEqual(["disk full"])
-    expect(lastSnapshot(session).settings).toEqual({wakeSttMode: "cloud", agentId: null})
+    expect(lastSnapshot(session).settings).toEqual({
+      wakeSttMode: "cloud",
+      agentId: null,
+      querySttMode: "gateway",
+      notificationApps: [],
+    })
     expect(session.transcriptSubscriptions().at(-1)).toEqual({forceLocal: false})
   })
 
@@ -817,6 +993,57 @@ describe("AssistantController", () => {
     expect(session.transcriptSubscriptions().at(-1)).toEqual({forceLocal: false})
     const stored = JSON.parse((await session.storage.get(SETTINGS_STORAGE_KEY)) ?? "{}") as {wakeSttMode?: string}
     expect(stored.wakeSttMode).toBe("cloud")
+  })
+
+  it("defaults query transcription to the gateway and no notification apps", async () => {
+    const session = new FakeSession()
+    const connection = new FakeConnection()
+    // Bare start, without startAssistant's querySttMode seeding: this test is
+    // about the controller's own default when nothing is stored.
+    stubGateway(connection)
+    const controller = makeController(session, connection)
+    await controller.start()
+    connection.hello("agent:main:main")
+    await flush()
+
+    const settings = lastSnapshot(session).settings
+    expect(settings.querySttMode).toBe("gateway")
+    expect(settings.notificationApps).toEqual([])
+  })
+
+  it("persists querySttMode and notificationApps", async () => {
+    const session = new FakeSession()
+    const connection = new FakeConnection()
+    await startAssistant(session, connection)
+
+    session.uiMessage("settings:set", {querySttMode: "mentra", notificationApps: ["com.whatsapp"]})
+    await flush()
+
+    const stored = JSON.parse((await session.storage.get(SETTINGS_STORAGE_KEY)) ?? "{}") as {
+      querySttMode?: string
+      notificationApps?: string[]
+    }
+    expect(stored.querySttMode).toBe("mentra")
+    expect(stored.notificationApps).toEqual(["com.whatsapp"])
+
+    const restarted = new FakeSession(undefined, session.storage)
+    await startAssistant(restarted, connection)
+    const settings = lastSnapshot(restarted).settings
+    expect(settings.querySttMode).toBe("mentra")
+    expect(settings.notificationApps).toEqual(["com.whatsapp"])
+  })
+
+  it("sanitizes stored settings", async () => {
+    const store = memoryStore({
+      [SETTINGS_STORAGE_KEY]: JSON.stringify({querySttMode: "bogus", notificationApps: [1, "a", "a", ""]}),
+    })
+    const session = new FakeSession(undefined, store)
+    const connection = new FakeConnection()
+    await startAssistant(session, connection)
+
+    const settings = lastSnapshot(session).settings
+    expect(settings.querySttMode).toBe("gateway")
+    expect(settings.notificationApps).toEqual(["a"])
   })
 
   it("routes to the selected agent, shows its name, and persists the choice", async () => {
@@ -1143,7 +1370,7 @@ describe("AssistantController", () => {
       new TextEncoder().encode(JSON.stringify({url: "wss://late.example.ts.net", bootstrapToken: "boot-2"})),
     )
     session.scanQr.mockImplementation(async () => {
-      for (const handler of [...session.disconnectHandlers]) handler()
+      for (const handler of session.disconnectHandlers.slice()) handler()
       return {cancelled: false, data: setupCode}
     })
 
@@ -1192,5 +1419,1356 @@ describe("AssistantController", () => {
 
     expect(errorMessages(session)).toEqual(["Pairing failed"])
     expect(lastSnapshot(session).connection).toBe("connected")
+  })
+
+  it("tilt up shows the glance with the time and status", async () => {
+    const session = new FakeSession()
+    const connection = new FakeConnection()
+    await startAssistant(session, connection)
+    vi.setSystemTime(new Date(2026, 9, 13, 14, 5))
+
+    for (const ts of [0, 100, 200, 300]) session.accel(30, ts)
+    await vi.advanceTimersByTimeAsync(400)
+
+    expect(bodyTexts(session).at(-1)).toBe("14:05\nReady")
+    expect(headerTexts(session).at(-1)).toBe("WednesdayAI · default")
+  })
+
+  it("tilt down hides the glance", async () => {
+    const session = new FakeSession()
+    const connection = new FakeConnection()
+    await startAssistant(session, connection)
+    vi.setSystemTime(new Date(2026, 9, 13, 14, 5))
+
+    for (const ts of [0, 100, 200, 300]) session.accel(30, ts)
+    await vi.advanceTimersByTimeAsync(400)
+    expect(bodyTexts(session).at(-1)).toBe("14:05\nReady")
+
+    for (const ts of [400, 500, 600, 700]) session.accel(10, ts)
+    expect(session.renders.at(-1)).toEqual([])
+  })
+
+  it("tilt up is ignored while an assistant frame is up", async () => {
+    const session = new FakeSession()
+    const connection = new FakeConnection()
+    connection.respond("chat.send", () => ({runId: "srv-run-1"}))
+    await startAssistant(session, connection)
+
+    await ask(session, connection, "what is two plus two")
+    await vi.advanceTimersByTimeAsync(0)
+    expect(headerTexts(session).at(-1)).toContain("Thinking")
+
+    for (const ts of [0, 100, 200, 300]) session.accel(30, ts)
+    await flush()
+    await vi.advanceTimersByTimeAsync(400)
+
+    expect(headerTexts(session).at(-1)).toContain("Thinking")
+    expect(bodyTexts(session).at(-1)).toBe("what is two plus two")
+  })
+
+  it("allowlisted notification renders; other apps only appear in seen apps", async () => {
+    const session = new FakeSession()
+    const connection = new FakeConnection()
+    await startAssistant(session, connection)
+
+    session.uiMessage("settings:set", {notificationApps: ["com.google.android.apps.messaging"]})
+    await flush()
+
+    session.notify({notificationId: "n1", title: "Alice", content: "Lunch?"})
+    await flush()
+    await vi.advanceTimersByTimeAsync(400)
+    expect(headerTexts(session).at(-1)).toBe("Messages · Alice")
+    expect(bodyTexts(session).at(-1)).toBe("Lunch?")
+
+    session.notify({notificationId: "n2", title: "Bob", content: "Hey", packageName: "com.other"})
+    await flush()
+    expect(headerTexts(session).at(-1)).toBe("Messages · Alice")
+
+    const snapshot = lastSnapshot(session)
+    expect(snapshot.seenNotificationApps[0]).toEqual({packageName: "com.other", app: "Messages"})
+    expect(snapshot.queuedNotifications).toBe(0)
+  })
+
+  it("notification without text is ignored", async () => {
+    const session = new FakeSession()
+    const connection = new FakeConnection()
+    await startAssistant(session, connection)
+
+    session.notify({notificationId: "n0", title: "", content: ""})
+    await flush()
+
+    expect(session.renders).toEqual([])
+    expect(lastSnapshot(session).seenNotificationApps).toEqual([])
+  })
+
+  it("wake word interrupts a notification and the notification resumes after cancel", async () => {
+    const session = new FakeSession()
+    const connection = new FakeConnection()
+    await startAssistant(session, connection)
+
+    session.uiMessage("settings:set", {notificationApps: ["com.google.android.apps.messaging"]})
+    await flush()
+    session.notify({notificationId: "n1", title: "Alice", content: "Lunch?"})
+    await flush()
+    await vi.advanceTimersByTimeAsync(400)
+    expect(bodyTexts(session).at(-1)).toBe("Lunch?")
+
+    session.transcript("hey wednesday", false)
+    await flush()
+    await vi.advanceTimersByTimeAsync(400)
+    expect(headerTexts(session).at(-1)).toContain("Listening")
+
+    session.transcript("hey wendy", true)
+    await flush()
+    await vi.advanceTimersByTimeAsync(400)
+    expect(headerTexts(session).at(-1)).toBe("Messages · Alice")
+    expect(bodyTexts(session).at(-1)).toBe("Lunch?")
+  })
+
+  it("seen apps persist across restarts", async () => {
+    const session = new FakeSession()
+    const connection = new FakeConnection()
+    await startAssistant(session, connection)
+
+    session.notify({notificationId: "n1", title: "Alice", content: "Lunch?"})
+    await flush()
+    const stored = JSON.parse((await session.storage.get(NOTIFICATION_APPS_STORAGE_KEY)) ?? "[]") as unknown
+    expect(stored).toEqual([{packageName: "com.google.android.apps.messaging", app: "Messages"}])
+
+    const restarted = new FakeSession(undefined, session.storage)
+    await startAssistant(restarted, connection)
+    expect(lastSnapshot(restarted).seenNotificationApps).toEqual([
+      {packageName: "com.google.android.apps.messaging", app: "Messages"},
+    ])
+  })
+
+  it("retries a failed seen-app write on the next notification", async () => {
+    let failSeenAppWrites = true
+    const base = memoryStore()
+    const store: KeyValueStore = {
+      get: (key) => base.get(key),
+      set: async (key, value) => {
+        if (failSeenAppWrites && key === NOTIFICATION_APPS_STORAGE_KEY) throw new Error("storage busy")
+        await base.set(key, value)
+      },
+      delete: (key) => base.delete(key),
+    }
+    const session = new FakeSession(undefined, store)
+    const connection = new FakeConnection()
+    await startAssistant(session, connection)
+
+    session.notify({notificationId: "n1", title: "Alice", content: "Lunch?"})
+    await flush()
+    expect(errorMessages(session)).toEqual(["storage busy"])
+
+    // The same app notifying again retries the write the first one skipped.
+    failSeenAppWrites = false
+    session.notify({notificationId: "n2", title: "Alice", content: "Again?"})
+    await flush()
+    const stored = JSON.parse((await base.get(NOTIFICATION_APPS_STORAGE_KEY)) ?? "[]") as unknown
+    expect(stored).toEqual([{packageName: "com.google.android.apps.messaging", app: "Messages"}])
+
+    // A fresh controller lists the app from storage.
+    const restarted = new FakeSession(undefined, base)
+    await startAssistant(restarted, connection)
+    expect(lastSnapshot(restarted).seenNotificationApps).toEqual([
+      {packageName: "com.google.android.apps.messaging", app: "Messages"},
+    ])
+  })
+
+  it("retries a failed seen-app write without pushing an unchanged snapshot", async () => {
+    let failSeenAppWrites = true
+    const base = memoryStore()
+    const store: KeyValueStore = {
+      get: (key) => base.get(key),
+      set: async (key, value) => {
+        if (failSeenAppWrites && key === NOTIFICATION_APPS_STORAGE_KEY) throw new Error("storage busy")
+        await base.set(key, value)
+      },
+      delete: (key) => base.delete(key),
+    }
+    const session = new FakeSession(undefined, store)
+    const connection = new FakeConnection()
+    await startAssistant(session, connection)
+
+    session.notify({notificationId: "n1", title: "Alice", content: "Lunch?"})
+    await flush()
+    expect(errorMessages(session)).toEqual(["storage busy"])
+    const statesAfterFailure = session.uiSends.filter((send) => send.channel === "state").length
+
+    // The retry reports on the error channel only: nothing the snapshot
+    // exposes changed.
+    failSeenAppWrites = false
+    session.notify({notificationId: "n2", title: "Alice", content: "Lunch?"})
+    await flush()
+    expect(session.uiSends.filter((send) => send.channel === "state").length).toBe(statesAfterFailure)
+    const stored = JSON.parse((await base.get(NOTIFICATION_APPS_STORAGE_KEY)) ?? "[]") as unknown
+    expect(stored).toEqual([{packageName: "com.google.android.apps.messaging", app: "Messages"}])
+  })
+
+  it("re-writes and re-pushes a seen-app change that lands while a write is pending", async () => {
+    const base = memoryStore()
+    const gate = deferred<void>()
+    let gateWrites = false
+    const store: KeyValueStore = {
+      get: (key) => base.get(key),
+      set: async (key, value) => {
+        if (gateWrites && key === NOTIFICATION_APPS_STORAGE_KEY) await gate.promise
+        await base.set(key, value)
+      },
+      delete: (key) => base.delete(key),
+    }
+    const session = new FakeSession(undefined, store)
+    const connection = new FakeConnection()
+    await startAssistant(session, connection)
+
+    // Persist [B, A].
+    session.notify({notificationId: "n1", title: "B msg", packageName: "com.b", app: "AppB"})
+    await flush()
+    session.notify({notificationId: "n2", title: "A msg", packageName: "com.a", app: "AppA"})
+    await flush()
+
+    // B moves back to the front; its write stalls in the fake store.
+    gateWrites = true
+    session.notify({notificationId: "n3", title: "B msg", packageName: "com.b", app: "AppB"})
+    await flush()
+
+    // A reclaims the front while that write is still pending: the snapshot
+    // must correct itself and the write must be re-requested.
+    session.notify({notificationId: "n4", title: "A msg", packageName: "com.a", app: "AppA"})
+    await flush()
+    expect(lastSnapshot(session).seenNotificationApps.map((seen) => seen.packageName)).toEqual([
+      "com.a",
+      "com.b",
+    ])
+
+    gate.resolve()
+    await flush()
+    const stored = JSON.parse((await base.get(NOTIFICATION_APPS_STORAGE_KEY)) ?? "[]") as Array<{
+      packageName: string
+    }>
+    expect(stored.map((seen) => seen.packageName)).toEqual(["com.a", "com.b"])
+  })
+
+  it("pushes one state snapshot per notification intake and none when nothing changed", async () => {
+    const session = new FakeSession()
+    const connection = new FakeConnection()
+    await startAssistant(session, connection)
+    session.uiMessage("notifications:allow", {packageName: "com.google.android.apps.messaging", enabled: true})
+    await flush()
+    const before = session.uiSends.filter((send) => send.channel === "state").length
+
+    session.notify({notificationId: "n1", title: "Alice", content: "Lunch?"})
+    await flush()
+    expect(session.uiSends.filter((send) => send.channel === "state").length - before).toBe(1)
+
+    // First sighting of a non-allowlisted app: one snapshot for the seen list.
+    session.notify({notificationId: "n2", title: "Bob", content: "Hey", packageName: "com.other"})
+    await flush()
+    expect(session.uiSends.filter((send) => send.channel === "state").length - before).toBe(2)
+
+    // An unchanged repost changes neither seen apps nor queue state.
+    session.notify({notificationId: "n2", title: "Bob", content: "Hey", packageName: "com.other"})
+    await flush()
+    expect(session.uiSends.filter((send) => send.channel === "state").length - before).toBe(2)
+  })
+
+  it("pushes no snapshot for a queued repost with changed content", async () => {
+    const session = new FakeSession()
+    const connection = new FakeConnection()
+    await startAssistant(session, connection)
+    session.uiMessage("notifications:allow", {packageName: "com.google.android.apps.messaging", enabled: true})
+    await flush()
+
+    session.notify({notificationId: "n1", title: "Alice", content: "Lunch?"})
+    await flush()
+    await vi.advanceTimersByTimeAsync(400)
+    session.notify({notificationId: "n2", title: "Bob", content: "Hey"})
+    await flush()
+    expect(lastSnapshot(session).queuedNotifications).toBe(1)
+    const states = session.uiSends.filter((send) => send.channel === "state").length
+
+    // Notification content is not part of the state snapshot: the repost
+    // replaces the queued copy silently.
+    session.notify({notificationId: "n2", title: "Bob", content: "Hey — edited"})
+    await flush()
+    expect(session.uiSends.filter((send) => send.channel === "state").length).toBe(states)
+    expect(lastSnapshot(session).queuedNotifications).toBe(1)
+  })
+
+  it("applies per-app allowlist intents and keeps the queue of still-enabled apps", async () => {
+    const session = new FakeSession()
+    const connection = new FakeConnection()
+    await startAssistant(session, connection)
+
+    session.uiMessage("notifications:allow", {packageName: "com.a", enabled: true})
+    await flush()
+    session.uiMessage("notifications:allow", {packageName: "com.b", enabled: true})
+    await flush()
+    let stored = JSON.parse((await session.storage.get(SETTINGS_STORAGE_KEY)) ?? "{}") as {
+      notificationApps?: string[]
+    }
+    expect(stored.notificationApps).toEqual(["com.a", "com.b"])
+
+    session.notify({notificationId: "n1", title: "A msg", content: "from a", packageName: "com.a", app: "AppA"})
+    await flush()
+    await vi.advanceTimersByTimeAsync(400)
+    session.notify({notificationId: "n2", title: "B msg", content: "from b", packageName: "com.b", app: "AppB"})
+    await flush()
+    expect(lastSnapshot(session).queuedNotifications).toBe(1)
+
+    session.uiMessage("notifications:allow", {packageName: "com.a", enabled: false})
+    await flush()
+    stored = JSON.parse((await session.storage.get(SETTINGS_STORAGE_KEY)) ?? "{}") as {
+      notificationApps?: string[]
+    }
+    expect(stored.notificationApps).toEqual(["com.b"])
+    // B's waiting notification is retained and takes the display.
+    expect(lastSnapshot(session).queuedNotifications).toBe(0)
+    await vi.advanceTimersByTimeAsync(400)
+    await flush()
+    expect(headerTexts(session).at(-1)).toBe("AppB · B msg")
+  })
+
+  it("removing an app from the allowlist drops its queued notifications", async () => {
+    const session = new FakeSession()
+    const connection = new FakeConnection()
+    await startAssistant(session, connection)
+
+    session.uiMessage("settings:set", {notificationApps: ["com.google.android.apps.messaging", "com.other"]})
+    await flush()
+    session.notify({notificationId: "n1", title: "Alice", content: "Lunch?"})
+    await flush()
+    await vi.advanceTimersByTimeAsync(400)
+    session.notify({notificationId: "n2", title: "Bob", content: "Hey", packageName: "com.other"})
+    await flush()
+    session.notify({notificationId: "n3", title: "Cara", content: "Hi"})
+    await flush()
+    expect(lastSnapshot(session).queuedNotifications).toBe(2)
+
+    session.uiMessage("settings:set", {notificationApps: ["com.google.android.apps.messaging"]})
+    await flush()
+    expect(lastSnapshot(session).queuedNotifications).toBe(1)
+  })
+
+  it("dismissed notification leaves the queue", async () => {
+    const session = new FakeSession()
+    const connection = new FakeConnection()
+    await startAssistant(session, connection)
+
+    session.uiMessage("settings:set", {notificationApps: ["com.google.android.apps.messaging"]})
+    await flush()
+    session.notify({notificationId: "n1", title: "Alice", content: "Lunch?"})
+    await flush()
+    await vi.advanceTimersByTimeAsync(400)
+    session.notify({notificationId: "n2", title: "Bob", content: "Hey"})
+    await flush()
+    expect(lastSnapshot(session).queuedNotifications).toBe(1)
+
+    session.dismiss("n2")
+    await flush()
+    expect(lastSnapshot(session).queuedNotifications).toBe(0)
+  })
+
+  it("pairing during a showing notification leaves it on the glasses", async () => {
+    const session = new FakeSession()
+    const connection = new FakeConnection()
+    connection.respond("chat.send", () => ({runId: "srv-run-1"}))
+    await startAssistant(session, connection)
+
+    session.uiMessage("settings:set", {notificationApps: ["com.google.android.apps.messaging"]})
+    await flush()
+
+    // A finished run lingers in currentRun after its frame auto-clears.
+    await ask(session, connection, "tell me a story")
+    connection.emitEvent("chat", {
+      runId: "srv-run-1",
+      state: "final",
+      message: {content: [{type: "text", text: "A story"}]},
+    })
+    await flush()
+    await vi.advanceTimersByTimeAsync(400)
+    await vi.advanceTimersByTimeAsync(15000)
+
+    session.notify({notificationId: "n1", title: "Alice", content: "word ".repeat(60).trim()})
+    await flush()
+    await vi.advanceTimersByTimeAsync(400)
+    expect(headerTexts(session).at(-1)).toBe("Messages · Alice (1/2)")
+
+    const setupCode = base64UrlEncode(
+      new TextEncoder().encode(JSON.stringify({url: "wss://other.example.ts.net", bootstrapToken: "boot"})),
+    )
+    session.uiMessage("pair:code", {code: setupCode})
+    await flush()
+
+    // The stale run must not retire a frame the notification owns.
+    expect(headerTexts(session).at(-1)).toBe("Messages · Alice (1/2)")
+    await vi.advanceTimersByTimeAsync(4000)
+    expect(headerTexts(session).at(-1)).toBe("Messages · Alice (2/2)")
+  })
+
+  it("unpaired does not clear a showing notification", async () => {
+    const session = new FakeSession()
+    const connection = new FakeConnection()
+    connection.respond("chat.send", () => {
+      throw new Error("queue full")
+    })
+    await startAssistant(session, connection)
+
+    session.uiMessage("settings:set", {notificationApps: ["com.google.android.apps.messaging"]})
+    await flush()
+
+    // A rejected send leaves its live run in currentRun; the error frame
+    // auto-clears and the notification takes the display.
+    await ask(session, connection, "tell me a joke")
+    await vi.advanceTimersByTimeAsync(400)
+    await vi.advanceTimersByTimeAsync(15000)
+
+    session.notify({notificationId: "n1", title: "Alice", content: "Lunch?"})
+    await flush()
+    await vi.advanceTimersByTimeAsync(400)
+    expect(headerTexts(session).at(-1)).toBe("Messages · Alice")
+
+    connection.setState("unpaired")
+    await flush()
+    expect(headerTexts(session).at(-1)).toBe("Messages · Alice")
+    expect(bodyTexts(session).at(-1)).toBe("Lunch?")
+  })
+
+  it("holds a blocked notification page until the host accepts the frame", async () => {
+    const session = new FakeSession()
+    const connection = new FakeConnection()
+    await startAssistant(session, connection)
+
+    session.uiMessage("settings:set", {notificationApps: ["com.google.android.apps.messaging"]})
+    await flush()
+    // Another background app holds the display lock: the frame renders but
+    // is dropped until the sixth attempt.
+    session.renderStatuses.push("blocked", "blocked", "blocked", "blocked", "blocked", "displayed")
+    session.notify({notificationId: "n1", title: "Alice", content: "Lunch?"})
+    await flush()
+    await vi.advanceTimersByTimeAsync(4400)
+    // Four seconds in, still blocked: the page must not advance or drop.
+    expect(bodyTexts(session).at(-1)).toBe("Lunch?")
+
+    // Accepted on the retry: only now does the reading interval run out.
+    await vi.advanceTimersByTimeAsync(1000)
+    expect(headerTexts(session).at(-1)).toBe("Messages · Alice")
+    await vi.advanceTimersByTimeAsync(8000)
+    expect(bodyTexts(session).at(-1)).toBe("")
+  })
+
+  it("gives a late-accepted notification page its full interval and advances to page 2", async () => {
+    const session = new FakeSession()
+    const connection = new FakeConnection()
+    await startAssistant(session, connection)
+
+    session.uiMessage("settings:set", {notificationApps: ["com.google.android.apps.messaging"]})
+    await flush()
+    // The host drops the frame for ~5 s, then accepts: the page's reading
+    // interval only starts at that acceptance.
+    session.renderStatuses.push("blocked", "blocked", "blocked", "blocked", "blocked", "displayed")
+    session.notify({notificationId: "n1", title: "Alice", content: "word ".repeat(60).trim()})
+    await flush()
+    // Blocked retries at 1 s intervals; the fifth retry is accepted ~5 s
+    // after show.
+    await vi.advanceTimersByTimeAsync(4400)
+    expect(session.renders.length).toBe(5)
+    expect(headerTexts(session).at(-1)).toBe("Messages · Alice (1/2)")
+    await vi.advanceTimersByTimeAsync(600)
+    const renderedAtAcceptance = session.renders.length
+    expect(renderedAtAcceptance).toBe(6)
+
+    // Nothing is cleared or restarted until 4 s after the acceptance.
+    await vi.advanceTimersByTimeAsync(3999)
+    expect(session.renders.length).toBe(renderedAtAcceptance)
+    expect(session.renders.some((elements) => elements.length === 0)).toBe(false)
+    expect(headerTexts(session).at(-1)).toBe("Messages · Alice (1/2)")
+
+    // At 4 s after acceptance the notification advances to page 2.
+    await vi.advanceTimersByTimeAsync(2)
+    await flush()
+    expect(headerTexts(session).at(-1)).toBe("Messages · Alice (2/2)")
+
+    // The last page finishes: the glasses clear instead of restarting page 1.
+    await vi.advanceTimersByTimeAsync(4000)
+    expect(session.renders.at(-1)).toEqual([])
+  })
+
+  describe("gateway question transcription", () => {
+    it("streams audio after the wake word and sends the gateway transcript", async () => {
+      const session = new FakeSession()
+      const connection = new FakeConnection()
+      stubTalkSession(connection, "s1")
+      await startAssistant(session, connection, {querySttMode: "gateway"})
+      expect(session.audioSubscriptions()).toBe(1)
+
+      session.audio(b64([1, 2]))
+      session.transcript("hey wednesday what's", false)
+      await flush()
+
+      const create = connection.requests.find((request) => request.method === "talk.session.create")
+      expect(recordParams(create?.params)).toEqual({
+        sessionKey: "agent:main:main",
+        mode: "transcription",
+        transport: "gateway-relay",
+        brain: "none",
+      })
+
+      // The provider connects while the user keeps talking; audio flows then.
+      connection.emitEvent("talk.event", {type: "session.ready", sessionId: "s1"})
+      await flush()
+
+      session.transcript("hey wednesday what is the weather in paris", true)
+      await flush()
+      const append = connection.requests.find((request) => request.method === "talk.session.appendAudio")
+      expect(recordParams(append?.params)).toEqual({sessionId: "s1", audioBase64: b64([1, 2])})
+      expect(connection.requests.some((request) => request.method === "talk.session.close")).toBe(true)
+
+      connection.emitEvent("talk.event", {
+        type: "transcript.done",
+        sessionId: "s1",
+        payload: {text: "Hey Wednesday, what's the weather in Paris?"},
+      })
+      await flush()
+
+      const send = connection.requests.find((request) => request.method === "chat.send")
+      const sendParams = recordParams(send?.params)
+      expect(sendParams.message).toBe("what's the weather in Paris?")
+      // The transcription session captured audio for the same conversation
+      // the question was sent to.
+      expect(sendParams.sessionKey).toBe("agent:main:main")
+    })
+
+    it("falls back to the Mentra query when the gateway has no transcription provider", async () => {
+      const session = new FakeSession()
+      const connection = new FakeConnection()
+      connection.respond("chat.send", () => ({runId: "srv-run-1"}))
+      connection.respond("talk.session.create", () => {
+        throw new Error("no active transcription provider")
+      })
+      await startAssistant(session, connection, {querySttMode: "gateway"})
+
+      await askViaGateway(session, connection, "what is one plus one")
+      await askViaGateway(session, connection, "what is two plus two")
+
+      const messages = connection.requests
+        .filter((request) => request.method === "chat.send")
+        .map((request) => recordParams(request.params).message)
+      expect(messages).toEqual(["what is one plus one", "what is two plus two"])
+      expect(
+        errorMessages(session).filter((message) => message.startsWith("WednesdayAI transcription unavailable")),
+      ).toEqual([
+        "WednesdayAI transcription unavailable: no active transcription provider. Using Mentra transcription.",
+      ])
+    })
+
+    it("falls back to the Mentra query after 6 s without a transcript", async () => {
+      const session = new FakeSession()
+      const connection = new FakeConnection()
+      stubTalkSession(connection, "s1")
+      await startAssistant(session, connection, {querySttMode: "gateway"})
+
+      await askViaGateway(session, connection, "what is the weather")
+      await vi.advanceTimersByTimeAsync(6000)
+
+      const send = connection.requests.find((request) => request.method === "chat.send")
+      expect(recordParams(send?.params).message).toBe("what is the weather")
+      // A deadline miss is a fallback, not a controller error.
+      expect(errorMessages(session)).toEqual([])
+    })
+
+    it("uses the Mentra query when the gateway transcript has no wake word", async () => {
+      const session = new FakeSession()
+      const connection = new FakeConnection()
+      stubTalkSession(connection, "s1")
+      await startAssistant(session, connection, {querySttMode: "gateway"})
+
+      await askViaGateway(session, connection, "what is the weather in paris")
+      connection.emitEvent("talk.event", {
+        type: "transcript.done",
+        sessionId: "s1",
+        payload: {text: "it is sunny in paris today"},
+      })
+      await flush()
+
+      const send = connection.requests.find((request) => request.method === "chat.send")
+      expect(recordParams(send?.params).message).toBe("what is the weather in paris")
+    })
+
+    it("Mentra mode never subscribes to audio or opens talk sessions", async () => {
+      const session = new FakeSession()
+      const connection = new FakeConnection()
+      connection.respond("chat.send", () => ({runId: "srv-run-1"}))
+      await startAssistant(session, connection, {querySttMode: "mentra"})
+      expect(session.audioSubscriptions()).toBe(0)
+
+      await ask(session, connection, "what is two plus two")
+
+      expect(connection.requests.some((request) => request.method === "talk.session.create")).toBe(false)
+      const send = connection.requests.find((request) => request.method === "chat.send")
+      expect(recordParams(send?.params).message).toBe("what is two plus two")
+    })
+
+    it("cancel aborts the talk session without sending chat", async () => {
+      const session = new FakeSession()
+      const connection = new FakeConnection()
+      stubTalkSession(connection, "s1")
+      await startAssistant(session, connection, {querySttMode: "gateway"})
+
+      session.transcript("hey wednesday", false)
+      await flush()
+      expect(connection.requests.some((request) => request.method === "talk.session.create")).toBe(true)
+
+      session.transcript("hey wendy", true)
+      await flush()
+      expect(connection.requests.filter((request) => request.method === "talk.session.close")).toHaveLength(1)
+      expect(connection.requests.some((request) => request.method === "chat.send")).toBe(false)
+    })
+
+    it("audio subscription follows the connection", async () => {
+      const session = new FakeSession()
+      const connection = new FakeConnection()
+      await startAssistant(session, connection, {querySttMode: "gateway"})
+      expect(session.audioSubscriptions()).toBe(1)
+
+      connection.setState("offline")
+      expect(session.audioSubscriptions()).toBe(0)
+
+      connection.setState("connected")
+      expect(session.audioSubscriptions()).toBe(1)
+    })
+
+    it("disconnect while awaiting the gateway transcript sends nothing", async () => {
+      const session = new FakeSession()
+      const connection = new FakeConnection()
+      stubTalkSession(connection, "s1")
+      await startAssistant(session, connection, {querySttMode: "gateway"})
+
+      await askViaGateway(session, connection, "what is the weather in paris")
+
+      // finish() is waiting on the transcript when the gateway drops.
+      connection.setState("offline")
+      await flush()
+      await vi.advanceTimersByTimeAsync(400)
+      const offlineIndex = bodyTexts(session).length - 1
+      expect(bodyTexts(session)[offlineIndex]).toBe("WednesdayAI is not connected")
+
+      // The late transcript must not send chat or paint anything new.
+      connection.emitEvent("talk.event", {
+        type: "transcript.done",
+        sessionId: "s1",
+        payload: {text: "what is the weather in paris"},
+      })
+      await flush()
+      await vi.advanceTimersByTimeAsync(7000)
+
+      expect(connection.requests.some((request) => request.method === "chat.send")).toBe(false)
+      // Only the offline frame's own auto-clear happened after it.
+      expect(bodyTexts(session).slice(offlineIndex + 1)).toEqual([""])
+    })
+
+    it("cancel during the transcript wait drops the pending question without a fallback send", async () => {
+      const session = new FakeSession()
+      const connection = new FakeConnection()
+      stubTalkSession(connection, "s1")
+      await startAssistant(session, connection, {querySttMode: "gateway"})
+
+      await askViaGateway(session, connection, "what is the weather in paris")
+
+      // A fresh wake phrase while the transcript is awaited opens no second
+      // session, then the user changes their mind.
+      session.transcript("hey wednesday", false)
+      await flush()
+      await vi.advanceTimersByTimeAsync(400)
+      expect(headerTexts(session).at(-1)).toContain("Listening")
+      expect(connection.requests.filter((request) => request.method === "talk.session.create")).toHaveLength(1)
+
+      session.transcript("hey wendy", true)
+      await flush()
+      await vi.advanceTimersByTimeAsync(7000)
+
+      expect(connection.requests.some((request) => request.method === "chat.send")).toBe(false)
+      // The cancel's clear is the last render: no fallback thinking frame.
+      expect(session.renders.at(-1)).toEqual([])
+    })
+
+    it("rejects the previous run's chat events while a new transcript is awaited", async () => {
+      const session = new FakeSession()
+      const connection = new FakeConnection()
+      stubTalkSession(connection, "s1")
+      let sendCount = 0
+      connection.respond("chat.send", () => ({runId: `srv-run-${(sendCount += 1)}`}))
+      await startAssistant(session, connection, {querySttMode: "gateway"})
+
+      // The first question streams its answer.
+      session.transcript("hey wednesday", false)
+      await flush()
+      session.transcript("hey wednesday what is one plus one", true)
+      await flush()
+      connection.emitEvent("talk.event", {
+        type: "transcript.done",
+        sessionId: "s1",
+        payload: {text: "what is one plus one"},
+      })
+      await flush()
+      // The server retires the first session, freeing the next capture.
+      connection.emitEvent("talk.event", {type: "session.closed", sessionId: "s1"})
+      await flush()
+      await vi.advanceTimersByTimeAsync(400)
+      connection.emitEvent("chat", {
+        runId: "srv-run-1",
+        state: "delta",
+        message: {content: [{type: "text", text: "Two"}]},
+      })
+      await flush()
+      await vi.advanceTimersByTimeAsync(400)
+      expect(bodyTexts(session).at(-1)).toBe("Two")
+
+      // A second question takes the display while that answer is streaming.
+      session.transcript("hey wednesday", false)
+      await flush()
+      session.transcript("hey wednesday what is two plus two", true)
+      await flush()
+      await vi.advanceTimersByTimeAsync(400)
+      expect(headerTexts(session).at(-1)).toContain("Thinking")
+
+      // The old run's late delta and final must not repaint over the wait.
+      connection.emitEvent("chat", {
+        runId: "srv-run-1",
+        state: "delta",
+        message: {content: [{type: "text", text: "Two and a half"}]},
+      })
+      await flush()
+      await vi.advanceTimersByTimeAsync(400)
+      connection.emitEvent("chat", {
+        runId: "srv-run-1",
+        state: "final",
+        message: {content: [{type: "text", text: "Two and a half"}]},
+      })
+      await flush()
+      await vi.advanceTimersByTimeAsync(400)
+      expect(bodyTexts(session).at(-1)).not.toBe("Two and a half")
+
+      // The new transcript completes and sends its own question.
+      connection.emitEvent("talk.event", {
+        type: "transcript.done",
+        sessionId: "s1",
+        payload: {text: "what is two plus two"},
+      })
+      await flush()
+      await vi.advanceTimersByTimeAsync(400)
+      const secondSend = connection.requests.filter((request) => request.method === "chat.send")[1]
+      expect(recordParams(secondSend?.params).message).toBe("what is two plus two")
+      expect(bodyTexts(session).at(-1)).not.toBe("Two and a half")
+    })
+
+    it("retires the awaited transcription frame when re-pairing", async () => {
+      const session = new FakeSession()
+      const connection = new FakeConnection()
+      const create = deferred<unknown>()
+      connection.respond("talk.session.create", () => create.promise)
+      connection.respond("talk.session.appendAudio", () => ({}))
+      connection.respond("talk.session.close", () => ({}))
+      connection.respond("chat.send", () => ({runId: "srv-run-1"}))
+      await startAssistant(session, connection, {querySttMode: "gateway"})
+
+      session.transcript("hey wednesday", false)
+      await flush()
+      session.transcript("hey wednesday what is the weather in paris", true)
+      await flush()
+      await vi.advanceTimersByTimeAsync(400)
+      expect(headerTexts(session).at(-1)).toContain("Thinking")
+
+      // Re-pair while the gateway transcript is awaited.
+      const setupCode = base64UrlEncode(
+        new TextEncoder().encode(JSON.stringify({url: "wss://other.example.ts.net", bootstrapToken: "boot"})),
+      )
+      session.uiMessage("pair:code", {code: setupCode})
+      await flush()
+      connection.setState("connecting")
+      await flush()
+      // The pending-transcript Thinking frame is retired with the rest.
+      expect(session.renders.at(-1)).toEqual([])
+
+      // The old gateway's session outlives the socket: its transcript must
+      // not send chat or paint anything.
+      create.resolve({sessionId: "s1", audio: {}})
+      await flush()
+      connection.emitEvent("talk.event", {type: "session.ready", sessionId: "s1"})
+      await flush()
+      connection.emitEvent("talk.event", {
+        type: "transcript.done",
+        sessionId: "s1",
+        payload: {text: "what is the weather in paris"},
+      })
+      await flush()
+      await vi.advanceTimersByTimeAsync(8000)
+      expect(connection.requests.some((request) => request.method === "chat.send")).toBe(false)
+      expect(session.renders.at(-1)).toEqual([])
+    })
+
+    it("unpair retires the awaited transcription frame without a fallback send or warning", async () => {
+      const session = new FakeSession()
+      const connection = new FakeConnection()
+      const create = deferred<unknown>()
+      connection.respond("talk.session.create", () => create.promise)
+      connection.respond("talk.session.appendAudio", () => ({}))
+      connection.respond("talk.session.close", () => ({}))
+      connection.respond("chat.send", () => ({runId: "srv-run-1"}))
+      let resolveDeletion: (() => void) | null = null
+      connection.forget = () =>
+        new Promise<void>((resolve) => {
+          resolveDeletion = resolve
+        })
+      await startAssistant(session, connection, {querySttMode: "gateway"})
+
+      session.transcript("hey wednesday", false)
+      await flush()
+      session.transcript("hey wednesday what is the weather in paris", true)
+      await flush()
+      await vi.advanceTimersByTimeAsync(400)
+      expect(headerTexts(session).at(-1)).toContain("Thinking")
+
+      // Unpair while the transcript is awaited: forget() stays pending and
+      // the connection still reports "connected" until the deletion lands.
+      session.uiMessage("pair:forget", {})
+      await flush()
+      expect(connection.state).toBe("connected")
+
+      // The dead socket rejects the pending transcription request.
+      create.reject(new Error("socket closed"))
+      await flush()
+      resolveDeletion!()
+      await flush()
+
+      expect(connection.requests.some((request) => request.method === "chat.send")).toBe(false)
+      expect(errorMessages(session)).toEqual([])
+    })
+
+    it("a question asked while the previous capture is fenced falls back to Mentra without a warning", async () => {
+      const session = new FakeSession()
+      const connection = new FakeConnection()
+      stubTalkSession(connection, "s1")
+      connection.respond("chat.send", () => ({runId: "srv-run-1"}))
+      await startAssistant(session, connection, {querySttMode: "gateway"})
+
+      // First utterance is cancelled; the server keeps draining its session.
+      session.transcript("hey wednesday", false)
+      await flush()
+      session.transcript("hey wendy", true)
+      await flush()
+      expect(connection.requests.filter((request) => request.method === "talk.session.close")).toHaveLength(1)
+
+      // A new question immediately after: begin stays fenced (no second
+      // create, no CONFLICT warning) and the Mentra query goes out.
+      session.transcript("hey wednesday", false)
+      await flush()
+      await vi.advanceTimersByTimeAsync(400)
+      expect(headerTexts(session).at(-1)).toContain("Listening")
+      session.transcript("hey wednesday what is two plus two", true)
+      await flush()
+      await vi.advanceTimersByTimeAsync(400)
+
+      expect(connection.requests.filter((request) => request.method === "talk.session.create")).toHaveLength(1)
+      const send = connection.requests.find((request) => request.method === "chat.send")
+      expect(recordParams(send?.params).message).toBe("what is two plus two")
+      expect(errorMessages(session)).toEqual([])
+    })
+  })
+
+  describe("failure, disposal, and display-ownership edges", () => {
+    it("starts at most once: a repeated start() registers nothing new", async () => {
+      const session = new FakeSession()
+      const connection = new FakeConnection()
+      stubGateway(connection)
+      const controller = makeController(session, connection)
+      await controller.start()
+      await controller.start()
+
+      expect(session.transcriptSubscriptions()).toHaveLength(1)
+      expect(session.disconnectHandlers).toHaveLength(1)
+      expect(connection.startCalls).toHaveLength(1)
+      expect(session.uiSends.filter((send) => send.channel === "state")).toHaveLength(1)
+    })
+
+    it("does not subscribe or connect when the disconnect lands during the initial seen-apps read", async () => {
+      let releaseSeenApps: ((value: string | null) => void) | undefined
+      const pendingSeenApps = new Promise<string | null>((resolve) => {
+        releaseSeenApps = resolve
+      })
+      const store: KeyValueStore = {
+        get: (key) => (key === NOTIFICATION_APPS_STORAGE_KEY ? pendingSeenApps : Promise.resolve(null)),
+        set: async () => {},
+        delete: async () => {},
+      }
+      const session = new FakeSession(undefined, store)
+      const connection = new FakeConnection()
+
+      const starting = makeController(session, connection).start()
+      // start() is parked on the seen-apps read: the settings read has
+      // resolved and the disconnect lands during the second one.
+      await flush()
+      for (const handler of session.disconnectHandlers.slice()) handler()
+      releaseSeenApps?.(null)
+      await flush()
+      await starting
+
+      expect(session.transcriptSubscriptions()).toEqual([])
+      expect(connection.startCalls).toEqual([])
+      expect(session.uiSends).toEqual([])
+    })
+
+    it("drops the mic audio subscription when disposal lands during gateway transcription", async () => {
+      const session = new FakeSession()
+      const connection = new FakeConnection()
+      await startAssistant(session, connection, {querySttMode: "gateway"})
+      expect(session.audioSubscriptions()).toBe(1)
+
+      for (const handler of session.disconnectHandlers.slice()) handler()
+      await flush()
+
+      expect(session.audioSubscriptions()).toBe(0)
+    })
+
+    it("tears the connection down once when the disconnect hook fires twice", async () => {
+      const session = new FakeSession()
+      const connection = new FakeConnection()
+      await startAssistant(session, connection)
+
+      for (const handler of session.disconnectHandlers.slice()) handler()
+      for (const handler of session.disconnectHandlers.slice()) handler()
+
+      expect(connection.stopCalls).toHaveLength(1)
+    })
+
+    // The session's emitters dispatch over a captured listener array: a
+    // co-registered listener that disposes the controller mid-dispatch does
+    // not stop the controller's own callback from running afterwards. These
+    // tests pin that the disposed guards hold in that window.
+    it("ignores an accelerometer sample when a co-listener disposes mid-dispatch", async () => {
+      const session = new FakeSession()
+      const connection = new FakeConnection()
+      let disposeNow = false
+      session.imu.onAccel(() => {
+        if (disposeNow) for (const handler of session.disconnectHandlers.slice()) handler()
+      })
+      await startAssistant(session, connection)
+
+      // Prime the tilt detector without firing it.
+      for (const ts of [0, 100, 200]) session.accel(30, ts)
+      const rendersBefore = session.renders.length
+
+      // The firing sample arrives with the controller already disposed.
+      disposeNow = true
+      session.accel(30, 300)
+      await flush()
+      await vi.advanceTimersByTimeAsync(400)
+
+      expect(session.renders.length).toBe(rendersBefore)
+    })
+
+    it("ignores a phone notification when a co-listener disposes mid-dispatch", async () => {
+      const session = new FakeSession()
+      const connection = new FakeConnection()
+      let disposeNow = false
+      session.phone.notifications.on(() => {
+        if (disposeNow) for (const handler of session.disconnectHandlers.slice()) handler()
+      })
+      await startAssistant(session, connection)
+      session.uiMessage("settings:set", {notificationApps: ["com.google.android.apps.messaging"]})
+      await flush()
+      const rendersBefore = session.renders.length
+      const storageBefore = await session.storage.get(NOTIFICATION_APPS_STORAGE_KEY)
+
+      disposeNow = true
+      session.notify({notificationId: "n1", title: "Alice", content: "Lunch?"})
+      await flush()
+      await vi.advanceTimersByTimeAsync(400)
+
+      expect(session.renders.length).toBe(rendersBefore)
+      expect(await session.storage.get(NOTIFICATION_APPS_STORAGE_KEY)).toBe(storageBefore)
+    })
+
+    it("neither sends nor paints a wake query when a co-listener disposes mid-dispatch", async () => {
+      const session = new FakeSession()
+      const connection = new FakeConnection()
+      connection.respond("chat.send", () => ({runId: "srv-run-1"}))
+      let disposeNow = false
+      session.transcription.on(() => {
+        if (disposeNow) for (const handler of session.disconnectHandlers.slice()) handler()
+      })
+      await startAssistant(session, connection)
+      const rendersBefore = session.renders.length
+      const sendsBefore = connection.requests.length
+
+      // Mentra-mode STT is inactive, so the query would go straight to
+      // chat.send: the mid-dispatch disposal must stop both the send and the
+      // thinking frame.
+      disposeNow = true
+      session.transcript("hey wednesday what time is it", true)
+      await flush()
+      await vi.advanceTimersByTimeAsync(400)
+
+      expect(connection.requests.length).toBe(sendsBefore)
+      expect(session.renders.length).toBe(rendersBefore)
+    })
+
+    it("lets an allowlisted notification take the display from a head-tilt glance", async () => {
+      const session = new FakeSession()
+      const connection = new FakeConnection()
+      await startAssistant(session, connection)
+      vi.setSystemTime(new Date(2026, 9, 13, 14, 5))
+      session.uiMessage("settings:set", {notificationApps: ["com.google.android.apps.messaging"]})
+      await flush()
+
+      for (const ts of [0, 100, 200, 300]) session.accel(30, ts)
+      await vi.advanceTimersByTimeAsync(400)
+      expect(bodyTexts(session).at(-1)).toBe("14:05\nReady")
+
+      session.notify({notificationId: "n1", title: "Alice", content: "Lunch?"})
+      await vi.advanceTimersByTimeAsync(400)
+
+      expect(headerTexts(session).at(-1)).toBe("Messages · Alice")
+      expect(bodyTexts(session).at(-1)).toBe("Lunch?")
+      expect(lastSnapshot(session).queuedNotifications).toBe(0)
+    })
+
+    it("re-shows a notification whose blocked frame was auto-cleared past its window", async () => {
+      const session = new FakeSession()
+      const connection = new FakeConnection()
+      await startAssistant(session, connection)
+      session.uiMessage("settings:set", {notificationApps: ["com.google.android.apps.messaging"]})
+      await flush()
+
+      // The host holds the display lock: every attempt is dropped, so the
+      // frame's 6 s window expires with the page unread.
+      session.renderStatuses = [
+        "blocked",
+        "blocked",
+        "blocked",
+        "blocked",
+        "blocked",
+        "blocked",
+        "blocked",
+        "blocked",
+      ]
+      session.notify({notificationId: "n1", title: "Alice", content: "Lunch?"})
+      await vi.advanceTimersByTimeAsync(6000)
+      // The clear fires at the 6 s deadline and its re-show schedules a
+      // 0 ms render on that same tick; the tick boundary needs a nudge.
+      await vi.advanceTimersByTimeAsync(1)
+
+      // The auto-clear requeued the notification at the front: it restarts
+      // on the glasses instead of being lost with the cleared frame.
+      expect(session.renders).toContainEqual([])
+      expect(headerTexts(session).at(-1)).toBe("Messages · Alice")
+      expect(bodyTexts(session).at(-1)).toBe("Lunch?")
+      expect(lastSnapshot(session).queuedNotifications).toBe(0)
+    })
+
+    it("caps the seen-app list at 50 as notifications arrive", async () => {
+      const session = new FakeSession()
+      const connection = new FakeConnection()
+      await startAssistant(session, connection)
+
+      for (let index = 0; index < 55; index += 1) {
+        session.notify({
+          notificationId: `n${index}`,
+          title: "T",
+          content: "C",
+          packageName: `com.app${index}`,
+          app: `App${index}`,
+        })
+      }
+      await flush()
+
+      const seen = lastSnapshot(session).seenNotificationApps
+      expect(seen).toHaveLength(50)
+      expect(seen[0]).toEqual({packageName: "com.app54", app: "App54"})
+      expect(seen[49]).toEqual({packageName: "com.app5", app: "App5"})
+      const stored = JSON.parse((await session.storage.get(NOTIFICATION_APPS_STORAGE_KEY)) ?? "[]") as unknown[]
+      expect(stored).toHaveLength(50)
+    })
+
+    it("loads seen apps from storage, skipping malformed entries", async () => {
+      const stored = [
+        42,
+        null,
+        "nope",
+        {packageName: "", app: "Empty"},
+        {packageName: "com.a"},
+        {packageName: "com.b", app: ""},
+        {packageName: "com.a", app: "AppA"},
+        {packageName: "com.b", app: "AppB"},
+      ]
+      const session = new FakeSession({[NOTIFICATION_APPS_STORAGE_KEY]: JSON.stringify(stored)})
+      const connection = new FakeConnection()
+      await startAssistant(session, connection)
+
+      expect(lastSnapshot(session).seenNotificationApps).toEqual([
+        {packageName: "com.a", app: "AppA"},
+        {packageName: "com.b", app: "AppB"},
+      ])
+    })
+
+    it("caps seen apps loaded from storage at 50", async () => {
+      const stored = Array.from({length: 55}, (_, index) => ({packageName: `com.app${index}`, app: `App${index}`}))
+      const session = new FakeSession({[NOTIFICATION_APPS_STORAGE_KEY]: JSON.stringify(stored)})
+      const connection = new FakeConnection()
+      await startAssistant(session, connection)
+
+      const seen = lastSnapshot(session).seenNotificationApps
+      expect(seen).toHaveLength(50)
+      expect(seen[49]).toEqual({packageName: "com.app49", app: "App49"})
+    })
+
+    it("starts with an empty seen list when the stored seen apps cannot be parsed", async () => {
+      const session = new FakeSession({[NOTIFICATION_APPS_STORAGE_KEY]: "not json"})
+      const connection = new FakeConnection()
+      await startAssistant(session, connection)
+
+      expect(lastSnapshot(session).seenNotificationApps).toEqual([])
+    })
+
+    it("honours a stored cloud wake STT mode after a restart", async () => {
+      const session = new FakeSession({[SETTINGS_STORAGE_KEY]: JSON.stringify({wakeSttMode: "cloud"})})
+      const connection = new FakeConnection()
+      await startAssistant(session, connection)
+
+      expect(session.transcriptSubscriptions().at(-1)).toEqual({forceLocal: false})
+    })
+
+    it("shows (no reply) when the gateway final event carries no text", async () => {
+      const session = new FakeSession()
+      const connection = new FakeConnection()
+      connection.respond("chat.send", () => ({runId: "srv-run-1"}))
+      await startAssistant(session, connection)
+
+      await ask(session, connection, "what is two plus two")
+      connection.emitEvent("chat", {runId: "srv-run-1", state: "final", message: {content: []}})
+      await flush()
+      await vi.advanceTimersByTimeAsync(400)
+
+      expect(bodyTexts(session).at(-1)).toBe("(no reply)")
+    })
+
+    it("ignores chat events that belong to no active run", async () => {
+      const session = new FakeSession()
+      const connection = new FakeConnection()
+      connection.respond("chat.send", () => ({runId: "srv-run-1"}))
+      await startAssistant(session, connection)
+
+      await ask(session, connection, "what is two plus two")
+      await vi.advanceTimersByTimeAsync(0)
+      const rendersAtThinking = session.renders.length
+
+      connection.emitEvent("chat", {
+        runId: "srv-run-other",
+        state: "delta",
+        message: {content: [{type: "text", text: "hijacked"}]},
+      })
+      await flush()
+      // The render throttle holds 400 ms: a hijacking repaint would only
+      // surface after this advance.
+      await vi.advanceTimersByTimeAsync(400)
+      expect(session.renders.length).toBe(rendersAtThinking)
+      expect(bodyTexts(session).at(-1)).toBe("what is two plus two")
+      expect(headerTexts(session).at(-1)).toContain("Thinking")
+
+      // The live run still owns the frame: its own final paints normally.
+      connection.emitEvent("chat", {
+        runId: "srv-run-1",
+        state: "final",
+        message: {content: [{type: "text", text: "Four"}]},
+      })
+      await flush()
+      await vi.advanceTimersByTimeAsync(400)
+      expect(bodyTexts(session).at(-1)).toBe("Four")
+    })
+
+    it("uses no triggers when voicewake.get returns a malformed trigger list", async () => {
+      const session = new FakeSession()
+      const connection = new FakeConnection()
+      connection.respond("voicewake.get", () => ({triggers: "wednesday"}))
+      connection.respond("agents.list", () => ({
+        defaultId: "main",
+        mainKey: "main",
+        scope: "per-sender" as const,
+        agents: [{id: "main", name: "Main"}],
+      }))
+      await makeController(session, connection).start()
+      connection.hello("agent:main:main")
+      await flush()
+
+      expect(lastSnapshot(session).triggers).toEqual([])
+
+      // A malformed list is no list: speech stays idle.
+      connection.respond("chat.send", () => ({runId: "srv-run-1"}))
+      session.transcript("hey wednesday what time is it", true)
+      await flush()
+      expect(connection.requests.some((request) => request.method === "chat.send")).toBe(false)
+    })
+
+    it("hydrates nothing when the gateway hello arrives after disposal", async () => {
+      const session = new FakeSession()
+      const connection = new FakeConnection()
+      stubGateway(connection)
+      const controller = makeController(session, connection)
+      await controller.start()
+      const sendsAtDispose = session.uiSends.length
+
+      for (const handler of session.disconnectHandlers.slice()) handler()
+      // A hello from the dying socket lands after disposal: no hydration at all.
+      connection.hello("agent:main:main")
+      await flush()
+
+      expect(connection.requests).toEqual([])
+      expect(session.uiSends.length).toBe(sendsAtDispose)
+    })
+
+    it("applies nothing when a settings change settles after disposal", async () => {
+      const gate = deferred<void>()
+      let gateWrites = false
+      const base = memoryStore()
+      const store: KeyValueStore = {
+        get: (key) => base.get(key),
+        set: async (key, value) => {
+          if (gateWrites && key === SETTINGS_STORAGE_KEY) await gate.promise
+          await base.set(key, value)
+        },
+        delete: (key) => base.delete(key),
+      }
+      const session = new FakeSession(undefined, store)
+      const connection = new FakeConnection()
+      await startAssistant(session, connection)
+
+      gateWrites = true
+      session.uiMessage("settings:set", {wakeSttMode: "cloud"})
+      await flush()
+      for (const handler of session.disconnectHandlers.slice()) handler()
+      gateWrites = false
+      gate.resolve()
+      await flush()
+
+      // The save finished while disposed: the mode change must not
+      // re-subscribe transcription on a dead session.
+      expect(session.transcriptSubscriptions()).toEqual([])
+    })
+
+    it("drops the mic subscription when query transcription moves off the gateway", async () => {
+      const session = new FakeSession()
+      const connection = new FakeConnection()
+      await startAssistant(session, connection, {querySttMode: "gateway"})
+      expect(session.audioSubscriptions()).toBe(1)
+
+      session.uiMessage("settings:set", {querySttMode: "mentra"})
+      await flush()
+
+      expect(session.audioSubscriptions()).toBe(0)
+    })
+
+    it("ignores a notifications:allow intent with a blank package name", async () => {
+      const session = new FakeSession()
+      const connection = new FakeConnection()
+      await startAssistant(session, connection)
+      const statesBefore = session.uiSends.filter((send) => send.channel === "state").length
+
+      session.uiMessage("notifications:allow", {packageName: "   ", enabled: true})
+      await flush()
+
+      const stored = JSON.parse((await session.storage.get(SETTINGS_STORAGE_KEY)) ?? "{}") as {
+        notificationApps?: string[]
+      }
+      expect(stored.notificationApps).toBeUndefined()
+      expect(session.uiSends.filter((send) => send.channel === "state").length).toBe(statesBefore)
+      expect(lastSnapshot(session).settings.notificationApps).toEqual([])
+    })
+
+    it("ignores a notifications:allow intent that matches the current setting", async () => {
+      const session = new FakeSession()
+      const connection = new FakeConnection()
+      await startAssistant(session, connection)
+      session.uiMessage("notifications:allow", {packageName: "com.a", enabled: true})
+      await flush()
+      const statesBefore = session.uiSends.filter((send) => send.channel === "state").length
+
+      session.uiMessage("notifications:allow", {packageName: "com.a", enabled: true})
+      await flush()
+
+      const stored = JSON.parse((await session.storage.get(SETTINGS_STORAGE_KEY)) ?? "{}") as {
+        notificationApps?: string[]
+      }
+      expect(stored.notificationApps).toEqual(["com.a"])
+      expect(session.uiSends.filter((send) => send.channel === "state").length).toBe(statesBefore)
+    })
+
+    it("stays silent when an unpair and late connection churn arrive after disposal", async () => {
+      const session = new FakeSession()
+      const connection = new FakeConnection()
+      let settleForget: ((error: unknown) => void) | undefined
+      connection.forget = () =>
+        new Promise<void>((_resolve, reject) => {
+          settleForget = reject
+        })
+      await startAssistant(session, connection)
+
+      session.uiMessage("pair:forget", {})
+      await flush()
+      for (const handler of session.disconnectHandlers.slice()) handler()
+      const sendsAtDispose = session.uiSends.length
+      const rendersAtDispose = session.renders.length
+
+      settleForget?.(new Error("socket gone"))
+      connection.setState("offline", "late drop")
+      connection.emitEvent("voicewake.changed", {triggers: ["late"]})
+      connection.emitEvent("chat", {
+        runId: "x",
+        state: "delta",
+        message: {content: [{type: "text", text: "late"}]},
+      })
+      await flush()
+
+      expect(session.uiSends.length).toBe(sendsAtDispose)
+      expect(session.renders.length).toBe(rendersAtDispose)
+      expect(errorMessages(session)).toEqual([])
+    })
+
+    it("stays silent when a pairing fails after disposal", async () => {
+      const session = new FakeSession()
+      const connection = new FakeConnection()
+      let failPair: ((error: unknown) => void) | undefined
+      connection.pair = () =>
+        new Promise((_resolve, reject) => {
+          failPair = reject
+        })
+      await startAssistant(session, connection)
+      const setupCode = base64UrlEncode(
+        new TextEncoder().encode(JSON.stringify({url: "wss://late.example.ts.net", bootstrapToken: "boot"})),
+      )
+
+      session.uiMessage("pair:code", {code: setupCode})
+      await flush()
+      for (const handler of session.disconnectHandlers.slice()) handler()
+      const sendsAtDispose = session.uiSends.length
+
+      failPair?.(new Error("late pairing failure"))
+      await flush()
+
+      expect(session.uiSends.length).toBe(sendsAtDispose)
+      expect(errorMessages(session)).toEqual([])
+    })
+
+    it("reports the raw gateway URL when it cannot be parsed", async () => {
+      const session = new FakeSession()
+      const connection = new FakeConnection()
+      await startAssistant(session, connection)
+      connection.gatewayUrl = "twilight-zone"
+
+      session.uiMessage("state:get", {})
+      await flush()
+
+      expect(lastSnapshot(session).gatewayHost).toBe("twilight-zone")
+    })
   })
 })

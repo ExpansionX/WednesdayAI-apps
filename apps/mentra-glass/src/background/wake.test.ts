@@ -1,6 +1,6 @@
 import {describe, expect, it} from "vitest"
 
-import {matchWake, normalizeSpeech, WakeTracker} from "./wake"
+import {findWake, matchWake, normalizeSpeech, WakeTracker} from "./wake"
 
 const TRIGGERS = ["wednesday", "computer"]
 
@@ -101,6 +101,31 @@ describe("matchWake", () => {
   it("does not match when the utterance is shorter than the trigger phrase", () => {
     expect(matchWake("hey", ["hey wednesday"])).toBeNull()
     expect(matchWake("hey computer", ["hey computer go"])).toBeNull()
+  })
+})
+
+describe("findWake", () => {
+  it("finds the trigger after filler words and returns the rest as the query", () => {
+    expect(findWake("so anyway hey wednesday what time is it", ["wednesday"])).toEqual({
+      query: "what time is it",
+    })
+  })
+
+  it("returns null when no trigger appears anywhere", () => {
+    expect(findWake("nothing here", ["wednesday"])).toBeNull()
+  })
+
+  it("prefers the longest trigger at the earliest match position", () => {
+    expect(findWake("ok wednesday prime go", ["wednesday", "wednesday prime"])).toEqual({query: "go"})
+  })
+
+  it("returns null for an empty or punctuation-only transcript", () => {
+    expect(findWake("", TRIGGERS)).toBeNull()
+    expect(findWake("?! ... ?", TRIGGERS)).toBeNull()
+  })
+
+  it("ignores triggers with no word characters", () => {
+    expect(findWake("hey there", ["!!!", ""])).toBeNull()
   })
 })
 

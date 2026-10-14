@@ -44,6 +44,12 @@ for (const [k, v] of Object.entries(process.env)) {
     define[`process.env.${k}`] = JSON.stringify(v)
   }
 }
+// Pin NODE_ENV so an ambient-unset build (plain `npm run build`) does not
+// bake React's development build into the UI bundle. Bun defaults
+// process.env.NODE_ENV to "development" at build time; `pack`/`release`
+// set NODE_ENV=production and `mentra-miniapp dev` inherits the ambient
+// value, so an explicit NODE_ENV=development still yields dev React.
+define["process.env.NODE_ENV"] = JSON.stringify(process.env.NODE_ENV ?? "production")
 
 const backgroundResult = await Bun.build({
   entrypoints: ["./src/background/index.ts"],

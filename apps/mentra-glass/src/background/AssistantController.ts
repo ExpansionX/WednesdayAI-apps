@@ -2,34 +2,63 @@
  * AssistantController — owns the glasses-side assistant.
  *
  * Wires the gateway connection (pairing, requests, chat events), wake-word
- * tracking over speech-to-text transcripts, the glasses display, persisted
- * settings, and the phone UI menu (see src/ui/App.tsx +
- * src/shared/channels.ts). One instance lives for the whole background
- * JSContext; session.on("disconnect") tears everything down, marking the
- * controller disposed so async continuations cannot paint into a dead
- * session.
+ * tracking over speech-to-text transcripts, gateway question transcription
+ * (the mic's own audio via talk.session, falling back to Mentra's
+ * transcript), the glasses display — assistant frames, the head-tilt glance,
+ * and allowlisted phone notifications — persisted settings, and the phone UI
+ * menu (see src/ui/App.tsx + src/shared/channels.ts). One instance lives for
+ * the whole background JSContext; session.on("disconnect") tears everything
+ * down, marking the controller disposed so async continuations cannot paint
+ * into a dead session.
  */
 
-import type {MiniappSession} from "@mentra/miniapp/background"
+import type {AccelData, MiniappSession, PhoneNotificationData} from "@mentra/miniapp/background"
 import manifest from "../../miniapp.json"
 
 import {applyChatEvent, bindServerRunId, startRun} from "../gateway/chat"
 import type {ChatRun} from "../gateway/chat"
-import {SETTINGS_STORAGE_KEY} from "../gateway/constants"
+import {NOTIFICATION_APPS_STORAGE_KEY, SETTINGS_STORAGE_KEY} from "../gateway/constants"
 import {uuidV4} from "../gateway/encoding"
 import {GatewayConnection} from "../gateway/connection"
 import {parseSetupInput, parseUrlParts} from "../gateway/setup-code"
 import {agentOptions, resolveSessionKey} from "../gateway/sessions"
 import type {AgentsInfo} from "../gateway/sessions"
 import type {ConnectionState, KeyValueStore} from "../gateway/types"
-import type {Channels, GlassSettings, StateSnapshot} from "../shared/channels"
+import type {Channels, GlassSettings, NotificationAppOption, StateSnapshot} from "../shared/channels"
+import {glanceBody} from "./glance"
+import {notificationFromEvent} from "./notifications"
+import type {QueuedNotification} from "./notifications"
+import {NotificationPresenter} from "./notificationPresenter"
 import {GlassesView} from "./glassesView"
 import type {GlassesViewModel} from "./glassesView"
-import {WakeTracker} from "./wake"
+import {GatewaySttCapture} from "./gatewayStt"
+import {TiltDetector} from "./tilt"
+import {findWake, WakeTracker} from "./wake"
 import type {WakeAction} from "./wake"
 
 const CLIENT_VERSION = manifest.version
-const DEFAULT_SETTINGS: GlassSettings = {wakeSttMode: "local", agentId: null}
+const DEFAULT_SETTINGS: GlassSettings = {
+  wakeSttMode: "local",
+  agentId: null,
+  querySttMode: "gateway",
+  notificationApps: [],
+}
+
+/** Trimmed, non-empty, de-duplicated package names in first-seen order. */
+function sanitizeNotificationApps(value: unknown): string[] {
+  if (!Array.isArray(value)) return []
+  const seen = new Set<string>()
+  for (const entry of value) {
+    if (typeof entry !== "string") continue
+    const name = entry.trim()
+    if (!name || seen.has(name)) continue
+    seen.add(name)
+  }
+  return [...seen]
+}
+
+/** Seen notification apps kept in state and storage, newest first. */
+const MAX_SEEN_APPS = 50
 /** How long the listening frame stays up when no query follows the wake word. */
 const LISTENING_WINDOW_MS = 8000
 /** Mic test: silence window before the on-device model hint is shown. */
@@ -82,10 +111,29 @@ export class AssistantController {
   private disposed = false
   private readonly unsubs: Array<() => void> = []
   private transcriptionUnsub: (() => void) | null = null
+  /** Live while gateway question transcription may stream mic audio. */
+  private audioUnsub: (() => void) | null = null
   private listeningTimer: TimerHandle | null = null
   /** True while the listening frame is the newest frame shown; guards the window's hide. */
   private listeningFrameUp = false
   private micTestTimer: TimerHandle | null = null
+  /** Which frame owns the display: assistant frames outrank notifications, which outrank the glance. */
+  private displayOwner: "assistant" | "notification" | "glance" | null = null
+  private readonly tilt = new TiltDetector()
+  private readonly notifications: NotificationPresenter
+  private seenApps: NotificationAppOption[] = []
+  /** JSON of the seen-app list in the last pushed state snapshot. */
+  private seenAppsPushed: string | null = null
+  /** JSON of the most recently requested seen-app write; a failure resets it. */
+  private seenAppsWriteRequested: string | null = null
+  /** Gateway transcription of the spoken question; Mentra's transcript is the fallback. */
+  private readonly stt: GatewaySttCapture
+  /** One "transcription unavailable" warning per gateway hello. */
+  private sttWarned = false
+  /** Bumped per spoken question; a stale finish() must not send. */
+  private sendToken = 0
+  /** True while resolveAndSend awaits the gateway transcript of a painted query. */
+  private awaitingTranscript = false
 
   private settings: GlassSettings = {...DEFAULT_SETTINGS}
   private triggers: string[] = []
@@ -97,14 +145,33 @@ export class AssistantController {
   /** Controller-side notice; preferred over the connection's lastError. */
   private notice: string | null = null
   private currentRun: ChatRun | null = null
-  private currentQuery = ""
   private micTestEnabled = false
 
   constructor(session: MiniappSession<Channels>, options: AssistantControllerOptions = {}) {
     this.session = session
     // SimpleStorage's get/set/delete satisfy the portable KeyValueStore shape.
     this.store = session.storage
-    this.view = new GlassesView(session)
+    this.view = new GlassesView(session, {
+      onAutoClear: () => this.onDisplayAutoClear(),
+      onShown: (vm) => {
+        if (vm.phase === "notification") this.notifications.onShown()
+      },
+    })
+    this.notifications = new NotificationPresenter(
+      {
+        canShow: () => this.displayOwner === null || this.displayOwner === "glance",
+        show: (vm) => {
+          this.displayOwner = "notification"
+          this.listeningFrameUp = false
+          this.view.show(vm)
+        },
+        hide: () => {
+          this.displayOwner = null
+          this.view.hide()
+        },
+      },
+      () => this.pushState(),
+    )
     const hooks: ConnectionHooks = {
       onStateChange: (state) => this.onConnectionState(state),
       onEvent: (event: string, payload: unknown) => this.onGatewayEvent(event, payload),
@@ -121,6 +188,10 @@ export class AssistantController {
           ...connectionHooks,
         }))
     this.connection = createConnection(hooks)
+    this.stt = new GatewaySttCapture({
+      requester: this.connection,
+      onError: (message) => this.onSttError(message),
+    })
   }
 
   async start(): Promise<void> {
@@ -133,8 +204,16 @@ export class AssistantController {
 
     await this.loadSettings()
     if (this.disposed) return
+    await this.loadSeenApps()
+    if (this.disposed) return
     this.registerUiHandlers()
     this.subscribeTranscription()
+    this.unsubs.push(this.session.imu.onAccel((data) => this.onAccel(data)))
+    this.unsubs.push(this.session.phone.notifications.on((data) => this.onPhoneNotification(data)))
+    this.unsubs.push(
+      this.session.phone.notifications.onDismissed((data) => this.notifications.dismiss(data.notificationId)),
+    )
+    this.syncAudioSubscription()
 
     void Promise.resolve(this.connection.start()).catch(() => {
       // Connection failures surface through onStateChange → pushState.
@@ -155,10 +234,18 @@ export class AssistantController {
       this.transcriptionUnsub()
       this.transcriptionUnsub = null
     }
+    if (this.audioUnsub) {
+      this.audioUnsub()
+      this.audioUnsub = null
+    }
+    // Closes any open transcription session before the connection goes down.
+    this.stt.dispose()
     for (const unsub of this.unsubs.splice(0)) {
       unsub()
     }
     this.connection.stop()
+    // Stops the page timer and drops queued state; the surface is left as is.
+    this.notifications.dispose()
     // Cancels GlassesView's heartbeat/auto-clear timers without rendering:
     // outbound render requests would only queue against the dead session.
     this.view.dispose()
@@ -174,13 +261,17 @@ export class AssistantController {
    */
   private onConnectionState(state: ConnectionState): void {
     if (this.disposed) return
+    this.syncAudioSubscription()
     this.pushState()
     if (state === "connected" || state === "connecting") return
     const run = this.currentRun
-    if (!run || run.state === "final" || run.state === "error" || run.state === "aborted") return
+    const runIsLive = run !== null && run.state !== "final" && run.state !== "error" && run.state !== "aborted"
+    // A painted query awaiting its gateway transcript is a live frame too:
+    // the drop means it can never be answered, so finish it like a run.
+    if (!runIsLive && !this.awaitingTranscript) return
     this.currentRun = null
     if (state === "unpaired") {
-      this.view.hide()
+      this.releaseDisplay()
       return
     }
     if (state === "offline") {
@@ -198,6 +289,26 @@ export class AssistantController {
     })
   }
 
+  /**
+   * Keep the mic subscription exactly when gateway question transcription
+   * wants it: 16 kHz PCM streams into the capture only while the gateway is
+   * up and the mode selects it. Losing the subscription also cancels any
+   * capture in flight, so a dropped gateway can never hold a talk session.
+   */
+  private syncAudioSubscription(): void {
+    const wanted =
+      !this.disposed && this.settings.querySttMode === "gateway" && this.connection.state === "connected"
+    if (wanted && this.audioUnsub === null) {
+      this.audioUnsub = this.session.mic.onAudioChunk((chunk) => this.stt.pushChunk(chunk))
+      return
+    }
+    if (!wanted && this.audioUnsub !== null) {
+      this.audioUnsub()
+      this.audioUnsub = null
+      this.stt.abort()
+    }
+  }
+
   // ── Settings ─────────────────────────────────────────────────────────────
 
   private async loadSettings(): Promise<void> {
@@ -209,6 +320,8 @@ export class AssistantController {
       this.settings = {
         wakeSttMode: parsed.wakeSttMode === "cloud" ? "cloud" : "local",
         agentId: typeof parsed.agentId === "string" ? parsed.agentId : null,
+        querySttMode: parsed.querySttMode === "mentra" ? "mentra" : "gateway",
+        notificationApps: sanitizeNotificationApps(parsed.notificationApps),
       }
     } catch {
       this.settings = {...DEFAULT_SETTINGS}
@@ -223,9 +336,14 @@ export class AssistantController {
     if (this.disposed) return
     const modeChanged = patch.wakeSttMode !== undefined && patch.wakeSttMode !== this.settings.wakeSttMode
     const agentChanged = patch.agentId !== undefined
+    const appsChanged = patch.notificationApps !== undefined
+    const sttModeChanged =
+      patch.querySttMode !== undefined && patch.querySttMode !== this.settings.querySttMode
     this.settings = {
       wakeSttMode: patch.wakeSttMode ?? this.settings.wakeSttMode,
       agentId: patch.agentId !== undefined ? patch.agentId : this.settings.agentId,
+      querySttMode: patch.querySttMode ?? this.settings.querySttMode,
+      notificationApps: appsChanged ? sanitizeNotificationApps(patch.notificationApps) : this.settings.notificationApps,
     }
     try {
       await this.saveSettings()
@@ -233,12 +351,16 @@ export class AssistantController {
       this.pushError(errorMessage(err, "Could not save settings"))
     }
     if (this.disposed) return
+    if (appsChanged) {
+      this.notifications.retain((notification) => this.settings.notificationApps.includes(notification.packageName))
+    }
     if (modeChanged) {
       this.subscribeTranscription()
       // The silence window restarts with the new subscription: a timer armed
       // under the old mode must not fire across it.
       if (this.micTestEnabled) this.armMicTestTimer()
     }
+    if (sttModeChanged) this.syncAudioSubscription()
     if (agentChanged) this.refreshAgentNotice()
     this.pushState()
   }
@@ -267,16 +389,22 @@ export class AssistantController {
       case "listening": {
         this.showFrame({phase: "listening", agentLabel: this.agentLabel(), body: ""})
         this.armListeningWindow()
+        // The capture carries the mic's pre-roll only when it is streaming.
+        if (this.audioUnsub !== null) this.stt.begin(this.sessionKey())
         return
       }
       case "cancel":
         this.listeningFrameUp = false
         this.stopListeningTimer()
-        this.view.hide()
+        // Cancellation must not turn a pending transcript wait into a
+        // Mentra-fallback send: stale the await before the abort settles it.
+        this.sendToken += 1
+        this.stt.abort()
+        this.releaseDisplay()
         return
       case "send":
         this.stopListeningTimer()
-        void this.sendQuery(action.query)
+        void this.resolveAndSend(action.query)
         return
       case "none":
         return
@@ -286,11 +414,141 @@ export class AssistantController {
   /**
    * Show a frame through the listening-window guard: a non-listening frame
    * takes the display away from the listening frame, so the window's expiry
-   * must no longer hide it.
+   * must no longer hide it. A notification on screen is requeued at the
+   * front (without hiding) and resumes when an assistant path frees the
+   * display.
    */
   private showFrame(vm: GlassesViewModel): void {
+    if (this.displayOwner === "notification") this.notifications.interrupt()
     this.listeningFrameUp = vm.phase === "listening"
+    this.displayOwner = "assistant"
     this.view.show(vm)
+  }
+
+  /**
+   * Give the display back: clear the glasses and let a queued notification
+   * step in. Every assistant-side hide of a live frame goes through here.
+   * A showing notification keeps the display: the presenter owns that frame,
+   * so stale assistant state — a finished or failed run still held in
+   * currentRun, a connection drop mid-pages — must not cut it off. Its page
+   * timer would keep advancing with nothing on the glasses, and pump() could
+   * not restore a frame the presenter still considers showing.
+   */
+  private releaseDisplay(): void {
+    if (this.displayOwner === "notification") return
+    this.displayOwner = null
+    this.view.hide()
+    this.notifications.pump()
+  }
+
+  /** A terminal frame auto-cleared itself: the display is free again. */
+  private onDisplayAutoClear(): void {
+    const wasNotification = this.displayOwner === "notification"
+    this.displayOwner = null
+    if (wasNotification) {
+      // The host gave up on the notification's frame (blocked past its
+      // window) before its pages finished: requeue it at the front so it is
+      // shown again rather than lost, and let it restart right away.
+      this.notifications.interrupt()
+    }
+    this.notifications.pump()
+  }
+
+  // ── Glance + notifications ──────────────────────────────────────────────
+
+  /** Head-tilt events: up shows the glance, down gives the display back. */
+  private onAccel(data: AccelData): void {
+    if (this.disposed) return
+    const event = this.tilt.onSample(data)
+    if (event === "up") {
+      // A glance never takes the display from an assistant frame.
+      if (this.displayOwner !== null && this.displayOwner !== "glance") return
+      this.displayOwner = "glance"
+      this.listeningFrameUp = false
+      this.view.show({
+        phase: "glance",
+        agentLabel: this.agentLabel(),
+        body: glanceBody(new Date(), this.connection.state, this.notifications.queued),
+      })
+      return
+    }
+    if (event === "down" && this.displayOwner === "glance") this.releaseDisplay()
+  }
+
+  private onPhoneNotification(data: PhoneNotificationData): void {
+    if (this.disposed) return
+    const item = notificationFromEvent(data)
+    if (!item) return
+    const seenChanged = this.recordSeenApp(item)
+    // The snapshot exposes the seen list and the queued count only: a
+    // repost that edits queued content changes neither, so nothing is
+    // pushed.
+    const queuedBefore = this.notifications.queued
+    if (this.settings.notificationApps.includes(item.packageName)) this.notifications.add(item)
+    if (seenChanged || this.notifications.queued !== queuedBefore) this.pushState()
+  }
+
+  /**
+   * Move the app to the front of the seen list, cap it; true when the list
+   * differs from the last pushed snapshot, which is what decides the state
+   * push. The write compares against the most recently requested one — a
+   * failed write resets that marker — so a repost retries a failed write
+   * without pushing an unchanged snapshot, and a change that lands while an
+   * older write is pending is both pushed and re-requested.
+   */
+  private recordSeenApp(item: QueuedNotification): boolean {
+    const entry: NotificationAppOption = {packageName: item.packageName, app: item.app}
+    const rest = this.seenApps.filter((seen) => seen.packageName !== entry.packageName)
+    const next = [entry, ...rest]
+    if (next.length > MAX_SEEN_APPS) next.length = MAX_SEEN_APPS
+    this.seenApps = next
+    const snapshot = JSON.stringify(next)
+    if (snapshot !== this.seenAppsWriteRequested) {
+      this.seenAppsWriteRequested = snapshot
+      void this.saveSeenApps(snapshot)
+    }
+    if (snapshot === this.seenAppsPushed) return false
+    this.seenAppsPushed = snapshot
+    return true
+  }
+
+  private async saveSeenApps(snapshot: string): Promise<void> {
+    try {
+      await this.store.set(NOTIFICATION_APPS_STORAGE_KEY, snapshot)
+    } catch (err) {
+      // Reset only if no newer write superseded this one: the next
+      // notification then retries it.
+      if (this.seenAppsWriteRequested === snapshot) this.seenAppsWriteRequested = null
+      this.pushError(errorMessage(err, "Could not save notification apps"))
+    }
+  }
+
+  private async loadSeenApps(): Promise<void> {
+    try {
+      const raw = await this.store.get(NOTIFICATION_APPS_STORAGE_KEY)
+      if (raw) {
+        const parsed: unknown = JSON.parse(raw)
+        if (Array.isArray(parsed)) {
+          const apps: NotificationAppOption[] = []
+          for (const entry of parsed) {
+            if (typeof entry !== "object" || entry === null) continue
+            const candidate = entry as {packageName?: unknown; app?: unknown}
+            if (typeof candidate.packageName !== "string" || !candidate.packageName) continue
+            if (typeof candidate.app !== "string" || !candidate.app) continue
+            apps.push({packageName: candidate.packageName, app: candidate.app})
+            if (apps.length >= MAX_SEEN_APPS) break
+          }
+          this.seenApps = apps
+          // Storage already holds this list: no write is pending for it.
+          this.seenAppsWriteRequested = JSON.stringify(apps)
+        }
+      }
+    } catch {
+      this.seenApps = []
+    }
+    // start() pushes this list right after the load: intake compares
+    // against that snapshot.
+    this.seenAppsPushed = JSON.stringify(this.seenApps)
   }
 
   private armListeningWindow(): void {
@@ -302,9 +560,12 @@ export class AssistantController {
       // clear the glasses if the listening frame still owns them; a newer
       // frame (a run, offline, …) survives this timeout.
       this.tracker.cancelAwait()
+      // Same as cancel: a stale pending wait must not fall back to a send.
+      this.sendToken += 1
+      this.stt.abort()
       if (this.listeningFrameUp) {
         this.listeningFrameUp = false
-        this.view.hide()
+        this.releaseDisplay()
       }
     }, LISTENING_WINDOW_MS)
   }
@@ -317,6 +578,32 @@ export class AssistantController {
   }
 
   // ── Chat sends ──────────────────────────────────────────────────────────
+
+  /**
+   * Send the spoken question, preferring the gateway's transcript of the mic
+   * audio over Mentra's. The Mentra query is painted while the transcript is
+   * awaited, so a gateway that cannot transcribe only costs a short delay.
+   * A transcript that lands after a disconnect, a disposal, or a newer send
+   * sends nothing and paints nothing.
+   */
+  private async resolveAndSend(mentraQuery: string): Promise<void> {
+    const token = ++this.sendToken
+    if (!this.stt.active) {
+      await this.sendQuery(mentraQuery)
+      return
+    }
+    // Retire the previous run the way sendQuery replaces it: its late deltas
+    // and terminal event must not repaint over this question's frame while
+    // the transcript is awaited.
+    this.currentRun = null
+    this.showFrame({phase: "thinking", agentLabel: this.agentLabel(), body: mentraQuery})
+    this.awaitingTranscript = true
+    const text = await this.stt.finish()
+    this.awaitingTranscript = false
+    if (this.disposed || token !== this.sendToken || this.connection.state !== "connected") return
+    const query = (text && findWake(text, this.triggers)?.query.trim()) || mentraQuery
+    await this.sendQuery(query)
+  }
 
   private async sendQuery(query: string): Promise<void> {
     if (this.disposed) return
@@ -331,7 +618,6 @@ export class AssistantController {
     const idempotencyKey = uuidV4()
     const run = startRun(idempotencyKey)
     this.currentRun = run
-    this.currentQuery = query
     this.showFrame({phase: "thinking", agentLabel: this.agentLabel(), body: query})
     let result: ChatSendResult
     try {
@@ -379,9 +665,7 @@ export class AssistantController {
   private showRun(run: ChatRun): void {
     const agentLabel = this.agentLabel()
     switch (run.state) {
-      case "thinking":
-        this.showFrame({phase: "thinking", agentLabel, body: this.currentQuery})
-        return
+      // No "thinking" case: applyChatEvent never produces that state.
       case "streaming":
         this.showFrame({phase: "streaming", agentLabel, body: run.text})
         return
@@ -389,6 +673,8 @@ export class AssistantController {
         this.showFrame({phase: "final", agentLabel, body: run.text || "(no reply)"})
         return
       case "error":
+        // run.error is `string | null` and TS cannot see applyChatEvent's
+        // guarantee of a non-empty message, so the fallback stays.
         this.showFrame({phase: "error", agentLabel, body: run.error || "Request failed"})
         return
       case "aborted":
@@ -412,11 +698,16 @@ export class AssistantController {
     }
     if (event === "chat") {
       this.onChatEvent(payload)
+      return
+    }
+    if (event === "talk.event") {
+      this.stt.onTalkEvent(payload)
     }
   }
 
   private onChatEvent(payload: unknown): void {
-    if (this.disposed) return
+    // Disposal is handled by onGatewayEvent's guard; a post-dispose currentRun
+    // is null regardless.
     const run = this.currentRun
     if (!run) return
     const updated = applyChatEvent(run, payload)
@@ -428,6 +719,8 @@ export class AssistantController {
   private async onHello(hello: {mainSessionKey: string | null}): Promise<void> {
     if (this.disposed) return
     this.mainSessionKey = hello.mainSessionKey
+    // A reconnect is a fresh gateway process: transcription may work again.
+    this.sttWarned = false
     const revisionBeforeHydration = this.wakeRevision
     try {
       const result = await this.connection.request<VoicewakeGetResult>("voicewake.get", {})
@@ -453,6 +746,13 @@ export class AssistantController {
   private setTriggers(triggers: string[]): void {
     this.triggers = triggers
     this.tracker.setTriggers(triggers)
+  }
+
+  /** One warning per hello: the gateway said why it cannot transcribe. */
+  private onSttError(message: string): void {
+    if (this.sttWarned) return
+    this.sttWarned = true
+    this.pushError(`WednesdayAI transcription unavailable: ${message}. Using Mentra transcription.`)
   }
 
   private refreshAgentNotice(): void {
@@ -486,8 +786,8 @@ export class AssistantController {
   }
 
   private armMicTestTimer(): void {
+    // Every caller guarantees the mic test is enabled.
     this.stopMicTestTimer()
-    if (!this.micTestEnabled) return
     this.micTestTimer = setTimeout(() => {
       this.micTestTimer = null
       if (this.micTestEnabled && this.settings.wakeSttMode === "local") {
@@ -524,6 +824,10 @@ export class AssistantController {
     )
     this.unsubs.push(
       this.session.ui.on("pair:forget", () => {
+        // Unpairing tears the gateway socket down the same way re-pairing
+        // replaces it: retire any live frame first, or a pending
+        // transcription falls back to a send on a dead one.
+        this.retireAssistantFrame()
         void Promise.resolve(this.connection.forget()).then(
           () => this.pushState(),
           (err: unknown) => {
@@ -536,6 +840,21 @@ export class AssistantController {
     this.unsubs.push(
       this.session.ui.on("settings:set", (patch) => {
         void this.updateSettings(patch)
+      }),
+    )
+    this.unsubs.push(
+      this.session.ui.on("notifications:allow", ({packageName, enabled}) => {
+        // One app per intent: checkboxes build on the background's own list,
+        // so a snapshot racing a tick can never drop another app's choice.
+        const name = packageName.trim()
+        if (!name) return
+        const has = this.settings.notificationApps.includes(name)
+        if (enabled === has) return
+        void this.updateSettings({
+          notificationApps: enabled
+            ? [...this.settings.notificationApps, name]
+            : this.settings.notificationApps.filter((existing) => existing !== name),
+        })
       }),
     )
     this.unsubs.push(this.session.ui.on("mictest:set", ({enabled}) => this.setMicTest(enabled)))
@@ -560,6 +879,23 @@ export class AssistantController {
     await this.pairWithCode(result.data)
   }
 
+  /**
+   * Retire any live assistant frame before the gateway socket is replaced
+   * (re-pairing) or torn down (unpair): a run or painted query bound to the
+   * old socket can never finish — its live frame would heartbeat the 10 s
+   * display lock forever — and a pending transcription must not fall back
+   * to a chat.send on a dead one.
+   */
+  private retireAssistantFrame(): void {
+    const hadFrame = this.currentRun !== null || this.listeningFrameUp || this.awaitingTranscript
+    this.sendToken += 1
+    this.awaitingTranscript = false
+    this.stt.abort()
+    this.currentRun = null
+    this.listeningFrameUp = false
+    if (hadFrame) this.releaseDisplay()
+  }
+
   private async pairWithCode(code: string): Promise<void> {
     let setup
     try {
@@ -569,14 +905,8 @@ export class AssistantController {
       this.pushState()
       return
     }
-    // Pairing replaces the gateway socket: a run bound to the old gateway
-    // can never finish, and its live frame would heartbeat the 10 s display
-    // lock forever. Retire it before the new connection takes over.
-    const hadFrame = this.currentRun !== null || this.listeningFrameUp
-    this.currentRun = null
-    this.currentQuery = ""
-    this.listeningFrameUp = false
-    if (hadFrame) this.view.hide()
+    // Pairing replaces the gateway socket: retire the live frame first.
+    this.retireAssistantFrame()
     try {
       await this.connection.pair(setup)
     } catch (err) {
@@ -597,9 +927,11 @@ export class AssistantController {
       agents: this.agents.map((agent) => ({...agent})),
       defaultAgentId: this.agentsInfo?.defaultId ?? null,
       sessionScope: this.agentsInfo?.scope ?? null,
-      settings: {...this.settings},
+      settings: {...this.settings, notificationApps: [...this.settings.notificationApps]},
       micTestEnabled: this.micTestEnabled,
       lastError: this.notice ?? this.connection.lastError,
+      seenNotificationApps: this.seenApps.map((seen) => ({...seen})),
+      queuedNotifications: this.notifications.queued,
     }
   }
 

@@ -10,9 +10,15 @@
  */
 
 import {registerMiniapp} from "@mentra/miniapp/background"
+import manifest from "../../miniapp.json"
 import type {Channels} from "../shared/channels"
 import {AssistantController} from "./AssistantController"
 
-registerMiniapp<Channels>((session) => {
-  void new AssistantController(session).start()
-})
+registerMiniapp<Channels>(
+  (session) => {
+    void new AssistantController(session).start()
+  },
+  // The JSContext has no window, so the SDK cannot read MentraOS globals —
+  // pass the package name explicitly or CONNECT goes out with an empty one.
+  {packageName: manifest.packageName},
+)

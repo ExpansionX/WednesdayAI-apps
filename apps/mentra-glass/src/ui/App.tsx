@@ -26,7 +26,7 @@ export function App() {
 
   useEffect(() => {
     const unsubs = [
-      mentra.on("state", setSnapshot),
+      mentra.on("state", (next) => setSnapshot(next)),
       mentra.on("error", ({message}) => setError(message)),
       mentra.on("mictest:transcript", (item) => {
         setTranscripts((prev) => [item, ...prev].slice(0, TRANSCRIPT_LIMIT))
@@ -48,6 +48,14 @@ export function App() {
   }
 
   const pairDisabled = snapshot.connection === "connecting"
+  // An enabled app can fall off the capped seen list; keep it in the menu,
+  // labelled by package name, so the user can still switch it off.
+  const menuApps = [
+    ...snapshot.seenNotificationApps,
+    ...snapshot.settings.notificationApps
+      .filter((packageName) => !snapshot.seenNotificationApps.some((seen) => seen.packageName === packageName))
+      .map((packageName) => ({packageName, app: packageName})),
+  ]
 
   return (
     <div className="app">
@@ -143,6 +151,55 @@ export function App() {
           Mentra cloud (more accurate)
         </label>
         <p className="hint">On-device mode needs the offline speech model: Mentra App → Settings → Transcription.</p>
+      </section>
+
+      <section className="card">
+        <h2>Question transcription</h2>
+        <label className="row">
+          <input
+            type="radio"
+            name="query-stt-mode"
+            checked={snapshot.settings.querySttMode === "gateway"}
+            onChange={() => mentra.send("settings:set", {querySttMode: "gateway"})}
+          />
+          WednesdayAI gateway (more accurate; needs a transcription provider on the gateway)
+        </label>
+        <label className="row">
+          <input
+            type="radio"
+            name="query-stt-mode"
+            checked={snapshot.settings.querySttMode === "mentra"}
+            onChange={() => mentra.send("settings:set", {querySttMode: "mentra"})}
+          />
+          Mentra (same as wake listening)
+        </label>
+        <p className="hint">If the gateway cannot transcribe, Mentra&apos;s transcript is used.</p>
+      </section>
+
+      <section className="card">
+        <h2>Glasses notifications</h2>
+        <p className="hint">Android only. On iOS the glasses firmware shows notifications itself.</p>
+        {menuApps.length === 0 ? (
+          <p className="hint">No notifications seen yet. Apps appear here after your phone shows one.</p>
+        ) : (
+          menuApps.map((app) => (
+            <label key={app.packageName} className="row">
+              <input
+                type="checkbox"
+                checked={snapshot.settings.notificationApps.includes(app.packageName)}
+                onChange={(event) => {
+                  mentra.send("notifications:allow", {
+                    packageName: app.packageName,
+                    enabled: event.target.checked,
+                  })
+                }}
+              />
+              {app.app} <span className="hint">{app.packageName}</span>
+            </label>
+          ))
+        )}
+        {snapshot.queuedNotifications > 0 && <p className="hint">Queued: {snapshot.queuedNotifications}</p>}
+        <p className="hint">Stop Mentra Notify in the Mentra App so messages are not shown twice.</p>
       </section>
 
       <section className="card">

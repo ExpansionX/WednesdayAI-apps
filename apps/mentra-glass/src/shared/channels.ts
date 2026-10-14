@@ -15,6 +15,14 @@ import type {MentraTyped} from "@mentra/miniapp/ui"
 export interface GlassSettings {
   wakeSttMode: "local" | "cloud"
   agentId: string | null
+  querySttMode: "gateway" | "mentra"
+  notificationApps: string[]
+}
+
+/** An Android app from which a notification has been seen on the glasses. */
+export interface NotificationAppOption {
+  packageName: string
+  app: string
 }
 
 export interface AgentOption {
@@ -34,6 +42,10 @@ export interface StateSnapshot {
   /** Whether the microphone test is currently forwarding transcripts. */
   micTestEnabled: boolean
   lastError: string | null
+  /** Android apps from which a notification has been seen, newest first (max 50). */
+  seenNotificationApps: NotificationAppOption[]
+  /** Notifications waiting to show, excluding the one on screen. */
+  queuedNotifications: number
 }
 
 export interface Channels {
@@ -48,7 +60,9 @@ export interface Channels {
   /** Forget the gateway pairing (the identity key is kept). */
   "pair:forget": Record<string, never>
   /** Patch settings; omitted fields stay unchanged. */
-  "settings:set": {wakeSttMode?: "local" | "cloud"; agentId?: string | null}
+  "settings:set": Partial<GlassSettings>
+  /** Enable or disable one Android app in the notification allowlist. */
+  "notifications:allow": {packageName: string; enabled: boolean}
   /** Enable or disable the microphone test. */
   "mictest:set": {enabled: boolean}
 
