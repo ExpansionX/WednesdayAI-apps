@@ -38,5 +38,5 @@ jobs:
           java-version: "17"
 
       - name: Gradle check and build
-        run: ./gradlew --no-daemon :app:ktlintCheck :app:testDebugUnitTest :app:assembleDebug
+        run: ./gradlew --no-daemon --continue :app:ktlintCheck :app:testDebugUnitTest :app:assembleDebug
         working-directory: apps/android
