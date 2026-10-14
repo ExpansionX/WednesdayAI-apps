@@ -47,5 +47,8 @@
 --header ignore
 --allman false
 
+# Rules added after this code was formatted; enabling them reformats ~800 sites.
+--disable wrapIfStatementBodies,wrapIfExpressionBodies,redundantSwiftUIGroup
+
 # Exclusions
 --exclude .build,.swiftpm,DerivedData,node_modules,dist,coverage,xcuserdata,Peekaboo,Swabble,apps/android,apps/ios,apps/shared,apps/macos/Sources/MoltbotProtocol

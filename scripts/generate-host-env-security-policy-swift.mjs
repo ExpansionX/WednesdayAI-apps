@@ -33,7 +33,8 @@ const outputPath = path.join(
 /** @type {{blockedKeys: string[]; blockedOverrideKeys?: string[]; blockedPrefixes: string[]}} */
 const policy = JSON.parse(fs.readFileSync(policyPath, "utf8"));
 
-const renderSwiftStringArray = (items) => items.map((item) => `        "${item}"`).join(",\n");
+// Trailing comma after every element so the generated file passes `swiftformat --lint` (trailingCommas rule).
+const renderSwiftStringArray = (items) => items.map((item) => `        "${item}",`).join("\n");
 
 const generated = `// Generated file. Do not edit directly.
 // Source: apps/shared/contracts/host-env-security-policy.json (synced from WednesdayAI-core)
