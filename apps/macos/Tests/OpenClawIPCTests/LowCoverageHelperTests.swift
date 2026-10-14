@@ -54,7 +54,9 @@ struct LowCoverageHelperTests {
     }
 
     @Test func `shell executor times out`() async {
-        let result = await ShellExecutor.runDetailed(command: ["/bin/sleep", "1"], cwd: nil, env: nil, timeout: 0.05)
+        // A long child keeps the deadline decisive even when the runner is loaded and
+        // the timeout task wakes late (a 1s child could exit before a delayed wake).
+        let result = await ShellExecutor.runDetailed(command: ["/bin/sleep", "30"], cwd: nil, env: nil, timeout: 0.05)
         #expect(result.timedOut == true)
     }
 
