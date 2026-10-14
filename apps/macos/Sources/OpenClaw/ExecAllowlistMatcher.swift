@@ -37,7 +37,8 @@ enum ExecAllowlistMatcher {
     private static func matches(pattern: String, target: String) -> Bool {
         let trimmed = pattern.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return false }
-        let expanded = trimmed.hasPrefix("~") ? (trimmed as NSString).expandingTildeInPath : trimmed
+        let expanded = ExecPathScalars.hasPrefix(trimmed, "~")
+            ? (trimmed as NSString).expandingTildeInPath : trimmed
         let normalizedPattern = self.normalizeMatchTarget(expanded)
         let normalizedTarget = self.normalizeMatchTarget(target)
         guard let regex = self.regex(for: normalizedPattern) else { return false }
@@ -49,29 +50,33 @@ enum ExecAllowlistMatcher {
         value.replacingOccurrences(of: "\\\\", with: "/").lowercased()
     }
 
+    /// Port of TS `compileGlobRegex` (src/infra/exec-allowlist-pattern.ts): the
+    /// reference iterates UTF-16 code units, so a `*`/`?` immediately followed
+    /// by a combining scalar is still a wildcard there; scalar iteration is
+    /// unit-equivalent for the wildcards and escapes complete scalars.
     private static func regex(for pattern: String) -> NSRegularExpression? {
         var regex = "^"
-        var idx = pattern.startIndex
-        while idx < pattern.endIndex {
-            let ch = pattern[idx]
-            if ch == "*" {
-                let next = pattern.index(after: idx)
-                if next < pattern.endIndex, pattern[next] == "*" {
+        let scalars = Array(pattern.unicodeScalars)
+        var idx = 0
+        while idx < scalars.count {
+            let scalar = scalars[idx]
+            if scalar == "*" {
+                if idx + 1 < scalars.count, scalars[idx + 1] == "*" {
                     regex += ".*"
-                    idx = pattern.index(after: next)
+                    idx += 2
                 } else {
                     regex += "[^/]*"
-                    idx = next
+                    idx += 1
                 }
                 continue
             }
-            if ch == "?" {
+            if scalar == "?" {
                 regex += "."
-                idx = pattern.index(after: idx)
+                idx += 1
                 continue
             }
-            regex += NSRegularExpression.escapedPattern(for: String(ch))
-            idx = pattern.index(after: idx)
+            regex += NSRegularExpression.escapedPattern(for: String(scalar))
+            idx += 1
         }
         regex += "$"
         return try? NSRegularExpression(pattern: regex, options: [.caseInsensitive])

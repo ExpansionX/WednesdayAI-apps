@@ -593,7 +593,7 @@ enum ExecApprovalsStore {
         if trimmed == "~" {
             return FileManager().homeDirectoryForCurrentUser.path
         }
-        if trimmed.hasPrefix("~/") {
+        if ExecPathScalars.hasPrefix(trimmed, "~/") {
             let suffix = trimmed.dropFirst(2)
             return FileManager().homeDirectoryForCurrentUser
                 .appendingPathComponent(String(suffix)).path
@@ -762,7 +762,11 @@ enum ExecApprovalHelpers {
     }
 
     private static func containsPathComponent(_ pattern: String) -> Bool {
-        pattern.contains("/") || pattern.contains("~") || pattern.contains("\\")
+        // TS matchAllowlist hasPath: code-unit separators/tilde; grapheme
+        // contains would miss a delimiter fused with a combining scalar.
+        ExecPathScalars.containsUnit(pattern, ExecPathScalars.slash)
+            || ExecPathScalars.containsUnit(pattern, 0x7E) // "~"
+            || ExecPathScalars.containsUnit(pattern, ExecPathScalars.backslash)
     }
 }
 
@@ -816,7 +820,10 @@ actor SkillBinsCache {
         var seen = Set<String>()
         for bin in self.bins.sorted() {
             let name = bin.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !name.isEmpty, !name.contains("/"), !name.contains("\\") else { continue }
+            guard !name.isEmpty,
+                  !ExecPathScalars.containsUnit(name, ExecPathScalars.slash),
+                  !ExecPathScalars.containsUnit(name, ExecPathScalars.backslash)
+            else { continue }
             guard let resolvedPath = ExecCommandResolution
                 .resolveExecutableFromPathEnv(name, pathEnv: pathEnv, processCwd: processCwd)
             else { continue }

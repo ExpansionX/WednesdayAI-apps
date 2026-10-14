@@ -188,8 +188,10 @@ struct ExecCommandResolution: Sendable {
         let raw = self.rawExecutable.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !raw.isEmpty else { return nil }
         let expanded = raw.hasPrefix("~") ? (raw as NSString).expandingTildeInPath : raw
-        guard expanded.contains("/") || expanded.contains("\\") else { return nil }
-        if expanded.hasPrefix("/") {
+        guard ExecPathScalars.containsUnit(expanded, ExecPathScalars.slash)
+            || ExecPathScalars.containsUnit(expanded, ExecPathScalars.backslash)
+        else { return nil }
+        if ExecPathScalars.isAbsolute(expanded) {
             return expanded
         }
         let trimmedCwd = cwd?.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -203,10 +205,13 @@ struct ExecCommandResolution: Sendable {
     /// absolute result without symlink resolution.
     static func resolveAgainstBase(_ base: String, _ relative: String, processCwd: String) -> String {
         var rooted = base
-        if !rooted.hasPrefix("/") {
-            rooted = processCwd.hasSuffix("/") ? processCwd + rooted : processCwd + "/" + rooted
+        // Root classification is byte-based: a leading slash clustered with a
+        // following combining scalar ("/" + U+0301 is one Character) would
+        // otherwise be misread as relative and re-rooted under processCwd.
+        if !ExecPathScalars.isAbsolute(rooted) {
+            rooted = ExecPathScalars.hasSuffix(processCwd, "/") ? processCwd + rooted : processCwd + "/" + rooted
         }
-        let combined = rooted.hasSuffix("/") ? rooted + relative : rooted + "/" + relative
+        let combined = ExecPathScalars.hasSuffix(rooted, "/") ? rooted + relative : rooted + "/" + relative
         return Self.collapsePath(combined)
     }
 
@@ -220,7 +225,10 @@ struct ExecCommandResolution: Sendable {
     /// would fuse a separator with a following combining scalar into one
     /// grapheme and skip the split, mis-nesting parent-directory resolution.
     static func collapsePath(_ path: String) -> String {
-        let isAbsolute = path.hasPrefix("/")
+        // Byte-based root check (review T1): grapheme `hasPrefix("/")` misses a
+        // leading slash fused with a following combining scalar, dropping the
+        // root after scalar component splitting.
+        let isAbsolute = ExecPathScalars.isAbsolute(path)
         var stack: [String] = []
         for component in Self.splitPathComponents(path) {
             switch component {
@@ -277,7 +285,8 @@ struct ExecCommandResolution: Sendable {
         env: [String: String]?,
         processCwd: String) -> ExecCommandResolution
     {
-        let expanded = rawExecutable.hasPrefix("~") ? (rawExecutable as NSString).expandingTildeInPath : rawExecutable
+        let expanded = ExecPathScalars.hasPrefix(rawExecutable, "~")
+            ? (rawExecutable as NSString).expandingTildeInPath : rawExecutable
         let resolvedPath = self.resolveExecutablePath(expanded, cwd: cwd, env: env, processCwd: processCwd)
         let resolvedRealPath = self.tryResolveRealpath(resolvedPath, processCwd: processCwd)
         let name = resolvedPath.map { URL(fileURLWithPath: $0).lastPathComponent } ?? rawExecutable
@@ -294,7 +303,7 @@ struct ExecCommandResolution: Sendable {
     /// the injected process working directory before symlink resolution.
     private static func tryResolveRealpath(_ path: String?, processCwd: String) -> String? {
         guard let path else { return nil }
-        let absolute = path.hasPrefix("/") ? path : self.joinPath(processCwd, path)
+        let absolute = ExecPathScalars.isAbsolute(path) ? path : self.joinPath(processCwd, path)
         guard FileManager.default.fileExists(atPath: absolute) else { return nil }
         return URL(fileURLWithPath: absolute).resolvingSymlinksInPath().path
     }
@@ -313,8 +322,10 @@ struct ExecCommandResolution: Sendable {
         env: [String: String]?,
         processCwd: String) -> String?
     {
-        if expanded.contains("/") || expanded.contains("\\") {
-            if expanded.hasPrefix("/") {
+        if ExecPathScalars.containsUnit(expanded, ExecPathScalars.slash)
+            || ExecPathScalars.containsUnit(expanded, ExecPathScalars.backslash)
+        {
+            if ExecPathScalars.isAbsolute(expanded) {
                 return self.isExecutableFile(expanded) ? expanded : nil
             }
             let base = cwd?.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -333,7 +344,8 @@ struct ExecCommandResolution: Sendable {
     /// candidate whose existence check resolves against the injected process
     /// working directory, exactly like core's `resolveExecutableFromPathEnv`.
     static func joinPath(_ entry: String, _ executable: String) -> String {
-        self.collapsePath(entry.hasSuffix("/") ? entry + executable : entry + "/" + executable)
+        self.collapsePath(
+            ExecPathScalars.hasSuffix(entry, "/") ? entry + executable : entry + "/" + executable)
     }
 
     static func resolveExecutableFromPathEnv(
@@ -343,7 +355,7 @@ struct ExecCommandResolution: Sendable {
     {
         for entry in self.splitPathList(pathEnv) {
             let candidate = self.joinPath(entry, executable)
-            let checkPath = candidate.hasPrefix("/") ? candidate : self.joinPath(processCwd, candidate)
+            let checkPath = ExecPathScalars.isAbsolute(candidate) ? candidate : self.joinPath(processCwd, candidate)
             if self.isExecutableFile(checkPath) {
                 return candidate
             }
@@ -357,91 +369,96 @@ struct ExecCommandResolution: Sendable {
     }
 
     private struct ShellFailClosedRule {
-        let token: Character
-        let next: Character?
+        let token: UInt16
+        let next: UInt16?
     }
 
     private static let shellFailClosedRules: [ShellTokenContext: [ShellFailClosedRule]] = [
         .unquoted: [
-            ShellFailClosedRule(token: "`", next: nil),
-            ShellFailClosedRule(token: "$", next: "("),
-            ShellFailClosedRule(token: "<", next: "("),
-            ShellFailClosedRule(token: ">", next: "("),
+            ShellFailClosedRule(token: 0x60, next: nil), // `
+            ShellFailClosedRule(token: 0x24, next: 0x28), // $ (
+            ShellFailClosedRule(token: 0x3C, next: 0x28), // < (
+            ShellFailClosedRule(token: 0x3E, next: 0x28), // > (
         ],
         .doubleQuoted: [
-            ShellFailClosedRule(token: "`", next: nil),
-            ShellFailClosedRule(token: "$", next: "("),
+            ShellFailClosedRule(token: 0x60, next: nil), // `
+            ShellFailClosedRule(token: 0x24, next: 0x28), // $ (
         ],
     ]
 
+    /// Splits the payload on chain operators (`&&`, `||`, `;`, `&`, `|`, newline)
+    /// while respecting quotes. Iterated on UTF-16 code units like the TS
+    /// reference: Character (grapheme) iteration would fuse an ASCII delimiter
+    /// with a following combining scalar and miss the quote/delimiter.
     private static func splitShellCommandChain(_ command: String) -> [String]? {
         let trimmed = command.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return nil }
 
         var segments: [String] = []
-        var current = ""
+        var current: [UInt16] = []
         var inSingle = false
         var inDouble = false
         var escaped = false
-        let chars = Array(trimmed)
+        let units = Array(trimmed.utf16)
         var idx = 0
 
         func appendCurrent() -> Bool {
-            let segment = current.trimmingCharacters(in: .whitespacesAndNewlines)
+            let segment = String(decoding: current, as: UTF16.self)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
             guard !segment.isEmpty else { return false }
             segments.append(segment)
             current.removeAll(keepingCapacity: true)
             return true
         }
 
-        while idx < chars.count {
-            let ch = chars[idx]
-            let next: Character? = idx + 1 < chars.count ? chars[idx + 1] : nil
+        while idx < units.count {
+            let unit = units[idx]
+            let next: UInt16? = idx + 1 < units.count ? units[idx + 1] : nil
 
             if escaped {
-                current.append(ch)
+                current.append(unit)
                 escaped = false
                 idx += 1
                 continue
             }
 
-            if ch == "\\", !inSingle {
-                current.append(ch)
+            if unit == 0x5C, !inSingle { // backslash
+                current.append(unit)
                 escaped = true
                 idx += 1
                 continue
             }
 
-            if ch == "'", !inDouble {
+            if unit == 0x27, !inDouble { // '
                 inSingle.toggle()
-                current.append(ch)
+                current.append(unit)
                 idx += 1
                 continue
             }
 
-            if ch == "\"", !inSingle {
+            if unit == 0x22, !inSingle { // "
                 inDouble.toggle()
-                current.append(ch)
+                current.append(unit)
                 idx += 1
                 continue
             }
 
-            if !inSingle, self.shouldFailClosedForShell(ch: ch, next: next, inDouble: inDouble) {
+            if !inSingle, self.shouldFailClosedForShell(unit: unit, next: next, inDouble: inDouble) {
                 // Fail closed on command/process substitution in allowlist mode,
                 // including command substitution inside double-quoted shell strings.
                 return nil
             }
 
             if !inSingle, !inDouble {
-                let prev: Character? = idx > 0 ? chars[idx - 1] : nil
-                if let delimiterStep = self.chainDelimiterStep(ch: ch, prev: prev, next: next) {
+                let prev: UInt16? = idx > 0 ? units[idx - 1] : nil
+                if let delimiterStep = self.chainDelimiterStep(unit: unit, prev: prev, next: next) {
                     guard appendCurrent() else { return nil }
                     idx += delimiterStep
                     continue
                 }
             }
 
-            current.append(ch)
+            current.append(unit)
             idx += 1
         }
 
@@ -450,34 +467,34 @@ struct ExecCommandResolution: Sendable {
         return segments
     }
 
-    private static func shouldFailClosedForShell(ch: Character, next: Character?, inDouble: Bool) -> Bool {
+    private static func shouldFailClosedForShell(unit: UInt16, next: UInt16?, inDouble: Bool) -> Bool {
         let context: ShellTokenContext = inDouble ? .doubleQuoted : .unquoted
         guard let rules = self.shellFailClosedRules[context] else {
             return false
         }
         for rule in rules {
-            if ch == rule.token, rule.next == nil || next == rule.next {
+            if unit == rule.token, rule.next == nil || next == rule.next {
                 return true
             }
         }
         return false
     }
 
-    private static func chainDelimiterStep(ch: Character, prev: Character?, next: Character?) -> Int? {
-        if ch == ";" || ch == "\n" {
+    private static func chainDelimiterStep(unit: UInt16, prev: UInt16?, next: UInt16?) -> Int? {
+        if unit == 0x3B || unit == 0x0A { // ; or newline
             return 1
         }
-        if ch == "&" {
-            if next == "&" {
+        if unit == 0x26 { // &
+            if next == 0x26 {
                 return 2
             }
             // Keep fd redirections like 2>&1 or &>file intact.
-            let prevIsRedirect = prev == ">"
-            let nextIsRedirect = next == ">"
+            let prevIsRedirect = prev == 0x3E // >
+            let nextIsRedirect = next == 0x3E // >
             return (!prevIsRedirect && !nextIsRedirect) ? 1 : nil
         }
-        if ch == "|" {
-            if next == "|" || next == "&" {
+        if unit == 0x7C { // |
+            if next == 0x7C || next == 0x26 { // || or |&
                 return 2
             }
             return 1
@@ -491,11 +508,36 @@ enum ExecCommandFormatter {
     static func displayString(for argv: [String]) -> String {
         argv.map { arg in
             if arg.isEmpty { return "\"\"" }
-            let needsQuotes = arg.contains { $0.isWhitespace || $0 == "\"" }
-            if !needsQuotes { return arg }
-            let escaped = arg.replacingOccurrences(of: "\"", with: "\\\"")
-            return "\"\(escaped)\""
+            if self.needsQuotes(arg) { return "\"\(self.escaped(arg))\"" }
+            return arg
         }.joined(separator: " ")
+    }
+
+    /// TS `/\s|"/.test(arg)` per UTF-16 code unit. `Character.isWhitespace`
+    /// would diverge (U+0085 is whitespace in Unicode but not in JS `\s`;
+    /// U+FEFF is in JS `\s` but not Unicode White_Space) and grapheme equality
+    /// would miss a `"` fused with a following combining scalar.
+    private static func needsQuotes(_ arg: String) -> Bool {
+        arg.utf16.contains { unit in
+            ExecShellArgvTokenizer.jsWhitespace.contains(unit) || unit == 0x22
+        }
+    }
+
+    private static func escaped(_ arg: String) -> String {
+        // TS arg.replace(/"/g, '\\"') per code unit: a '"' fused with a
+        // following combining scalar is one Character, so grapheme-based
+        // replacingOccurrences would miss it.
+        var out = ""
+        out.reserveCapacity(arg.utf8.count + 2)
+        for scalar in arg.unicodeScalars {
+            if scalar == "\"" {
+                out.unicodeScalars.append("\\")
+                out.unicodeScalars.append("\"")
+            } else {
+                out.unicodeScalars.append(scalar)
+            }
+        }
+        return out
     }
 
     static func displayString(for argv: [String], rawCommand: String?) -> String {

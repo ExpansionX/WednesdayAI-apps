@@ -39,15 +39,18 @@ enum ExecDispatchWrapper {
     static func basenameLower(_ token: String) -> String {
         let trimmed = token.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return "" }
-        let normalized = trimmed.replacingOccurrences(of: "\\", with: "/")
-        let base = normalized.split(separator: "/").last.map(String.init) ?? normalized
+        // Backslash mapping and separator splitting are code-unit operations in
+        // the TS reference; grapheme-based replacingOccurrences/split would
+        // miss a "\" or "/" fused with a following combining scalar.
+        let normalized = ExecPathScalars.backslashesToSlashes(trimmed)
+        let base = ExecCommandResolution.splitPathComponents(normalized).last ?? normalized
         return base.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
     }
 
     static func normalizeExecutableToken(_ token: String) -> String {
         let base = self.basenameLower(token)
-        guard base.hasSuffix(".exe") else { return base }
-        return String(base.dropLast(4))
+        guard ExecPathScalars.hasSuffix(base, ".exe") else { return base }
+        return ExecPathScalars.droppingSuffixBytes(base, 4)
     }
 
     static func isShellWrapperExecutable(_ token: String) -> Bool {
@@ -127,11 +130,12 @@ enum ExecDispatchWrapper {
     }
 
     private static func flagPart(ofLowerToken lower: String) -> String {
-        lower.split(separator: "=", maxSplits: 1).first.map(String.init) ?? lower
+        // TS `lower.split("=", 2)[0]`: code-unit split at the first "=".
+        ExecPathScalars.prefixBeforeUnit(lower, ExecPathScalars.equals)
     }
 
     private static func hasEnvInlineValuePrefix(_ lower: String) -> Bool {
-        self.envInlineValuePrefixes.contains { lower.hasPrefix($0) }
+        self.envInlineValuePrefixes.contains { ExecPathScalars.hasPrefix(lower, $0) }
     }
 
     private enum ScanDirective {
@@ -198,7 +202,7 @@ enum ExecDispatchWrapper {
             if self.isEnvAssignment(token) {
                 return .continue
             }
-            if !token.hasPrefix("-") || token == "-" {
+            if !ExecPathScalars.hasPrefix(token, "-") || token == "-" {
                 return .stop
             }
             let flag = self.flagPart(ofLowerToken: lower)
@@ -206,7 +210,7 @@ enum ExecDispatchWrapper {
                 return .continue
             }
             if self.envOptionsWithValue.contains(flag) {
-                return lower.contains("=") ? .continue : .consumeNext
+                return ExecPathScalars.containsUnit(lower, ExecPathScalars.equals) ? .continue : .consumeNext
             }
             if self.hasEnvInlineValuePrefix(lower) {
                 return .continue
@@ -236,7 +240,7 @@ enum ExecDispatchWrapper {
             if self.isEnvAssignment(token) {
                 return true
             }
-            if !token.hasPrefix("-") || token == "-" {
+            if !ExecPathScalars.hasPrefix(token, "-") || token == "-" {
                 break
             }
             let lower = token.lowercased()
@@ -245,7 +249,7 @@ enum ExecDispatchWrapper {
                 return true
             }
             if self.envOptionsWithValue.contains(flag) {
-                if lower.contains("=") {
+                if ExecPathScalars.containsUnit(lower, ExecPathScalars.equals) {
                     return true
                 }
                 expectsOptionValue = true
@@ -269,7 +273,7 @@ enum ExecDispatchWrapper {
         let params = ScanParams(
             separators: ["--"],
             onToken: { token, lower in
-                if !token.hasPrefix("-") || token == "-" {
+                if !ExecPathScalars.hasPrefix(token, "-") || token == "-" {
                     return .stop
                 }
                 return onFlag(self.flagPart(ofLowerToken: lower), lower)
@@ -286,9 +290,10 @@ enum ExecDispatchWrapper {
                 return .continue
             }
             if self.niceOptionsWithValue.contains(flag) {
-                return lower.contains("=") || lower != flag ? .continue : .consumeNext
+                return ExecPathScalars
+                    .containsUnit(lower, ExecPathScalars.equals) || lower != flag ? .continue : .consumeNext
             }
-            if lower.hasPrefix("-n"), lower.count > 2 {
+            if ExecPathScalars.hasPrefix(lower, "-n"), lower.utf16.count > 2 {
                 return .continue
             }
             return .invalid
@@ -297,7 +302,7 @@ enum ExecDispatchWrapper {
 
     private static func unwrapNohupInvocation(_ argv: [String]) -> [String]? {
         let params = ScanParams(separators: ["--"], onToken: { token, lower in
-            if !token.hasPrefix("-") || token == "-" {
+            if !ExecPathScalars.hasPrefix(token, "-") || token == "-" {
                 return .stop
             }
             return lower == "--help" || lower == "--version" ? .continue : .invalid
@@ -310,7 +315,7 @@ enum ExecDispatchWrapper {
             guard self.stdbufOptionsWithValue.contains(flag) else {
                 return .invalid
             }
-            return lower.contains("=") ? .continue : .consumeNext
+            return ExecPathScalars.containsUnit(lower, ExecPathScalars.equals) ? .continue : .consumeNext
         })
     }
 
@@ -322,7 +327,7 @@ enum ExecDispatchWrapper {
                     return .continue
                 }
                 if self.timeoutOptionsWithValue.contains(flag) {
-                    return lower.contains("=") ? .continue : .consumeNext
+                    return ExecPathScalars.containsUnit(lower, ExecPathScalars.equals) ? .continue : .consumeNext
                 }
                 return .invalid
             },
@@ -630,7 +635,7 @@ enum ExecDispatchWrapper {
 /// Swift's `Character.isWhitespace` (e.g. U+0085 NEXT LINE, U+FEFF BOM).
 enum ExecShellArgvTokenizer {
     /// The ECMAScript `\s` set, per code unit.
-    private static let jsWhitespace: Set<UInt16> = [
+    static let jsWhitespace: Set<UInt16> = [
         0x0009, 0x000A, 0x000B, 0x000C, 0x000D, 0x0020, 0x00A0, 0x1680,
         0x2000, 0x2001, 0x2002, 0x2003, 0x2004, 0x2005, 0x2006, 0x2007,
         0x2008, 0x2009, 0x200A, 0x2028, 0x2029, 0x202F, 0x205F, 0x3000, 0xFEFF,

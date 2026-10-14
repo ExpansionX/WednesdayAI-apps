@@ -207,8 +207,11 @@ enum ExecApprovalEvaluator {
         let rawExecutable = resolution.rawExecutable
             .trimmingCharacters(in: .whitespacesAndNewlines)
         guard !rawExecutable.isEmpty,
-              !rawExecutable.contains("/"),
-              !rawExecutable.contains("\\")
+              // TS isPathScopedExecutableToken: code-unit separators; grapheme
+              // contains would miss a "/" fused with a following combining
+              // scalar and let a path-scoped token reach name trust.
+              !ExecPathScalars.containsUnit(rawExecutable, ExecPathScalars.slash),
+              !ExecPathScalars.containsUnit(rawExecutable, ExecPathScalars.backslash)
         else { return false }
         let executableName = resolution.executableName
             .trimmingCharacters(in: .whitespacesAndNewlines)
@@ -244,11 +247,12 @@ enum SkillBinTrust {
     {
         let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return nil }
-        if trimmed.hasPrefix("/") {
+        if ExecPathScalars.isAbsolute(trimmed) {
             return ExecCommandResolution.collapsePath(trimmed)
         }
         let base = processCwd
-        return ExecCommandResolution.collapsePath(base.hasSuffix("/") ? base + trimmed : base + "/" + trimmed)
+        return ExecCommandResolution.collapsePath(
+            ExecPathScalars.hasSuffix(base, "/") ? base + trimmed : base + "/" + trimmed)
     }
 
     static func buildIndex(
