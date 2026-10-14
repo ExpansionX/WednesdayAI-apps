@@ -442,8 +442,10 @@ export class GatewaySttCapture {
       let batchBytes = 0
       while (this.pending.length > 0) {
         const next = this.pending[0]
-        // Decoded byte count of canonical base64 (exact with or without padding).
-        const nextBytes = Math.floor((next.length * 3) / 4)
+        // Decoded byte count of canonical base64: each trailing = drops one
+        // decoded byte, so padded chunks are counted exactly.
+        const padding = next.endsWith("==") ? 2 : next.endsWith("=") ? 1 : 0
+        const nextBytes = Math.floor((next.length * 3) / 4) - padding
         if (batch.length > 0 && batchBytes + nextBytes > MAX_APPEND_BYTES) break
         batch.push(this.pending.shift()!)
         batchBytes += nextBytes

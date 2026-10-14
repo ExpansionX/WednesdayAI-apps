@@ -1155,6 +1155,23 @@ describe("GatewaySttCapture", () => {
     capture.dispose()
   })
 
+  it("counts padded base64 exactly: a padded boundary chunk shares its frame", async () => {
+    const {requester, capture} = harness()
+    requester.respond("talk.session.create", () => CREATE_RESULT)
+    capture.begin("sk-1")
+    await vi.advanceTimersByTimeAsync(0)
+    // MAX_APPEND_BYTES - 1 bytes encode with one '=' pad; the padded chunk
+    // plus the 1-byte chunk decode to exactly MAX_APPEND_BYTES.
+    capture.pushChunk({data: largeB64(MAX_APPEND_BYTES - 1), format: "pcm_s16le", sampleRate: 16000})
+    capture.pushChunk({data: b64([7]), format: "pcm_s16le", sampleRate: 16000})
+    capture.onTalkEvent({type: "session.ready", sessionId: "s1"})
+    await vi.advanceTimersByTimeAsync(0)
+    const appends = requester.appends()
+    expect(appends).toHaveLength(1)
+    expect(atob(appends[0]!.params.audioBase64).length).toBe(MAX_APPEND_BYTES)
+    capture.dispose()
+  })
+
   it("prunes stale pre-roll with the default wall clock", async () => {
     const requester = new FakeRequester()
     const errors: string[] = []
