@@ -130,6 +130,40 @@ struct OpenClawConfigFileTests {
         }
     }
 
+    @Test
+    func `concurrent isolation scopes serialize on the same key`() async {
+        // Review S3: two unrelated concurrent scopes on the same key must
+        // serialize (the second acquires the lock only after the first
+        // restores), each observing only its own value, and the live
+        // resolution must return to its original state afterwards.
+        let original = OpenClawConfigFile.url().path
+        let first = FileManager().temporaryDirectory
+            .appendingPathComponent("openclaw-concurrent-a-\(UUID().uuidString)")
+            .appendingPathComponent("openclaw.json")
+            .path
+        let second = FileManager().temporaryDirectory
+            .appendingPathComponent("openclaw-concurrent-b-\(UUID().uuidString)")
+            .appendingPathComponent("openclaw.json")
+            .path
+
+        // The sleep inside each scope widens the overlap window: a global
+        // depth counter (or no lock at all) would let the second scope's
+        // override clobber the first's read mid-flight.
+        async let firstObserved = Self.configPathWhileOverridden(path: first)
+        async let secondObserved = Self.configPathWhileOverridden(path: second)
+        let observed = await [firstObserved, secondObserved]
+
+        #expect(observed == [first, second])
+        #expect(OpenClawConfigFile.url().path == original)
+    }
+
+    private static func configPathWhileOverridden(path: String) async -> String? {
+        await TestIsolation.withEnvValues(["OPENCLAW_CONFIG_PATH": path]) {
+            try? await Task.sleep(for: .milliseconds(50))
+            return OpenClawConfigFile.url().path
+        }
+    }
+
     @MainActor
     @Test
     func `save dict appends config audit log`() async throws {

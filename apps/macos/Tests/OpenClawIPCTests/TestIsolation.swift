@@ -30,21 +30,41 @@ actor TestIsolationLock {
 
 @MainActor
 enum TestIsolation {
-    /// Nesting depth of `withIsolatedState`. `TestIsolationLock` is not
-    /// reentrant, so a nested scope (an inner `withEnvValues` inside an outer
-    /// one) skips the acquire/release and layers its overrides on top of the
-    /// outer scope's; the override stack restores in order.
-    private static var isolationDepth = 0
+    /// Bound while a scope holds `TestIsolationLock`. Only lexical children of
+    /// the locked scope (nested `withEnvValues` calls in the same task) see it
+    /// and skip re-acquiring; unrelated concurrent tests run in different
+    /// tasks, never inherit the binding, and always acquire the lock — so
+    /// scopes on the same key serialize instead of racing a global counter
+    /// (review S3).
+    @TaskLocal static var isHoldingIsolationLock = false
 
     static func withIsolatedState<T>(
         env: [String: String?] = [:],
         _ body: () async throws -> T) async rethrows -> T
     {
-        let nested = self.isolationDepth > 0
-        if !nested {
-            await TestIsolationLock.shared.acquire()
+        if Self.isHoldingIsolationLock {
+            // Lexical child of the locked scope: layer the overrides on top of
+            // the outer scope's; restore pops them in order. The outer frame
+            // owns the lock and releases it.
+            return try await Self.runWithOverrides(env: env, body)
         }
-        self.isolationDepth += 1
+        await TestIsolationLock.shared.acquire()
+        do {
+            let result = try await Self.$isHoldingIsolationLock.withValue(true) {
+                try await Self.runWithOverrides(env: env, body)
+            }
+            await TestIsolationLock.shared.release()
+            return result
+        } catch {
+            await TestIsolationLock.shared.release()
+            throw error
+        }
+    }
+
+    private static func runWithOverrides<T>(
+        env: [String: String?],
+        _ body: () async throws -> T) async rethrows -> T
+    {
         // Env isolation goes through the OpenClawEnv override seam, not the
         // process-global environment: Foundation may snapshot the environment
         // at first access, hiding mid-run setenv calls from later reads.
@@ -61,17 +81,9 @@ enum TestIsolation {
         do {
             let result = try await body()
             restoreOverrides(previousOverrides)
-            self.isolationDepth -= 1
-            if !nested {
-                await TestIsolationLock.shared.release()
-            }
             return result
         } catch {
             restoreOverrides(previousOverrides)
-            self.isolationDepth -= 1
-            if !nested {
-                await TestIsolationLock.shared.release()
-            }
             throw error
         }
     }
