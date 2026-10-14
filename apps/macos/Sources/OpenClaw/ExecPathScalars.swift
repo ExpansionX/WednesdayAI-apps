@@ -59,4 +59,11 @@ enum ExecPathScalars {
     static func droppingSuffixBytes(_ value: String, _ count: Int) -> String {
         String(bytes: value.utf8.dropLast(count), encoding: .utf8) ?? value
     }
+
+    /// Drops the first `count` bytes (used after a matched ASCII prefix such as
+    /// "~/"). Character-based dropFirst would remove a combining scalar fused
+    /// with the matched ASCII delimiter (review U1).
+    static func droppingPrefixBytes(_ value: String, _ count: Int) -> String {
+        String(bytes: value.utf8.dropFirst(count), encoding: .utf8) ?? value
+    }
 }

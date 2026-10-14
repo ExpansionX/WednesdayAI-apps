@@ -41,44 +41,112 @@ enum ExecAllowlistMatcher {
             ? (trimmed as NSString).expandingTildeInPath : trimmed
         let normalizedPattern = self.normalizeMatchTarget(expanded)
         let normalizedTarget = self.normalizeMatchTarget(target)
-        guard let regex = self.regex(for: normalizedPattern) else { return false }
-        let range = NSRange(location: 0, length: normalizedTarget.utf16.count)
-        return regex.firstMatch(in: normalizedTarget, options: [], range: range) != nil
+        return self.globMatch(pattern: normalizedPattern, target: normalizedTarget)
     }
 
     private static func normalizeMatchTarget(_ value: String) -> String {
         value.replacingOccurrences(of: "\\\\", with: "/").lowercased()
     }
 
-    /// Port of TS `compileGlobRegex` (src/infra/exec-allowlist-pattern.ts): the
-    /// reference iterates UTF-16 code units, so a `*`/`?` immediately followed
-    /// by a combining scalar is still a wildcard there; scalar iteration is
-    /// unit-equivalent for the wildcards and escapes complete scalars.
-    private static func regex(for pattern: String) -> NSRegularExpression? {
-        var regex = "^"
-        let scalars = Array(pattern.unicodeScalars)
+    private enum GlobToken {
+        case literal(UInt16)
+        case anyUnit
+        case anyRun(includingSlash: Bool)
+    }
+
+    /// Direct UTF-16 glob matcher with JavaScript non-unicode RegExp semantics,
+    /// port of TS `compileGlobRegex` + `new RegExp(regex, "i")`
+    /// (src/infra/exec-allowlist-pattern.ts): `*` matches any run of units
+    /// excluding "/", `**` any run including "/", and `?` consumes exactly ONE
+    /// UTF-16 unit — a supplementary code point is two units. ICU/NSRegularExpression
+    /// gives `.` whole-scalar width, so it matches supplementary characters
+    /// where the TS matcher does not (review U2).
+    private static func globMatch(pattern: String, target: String) -> Bool {
+        var tokens: [GlobToken] = []
+        tokens.reserveCapacity(pattern.utf16.count)
+        let units = Array(pattern.utf16)
         var idx = 0
-        while idx < scalars.count {
-            let scalar = scalars[idx]
-            if scalar == "*" {
-                if idx + 1 < scalars.count, scalars[idx + 1] == "*" {
-                    regex += ".*"
+        while idx < units.count {
+            let unit = units[idx]
+            if unit == 0x2A { // "*"
+                if idx + 1 < units.count, units[idx + 1] == 0x2A {
+                    tokens.append(.anyRun(includingSlash: true))
                     idx += 2
                 } else {
-                    regex += "[^/]*"
+                    tokens.append(.anyRun(includingSlash: false))
                     idx += 1
                 }
                 continue
             }
-            if scalar == "?" {
-                regex += "."
+            if unit == 0x3F { // "?"
+                tokens.append(.anyUnit)
                 idx += 1
                 continue
             }
-            regex += NSRegularExpression.escapedPattern(for: String(scalar))
+            tokens.append(.literal(unit))
             idx += 1
         }
-        regex += "$"
-        return try? NSRegularExpression(pattern: regex, options: [.caseInsensitive])
+        let targetUnits = Array(target.utf16)
+        var deadEnds = Set<Int>()
+        return self.matchGlob(tokens, 0, targetUnits, 0, &deadEnds)
+    }
+
+    /// Greedy backtracking match with memoized dead ends (same shape as the
+    /// compiled TS regex: `*` → `[^/]*`, `**` → `.*`, `?` → `.` per unit).
+    private static func matchGlob(
+        _ tokens: [GlobToken],
+        _ tokenIndex: Int,
+        _ units: [UInt16],
+        _ unitIndex: Int,
+        _ deadEnds: inout Set<Int>) -> Bool
+    {
+        var ti = tokenIndex
+        var ui = unitIndex
+        while ti < tokens.count {
+            switch tokens[ti] {
+            case let .literal(expected):
+                guard ui < units.count,
+                      Self.jsCanonicalUnit(units[ui]) == Self.jsCanonicalUnit(expected)
+                else { return false }
+                ui += 1
+                ti += 1
+            case .anyUnit:
+                guard ui < units.count else { return false }
+                ui += 1
+                ti += 1
+            case let .anyRun(includingSlash):
+                let key = ti * (units.count + 1) + ui
+                if deadEnds.contains(key) { return false }
+                var maxEnd = units.count
+                if !includingSlash {
+                    maxEnd = ui
+                    while maxEnd < units.count, units[maxEnd] != 0x2F {
+                        maxEnd += 1
+                    }
+                }
+                var cursor = maxEnd
+                while true {
+                    if self.matchGlob(tokens, ti + 1, units, cursor, &deadEnds) { return true }
+                    if cursor == ui { break }
+                    cursor -= 1
+                }
+                deadEnds.insert(key)
+                return false
+            }
+        }
+        return ui == units.count
+    }
+
+    /// ECMAScript RegExp `i` canonicalization without the Unicode flag
+    /// (Canonicalize): ToUpperCase of the unit's scalar when that mapping is
+    /// still a single code unit, otherwise the unit itself.
+    private static func jsCanonicalUnit(_ unit: UInt16) -> UInt16 {
+        guard let scalar = Unicode.Scalar(unit) else { return unit } // lone surrogate: no case mapping
+        let upper = String(scalar).uppercased()
+        var iterator = upper.unicodeScalars.makeIterator()
+        guard let first = iterator.next(), iterator.next() == nil, first.value <= 0xFFFF else {
+            return unit
+        }
+        return UInt16(first.value)
     }
 }

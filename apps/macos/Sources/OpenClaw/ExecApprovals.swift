@@ -594,9 +594,12 @@ enum ExecApprovalsStore {
             return FileManager().homeDirectoryForCurrentUser.path
         }
         if ExecPathScalars.hasPrefix(trimmed, "~/") {
-            let suffix = trimmed.dropFirst(2)
+            // Slice exactly the two matched ASCII bytes (TS `~`-replace): a
+            // Character dropFirst would also drop a combining scalar fused with
+            // the slash (review U1).
+            let suffix = ExecPathScalars.droppingPrefixBytes(trimmed, 2)
             return FileManager().homeDirectoryForCurrentUser
-                .appendingPathComponent(String(suffix)).path
+                .appendingPathComponent(suffix).path
         }
         return trimmed
     }

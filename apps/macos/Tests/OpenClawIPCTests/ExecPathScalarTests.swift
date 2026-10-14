@@ -253,4 +253,83 @@ struct ExecPathScalarTests {
             resolution: resolution)
         #expect(matched != nil)
     }
+
+    // MARK: - Round 5 (re-review 4): U1 tilde slice, U2 wildcard width
+
+    @Test func `tilde socket path drops the matched ascii bytes only`() {
+        // Review U1: "~/<accent>socket/exec.sock" must expand to
+        // "<home>/<accent>socket/exec.sock" (TS `~`-replace). The byte-prefix
+        // check matched "~/", but the Character dropFirst(2) also removed the
+        // combining scalar fused with the slash.
+        let dir = NSTemporaryDirectory() + "oc-exec-tilde-\(UUID().uuidString)"
+        defer { try? FileManager.default.removeItem(atPath: dir) }
+        var file = ExecApprovalsStore.ensureFile(inDirectory: dir)
+        file.socket?.path = "~/\u{0301}socket/exec.sock"
+        ExecApprovalsStore.saveFile(file, inDirectory: dir)
+
+        let resolved = ExecApprovalsStore.resolve(agentId: nil, inDirectory: dir)
+        let home = FileManager().homeDirectoryForCurrentUser.path
+        #expect(resolved.socketPath == home + "/\u{0301}socket/exec.sock")
+    }
+
+    @Test func `question mark width follows utf16 units like javascript`() {
+        // Review U2: JS non-unicode `.` consumes one UTF-16 unit. Pattern
+        // "/tmp/?<U+0301>" vs target "/tmp/<U+1F600><U+0301>": the emoji is two
+        // units, so "?" eats the high surrogate and the accent literal fails on
+        // the low surrogate — no match (ICU dot would consume the whole emoji
+        // and match).
+        let astral = ExecCommandResolution(
+            rawExecutable: "run",
+            resolvedPath: "/tmp/\u{1F600}\u{0301}",
+            executableName: "run",
+            cwd: nil)
+        #expect(ExecAllowlistMatcher.match(
+            entries: [ExecAllowlistEntry(pattern: "/tmp/?\u{0301}")],
+            resolution: astral) == nil)
+        // Two question marks cover the surrogate pair; the accent literal then
+        // matches.
+        #expect(ExecAllowlistMatcher.match(
+            entries: [ExecAllowlistEntry(pattern: "/tmp/??\u{0301}")],
+            resolution: astral) != nil)
+        // A BMP unit is exactly one "?" wide.
+        let bmp = ExecCommandResolution(
+            rawExecutable: "run",
+            resolvedPath: "/tmp/x\u{0301}",
+            executableName: "run",
+            cwd: nil)
+        #expect(ExecAllowlistMatcher.match(
+            entries: [ExecAllowlistEntry(pattern: "/tmp/?\u{0301}")],
+            resolution: bmp) != nil)
+        // Literal supplementary characters match literally; "?" covers the
+        // trailing BMP unit.
+        let literal = ExecCommandResolution(
+            rawExecutable: "run",
+            resolvedPath: "/tmp/\u{1F600}x",
+            executableName: "run",
+            cwd: nil)
+        #expect(ExecAllowlistMatcher.match(
+            entries: [ExecAllowlistEntry(pattern: "/tmp/\u{1F600}?")],
+            resolution: literal) != nil)
+        // Single star still stops at "/" (a slash inside the region cannot
+        // match) and double star still crosses.
+        let nested = ExecCommandResolution(
+            rawExecutable: "run",
+            resolvedPath: "/opt/a/b/bin/rg",
+            executableName: "run",
+            cwd: nil)
+        #expect(ExecAllowlistMatcher.match(
+            entries: [ExecAllowlistEntry(pattern: "/opt/*/bin/rg")],
+            resolution: nested) == nil)
+        let shallow = ExecCommandResolution(
+            rawExecutable: "run",
+            resolvedPath: "/opt/tools/bin/rg",
+            executableName: "run",
+            cwd: nil)
+        #expect(ExecAllowlistMatcher.match(
+            entries: [ExecAllowlistEntry(pattern: "/opt/*/bin/rg")],
+            resolution: shallow) != nil)
+        #expect(ExecAllowlistMatcher.match(
+            entries: [ExecAllowlistEntry(pattern: "/opt/**/rg")],
+            resolution: nested) != nil)
+    }
 }
