@@ -534,7 +534,8 @@
                 }
               }
             }
-          }
+          },
+          "x-schema-name": "Snapshot"
         },
         "canvasHostUrl": {
           "minLength": 1,
@@ -768,7 +769,8 @@
               "type": "string"
             },
             "params": {}
-          }
+          },
+          "x-schema-name": "RequestFrame"
         },
         {
           "additionalProperties": false,
@@ -817,7 +819,8 @@
                 }
               }
             }
-          }
+          },
+          "x-schema-name": "ResponseFrame"
         },
         {
           "additionalProperties": false,
@@ -858,7 +861,8 @@
                 }
               }
             }
-          }
+          },
+          "x-schema-name": "EventFrame"
         }
       ]
     },
@@ -1052,7 +1056,8 @@
                 "minLength": 1,
                 "type": "string"
               }
-            }
+            },
+            "x-schema-name": "PresenceEntry"
           }
         },
         "health": {},
@@ -1072,7 +1077,8 @@
               "minimum": 0,
               "type": "integer"
             }
-          }
+          },
+          "x-schema-name": "StateVersion"
         },
         "uptimeMs": {
           "minimum": 0,
@@ -2102,7 +2108,8 @@
                 }
               },
               "value": {}
-            }
+            },
+            "x-schema-name": "SecretsResolveAssignment"
           }
         },
         "diagnostics": {
@@ -2283,7 +2290,8 @@
                 "minLength": 1,
                 "type": "string"
               }
-            }
+            },
+            "x-schema-name": "SessionsCompactionCheckpoint"
           }
         }
       }
@@ -3232,7 +3240,8 @@
                 "minLength": 1,
                 "type": "string"
               }
-            }
+            },
+            "x-schema-name": "QueuedTaskWorkRow"
           }
         },
         "nextCursor": {
@@ -3318,7 +3327,8 @@
                 "minimum": 0,
                 "type": "integer"
               }
-            }
+            },
+            "x-schema-name": "RedactedTaskRunSummary"
           }
         },
         "nextCursor": {
@@ -3357,7 +3367,8 @@
                 "minLength": 1,
                 "type": "string"
               }
-            }
+            },
+            "x-schema-name": "RedactedTaskRunEvent"
           }
         },
         "nextCursor": {
@@ -5737,7 +5748,8 @@
               "content": {
                 "type": "string"
               }
-            }
+            },
+            "x-schema-name": "AgentsFileEntry"
           }
         }
       }
@@ -5808,7 +5820,8 @@
             "content": {
               "type": "string"
             }
-          }
+          },
+          "x-schema-name": "AgentsFileEntry"
         }
       }
     },
@@ -5887,7 +5900,8 @@
             "content": {
               "type": "string"
             }
-          }
+          },
+          "x-schema-name": "AgentsFileEntry"
         }
       }
     },
@@ -6005,7 +6019,8 @@
                   }
                 }
               }
-            }
+            },
+            "x-schema-name": "AgentSummary"
           }
         }
       }
@@ -6082,7 +6097,8 @@
               "reasoning": {
                 "type": "boolean"
               }
-            }
+            },
+            "x-schema-name": "ModelChoice"
           }
         }
       }
@@ -6194,7 +6210,8 @@
                 "minLength": 1,
                 "type": "string"
               }
-            }
+            },
+            "x-schema-name": "ModelsAuthProfileStatus"
           }
         }
       }
@@ -6268,7 +6285,8 @@
                   }
                 }
               }
-            }
+            },
+            "x-schema-name": "ModelsAuthProviderStatus"
           }
         }
       }
@@ -6496,7 +6514,8 @@
                   ]
                 }
               }
-            }
+            },
+            "x-schema-name": "ToolCatalogEntry"
           }
         }
       }
@@ -6548,7 +6567,8 @@
                 "minLength": 1,
                 "type": "string"
               }
-            }
+            },
+            "x-schema-name": "ToolCatalogProfile"
           }
         },
         "groups": {
@@ -6656,7 +6676,8 @@
                   }
                 }
               }
-            }
+            },
+            "x-schema-name": "ToolCatalogGroup"
           }
         }
       }

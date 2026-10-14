@@ -10,6 +10,7 @@ type JsonSchema = {
   items?: JsonSchema;
   enum?: string[];
   patternProperties?: Record<string, JsonSchema>;
+  "x-schema-name"?: string;
 };
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -79,73 +80,14 @@ function safeName(name: string) {
   return cc;
 }
 
-// Core's TypeBox source reused one schema object between a top-level definition and its nested
-// uses (e.g. Snapshot embeds the PresenceEntry and StateVersion objects), and the pre-port
-// generator resolved struct names from that object identity. A JSON snapshot serializes those
-// uses as inline duplicates, so identity is unrecoverable — and a few inline objects
-// (ResponseFrame.error, EventFrame.stateversion, WizardStep.step, WizardNextResult.step) were
-// NOT shared in core despite being structurally identical to a definition. This table records
-// the true shares, derived from core@0.4.11's schema source; nested uses not listed here keep
-// their structural type. When core protocol work adds a new nested definition share, add the
-// path here — the contracts sync PR diff makes a missing entry visible as a type widening.
-const NESTED_SCHEMA_NAMES: Record<string, string> = {
-  "HelloOk.snapshot": "Snapshot",
-  "Snapshot.presence.items": "PresenceEntry",
-  "Snapshot.stateVersion": "StateVersion",
-  "SecretsResolveResult.assignments.items": "SecretsResolveAssignment",
-  "SessionsCompactionListResult.checkpoints.items": "SessionsCompactionCheckpoint",
-  "TasksRunsQueuedPage.runs.items": "QueuedTaskWorkRow",
-  "TasksRunsHistoryPage.runs.items": "RedactedTaskRunSummary",
-  "TasksRunsEventsPage.events.items": "RedactedTaskRunEvent",
-  "AgentsFilesListResult.files.items": "AgentsFileEntry",
-  "AgentsFilesGetResult.file": "AgentsFileEntry",
-  "AgentsFilesSetResult.file": "AgentsFileEntry",
-  "AgentsListResult.agents.items": "AgentSummary",
-  "ModelsListResult.models.items": "ModelChoice",
-  "ModelsAuthProviderStatus.profiles.items": "ModelsAuthProfileStatus",
-  "ModelsAuthStatusResult.providers.items": "ModelsAuthProviderStatus",
-  "ToolCatalogGroup.tools.items": "ToolCatalogEntry",
-  "ToolsCatalogResult.profiles.items": "ToolCatalogProfile",
-  "ToolsCatalogResult.groups.items": "ToolCatalogGroup",
-};
-
-// keyed by schema object identity within the parsed snapshot
-const schemaNameByObject = new Map<object, string>();
-
-// Paths are `Definition.prop[.items]`; `properties`/`items` container hops are implicit.
-function resolveSchemaPath(schemaPath: string): object {
-  const [definition, ...steps] = schemaPath.split(".");
-  let node: unknown = (schemaJson.definitions as Record<string, unknown>)[definition];
-  for (const key of steps) {
-    if (node === null || typeof node !== "object") {
-      throw new Error(`NESTED_SCHEMA_NAMES path not found in schema: ${schemaPath}`);
-    }
-    const container = node as Record<string, unknown>;
-    if (key === "items" && "items" in container) {
-      node = container.items;
-    } else if (container.properties && key in (container.properties as object)) {
-      node = (container.properties as Record<string, unknown>)[key];
-    } else {
-      throw new Error(`NESTED_SCHEMA_NAMES path not found in schema: ${schemaPath}`);
-    }
-  }
-  if (node === null || typeof node !== "object") {
-    throw new Error(`NESTED_SCHEMA_NAMES path not found in schema: ${schemaPath}`);
-  }
-  return node;
-}
-
-function indexNestedShares(): void {
-  for (const [schemaPath, name] of Object.entries(NESTED_SCHEMA_NAMES)) {
-    schemaNameByObject.set(resolveSchemaPath(schemaPath), name);
-  }
-}
-
+// Core annotates every nested position that reuses a named definition with `x-schema-name`
+// (core@3cac031cbc), so struct naming no longer depends on TypeBox object identity, which a
+// JSON snapshot cannot express. Positions without the annotation keep their structural type.
 function swiftType(schema: JsonSchema, required: boolean): string {
   const t = schema.type;
   const isOptional = !required;
   let base: string;
-  const named = schemaNameByObject.get(schema as object);
+  const named = schema["x-schema-name"];
   if (named) {
     base = named;
   } else if (t === "string") {
@@ -279,8 +221,6 @@ function emitGatewayFrame(): string {
 
 async function generate() {
   const definitions = Object.entries(schemaJson.definitions) as Array<[string, JsonSchema]>;
-
-  indexNestedShares();
 
   const parts: string[] = [];
   parts.push(header);
