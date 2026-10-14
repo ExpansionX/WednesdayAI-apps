@@ -1,4 +1,3 @@
-import Darwin
 import Foundation
 import Testing
 @testable import OpenClaw
@@ -8,14 +7,10 @@ struct LogLocatorTests {
         let fm = FileManager()
         let baseDir = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
         let logDir = baseDir.appendingPathComponent("openclaw-tests-\(UUID().uuidString)")
+        defer { try? fm.removeItem(at: logDir) }
 
-        setenv("OPENCLAW_LOG_DIR", logDir.path, 1)
-        defer {
-            unsetenv("OPENCLAW_LOG_DIR")
-            try? fm.removeItem(at: logDir)
-        }
-
-        _ = LogLocator.launchdGatewayLogPath
+        // Injected directly — no process-environment mutation.
+        _ = LogLocator.launchdGatewayLogPath(logDirectory: logDir)
 
         var isDir: ObjCBool = false
         #expect(fm.fileExists(atPath: logDir.path, isDirectory: &isDir))

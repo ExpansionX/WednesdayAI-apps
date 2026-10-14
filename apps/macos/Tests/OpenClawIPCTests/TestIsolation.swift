@@ -1,4 +1,5 @@
 import Foundation
+@testable import OpenClaw
 
 actor TestIsolationLock {
     static let shared = TestIsolationLock()
@@ -44,25 +45,14 @@ enum TestIsolation {
             }
         }
 
-        func restoreEnv(_ values: [String: String?]) {
-            for (key, value) in values {
-                if let value {
-                    setenv(key, value, 1)
-                } else {
-                    unsetenv(key)
-                }
-            }
-        }
-
         await TestIsolationLock.shared.acquire()
-        var previousEnv: [String: String?] = [:]
+        // Env isolation goes through the OpenClawEnv override seam, not the
+        // process-global environment: Foundation may snapshot the environment
+        // at first access, hiding mid-run setenv calls from later reads.
+        var previousOverrides: [String: String?] = [:]
         for (key, value) in env {
-            previousEnv[key] = getenv(key).map { String(cString: $0) }
-            if let value {
-                setenv(key, value, 1)
-            } else {
-                unsetenv(key)
-            }
+            previousOverrides[key] = OpenClawEnv.overrideValue(forKey: key)
+            OpenClawEnv.setOverrideValue(value, forKey: key)
         }
 
         let userDefaults = UserDefaults.standard
@@ -79,14 +69,20 @@ enum TestIsolation {
         do {
             let result = try await body()
             restoreUserDefaults(previousDefaults, userDefaults: userDefaults)
-            restoreEnv(previousEnv)
+            restoreOverrides(previousOverrides)
             await TestIsolationLock.shared.release()
             return result
         } catch {
             restoreUserDefaults(previousDefaults, userDefaults: userDefaults)
-            restoreEnv(previousEnv)
+            restoreOverrides(previousOverrides)
             await TestIsolationLock.shared.release()
             throw error
+        }
+    }
+
+    private static func restoreOverrides(_ values: [String: String?]) {
+        for (key, value) in values {
+            OpenClawEnv.setOverrideValue(value, forKey: key)
         }
     }
 

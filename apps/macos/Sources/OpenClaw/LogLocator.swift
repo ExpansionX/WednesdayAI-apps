@@ -51,9 +51,12 @@ enum LogLocator {
         return stdoutLog.path
     }
 
-    /// Path to use for the Gateway launchd job stdout/err.
-    static var launchdGatewayLogPath: String {
-        self.ensureLogDirExists()
-        return gatewayLog.path
+    /// Path to use for the Gateway launchd job stdout/err. `logDirectory`
+    /// overrides the resolved log directory (tests inject a unique temp
+    /// directory instead of mutating the process environment).
+    static func launchdGatewayLogPath(logDirectory: URL? = nil) -> String {
+        let dir = logDirectory ?? Self.logDir
+        try? FileManager().createDirectory(at: dir, withIntermediateDirectories: true)
+        return dir.appendingPathComponent("openclaw-gateway.log").path
     }
 }

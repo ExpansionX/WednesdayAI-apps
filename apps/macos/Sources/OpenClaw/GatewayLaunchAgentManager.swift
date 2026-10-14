@@ -98,7 +98,7 @@ enum GatewayLaunchAgentManager {
         {
             return stderr
         }
-        return LogLocator.launchdGatewayLogPath
+        return LogLocator.launchdGatewayLogPath()
     }
 }
 
