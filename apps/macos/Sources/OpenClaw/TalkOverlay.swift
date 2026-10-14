@@ -1,6 +1,6 @@
 import AppKit
-import os
 import Observation
+import os
 import OSLog
 import SwiftUI
 
@@ -33,8 +33,11 @@ final class TalkOverlayController {
         let target = self.targetFrame()
         OverlayPanelFactory.present(
             window: self.window,
-            isVisible: &self.model.isVisible,
-            target: target)
+            isVisible: self.model.isVisible,
+            target: target,
+            onFirstPresent: {
+                self.model.isVisible = true
+            })
         { window in
             window.setFrame(target, display: true)
             window.orderFrontRegardless()

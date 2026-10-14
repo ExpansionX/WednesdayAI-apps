@@ -15,9 +15,10 @@ extension VoiceWakeOverlayController {
         let target = self.targetFrame()
         OverlayPanelFactory.present(
             window: self.window,
-            isVisible: &self.model.isVisible,
+            isVisible: self.model.isVisible,
             target: target,
             onFirstPresent: {
+                self.model.isVisible = true
                 self.logger.log(
                     level: .info,
                     "overlay present windowShown textLen=\(self.model.text.count, privacy: .public)")

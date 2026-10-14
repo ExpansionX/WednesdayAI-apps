@@ -34,7 +34,7 @@ final class NotifyOverlayController {
         self.model.title = title
         self.model.body = body
         self.ensureWindow()
-        self.hostingView?.rootView = NotifyOverlayView(controller: self)
+        self.hostingView?.rootView = NotifyOverlayView(model: self.model) { self.dismiss() }
         self.presentWindow()
 
         if autoDismissAfter > 0 {
@@ -59,12 +59,15 @@ final class NotifyOverlayController {
 
     private func presentWindow() {
         self.ensureWindow()
-        self.hostingView?.rootView = NotifyOverlayView(controller: self)
+        self.hostingView?.rootView = NotifyOverlayView(model: self.model) { self.dismiss() }
         let target = self.targetFrame()
         OverlayPanelFactory.present(
             window: self.window,
-            isVisible: &self.model.isVisible,
-            target: target)
+            isVisible: self.model.isVisible,
+            target: target,
+            onFirstPresent: {
+                self.model.isVisible = true
+            })
         { window in
             self.updateWindowFrame(animate: true)
             window.orderFrontRegardless()
@@ -78,7 +81,7 @@ final class NotifyOverlayController {
             level: .statusBar,
             hasShadow: true)
 
-        let host = NSHostingView(rootView: NotifyOverlayView(controller: self))
+        let host = NSHostingView(rootView: NotifyOverlayView(model: self.model) { self.dismiss() })
         host.translatesAutoresizingMaskIntoConstraints = false
         panel.contentView = host
         self.hostingView = host
@@ -121,17 +124,23 @@ final class NotifyOverlayController {
     }
 }
 
+/// Holds the model by value: `present()` re-assigns the hosting view's `rootView`
+/// on every update, so the body must not re-read the `@Observable` controller.
+/// Re-entrant observable reads here tripped runtime exclusivity enforcement
+/// (fatal access conflict) while a hosted panel's body evaluated off the main
+/// run loop.
 private struct NotifyOverlayView: View {
-    var controller: NotifyOverlayController
+    let model: NotifyOverlayController.Model
+    let onDismiss: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text(self.controller.model.title)
+            Text(self.model.title)
                 .font(.system(size: 13, weight: .semibold))
                 .foregroundStyle(.primary)
                 .lineLimit(1)
 
-            Text(self.controller.model.body)
+            Text(self.model.body)
                 .font(.system(size: 12))
                 .foregroundStyle(.secondary)
                 .lineLimit(4)
@@ -145,7 +154,7 @@ private struct NotifyOverlayView: View {
             RoundedRectangle(cornerRadius: 12, style: .continuous)
                 .strokeBorder(Color.black.opacity(0.08), lineWidth: 1))
         .onTapGesture {
-            self.controller.dismiss()
+            self.onDismiss()
         }
     }
 }
