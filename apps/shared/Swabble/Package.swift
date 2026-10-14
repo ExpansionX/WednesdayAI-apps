@@ -15,7 +15,7 @@ let package = Package(
     dependencies: [
         // Pinned: Peekaboo → AXorcist 0.1.0 requires Commander 0.2.1 (macOS app graph).
         .package(url: "https://github.com/steipete/Commander.git", exact: "0.2.1"),
-        .package(url: "https://github.com/apple/swift-testing", from: "0.99.0"),
+        .package(url: "https://github.com/apple/swift-testing", from: "6.4.1"),
     ],
     targets: [
         .target(
