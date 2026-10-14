@@ -171,21 +171,39 @@ struct ExecAllowlistTests {
         }
     }
 
+    private struct WrapperPlanExpectation {
+        let wrappers: [String]
+        let policyBlocked: Bool
+        let blockedWrapper: String?
+    }
+
     /// Core-derived expectations (verified against
     /// `resolveDispatchWrapperExecutionPlan` at core HEAD) for every returned
     /// plan field, keyed by fixture case id.
-    private static let wrapperFixturePlanExpectations: [String: (
-        wrappers: [String],
-        policyBlocked: Bool,
-        blockedWrapper: String?)] = [
-            "direct-absolute-executable": ([], false, nil),
-            "env-assignment-prefix": (["env"], true, "env"),
-            "env-option-with-separate-value": (["env"], true, "env"),
-            "env-option-with-inline-value": (["env"], true, "env"),
-            "nested-env-wrappers": (["env", "env"], true, "env"),
-            "env-shell-wrapper-stops-at-shell": (["env"], false, nil),
-            "env-missing-effective-command": ([], true, "env"),
-        ]
+    private static let wrapperFixturePlanExpectations: [String: WrapperPlanExpectation] = [
+        "direct-absolute-executable": WrapperPlanExpectation(wrappers: [], policyBlocked: false, blockedWrapper: nil),
+        "env-assignment-prefix": WrapperPlanExpectation(wrappers: ["env"], policyBlocked: true, blockedWrapper: "env"),
+        "env-option-with-separate-value": WrapperPlanExpectation(
+            wrappers: ["env"],
+            policyBlocked: true,
+            blockedWrapper: "env"),
+        "env-option-with-inline-value": WrapperPlanExpectation(
+            wrappers: ["env"],
+            policyBlocked: true,
+            blockedWrapper: "env"),
+        "nested-env-wrappers": WrapperPlanExpectation(
+            wrappers: ["env", "env"],
+            policyBlocked: true,
+            blockedWrapper: "env"),
+        "env-shell-wrapper-stops-at-shell": WrapperPlanExpectation(
+            wrappers: ["env"],
+            policyBlocked: false,
+            blockedWrapper: nil),
+        "env-missing-effective-command": WrapperPlanExpectation(
+            wrappers: [],
+            policyBlocked: true,
+            blockedWrapper: "env"),
+    ]
 
     @Test func `resolve matches shared wrapper resolution fixture`() throws {
         let fixtures = try Self.loadWrapperResolutionParityCases()
