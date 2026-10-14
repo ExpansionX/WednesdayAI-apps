@@ -1,0 +1,78 @@
+name: Contracts sync
+
+on:
+  schedule:
+    - cron: "0 3 * * 1"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "wednesdayai version to sync (npm semver or latest)"
+        type: string
+        required: false
+        default: latest
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: contracts-sync-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Setup Node
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: "24"
+
+      - name: Sync contracts from wednesdayai
+        env:
+          VERSION: ${{ inputs.version || 'latest' }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          npm ci
+          npm run contracts:sync -- --version "$VERSION"
+          if [ -z "$(git status --porcelain)" ]; then
+            echo "Contracts already match wednesdayai@$VERSION; nothing to do."
+            exit 0
+          fi
+          CORE_VERSION="$(cat apps/shared/contracts/CORE_VERSION)"
+          BRANCH="bot/contracts-sync-${CORE_VERSION}"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          # Reuse an existing bot branch so repeat runs for the same core version fast-forward
+          # its history instead of recreating the commit on a fresh default-branch checkout
+          # (which a plain push would reject as non-fast-forward). contracts:sync output is
+          # deterministic for a release, so the first pass's working-tree changes are discarded
+          # and regenerated on top of the branch.
+          if git fetch origin "refs/heads/$BRANCH" && git rev-parse -q --verify "refs/remotes/origin/$BRANCH"; then
+            git checkout -f -B "$BRANCH" "refs/remotes/origin/$BRANCH"
+            npm run contracts:sync -- --version "$VERSION"
+          else
+            git checkout -B "$BRANCH"
+          fi
+          if [ -z "$(git status --porcelain)" ]; then
+            echo "Branch $BRANCH already matches wednesdayai@$VERSION; nothing to commit."
+          else
+            # contracts:sync touches only the contracts feed, the generated tool-display
+            # resource and the app version stamps, all of which live under apps/.
+            git add apps
+            git commit -m "chore(contracts): sync to wednesdayai@${CORE_VERSION}"
+            git push origin "$BRANCH"
+          fi
+          # Reconcile the PR even when the branch was already up to date: a previous run may
+          # have pushed the branch without creating the PR, or the PR may have been closed
+          # without merging. On a clean rerun the branch exists on origin, so creation works.
+          if gh pr view "$BRANCH" --json number >/dev/null 2>&1; then
+            echo "PR for ${BRANCH} already exists."
+          else
+            gh pr create --fill --base main
+          fi

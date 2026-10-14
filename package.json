@@ -5,9 +5,38 @@
     "apps/*",
     "packages/*"
   ],
+  "engines": {
+    "node": ">=24"
+  },
   "scripts": {
-    "glass:test": "npm run test -w @wednesdayai/mentra-glass",
+    "android:assemble": "cd apps/android && ./gradlew :app:assembleDebug",
+    "android:format": "cd apps/android && ./gradlew :app:ktlintFormat :benchmark:ktlintFormat",
+    "android:install": "cd apps/android && ./gradlew :app:installDebug",
+    "android:lint": "cd apps/android && ./gradlew :app:ktlintCheck :benchmark:ktlintCheck",
+    "android:lint:android": "cd apps/android && ./gradlew :app:lintDebug",
+    "android:run": "cd apps/android && ./gradlew :app:installDebug && adb shell am start -n ai.openclaw.android/.MainActivity",
+    "android:test": "cd apps/android && ./gradlew :app:testDebugUnitTest",
+    "contracts:check": "npm run contracts:gen && git diff --exit-code -- apps/macos/Sources/OpenClawProtocol/GatewayModels.swift apps/shared/OpenClawKit/Sources/OpenClawProtocol/GatewayModels.swift apps/macos/Sources/OpenClaw/HostEnvSecurityPolicy.generated.swift && vitest run --config vitest.config.ts scripts/contracts.test.ts",
+    "contracts:gen": "node --import tsx scripts/protocol-gen-swift.ts && node scripts/generate-host-env-security-policy-swift.mjs --write",
+    "contracts:sync": "node --import tsx scripts/contracts-sync.ts",
+    "format:swift": "swiftformat --lint --config .swiftformat apps/macos/Sources apps/ios/Sources apps/shared/OpenClawKit/Sources",
     "glass:coverage": "npm run test:coverage -w @wednesdayai/mentra-glass",
-    "glass:typecheck": "npm run typecheck -w @wednesdayai/mentra-glass"
+    "glass:test": "npm run test -w @wednesdayai/mentra-glass",
+    "glass:typecheck": "npm run typecheck -w @wednesdayai/mentra-glass",
+    "ios:build": "bash -lc './scripts/ios-configure-signing.sh && cd apps/ios && xcodegen generate && xcodebuild -project OpenClaw.xcodeproj -scheme OpenClaw -destination \"${IOS_DEST:-platform=iOS Simulator,name=iPhone 17}\" -configuration Debug build'",
+    "ios:gen": "bash -lc './scripts/ios-configure-signing.sh && cd apps/ios && xcodegen generate'",
+    "ios:open": "bash -lc './scripts/ios-configure-signing.sh && cd apps/ios && xcodegen generate && open OpenClaw.xcodeproj'",
+    "ios:run": "bash -lc './scripts/ios-configure-signing.sh && cd apps/ios && xcodegen generate && xcodebuild -project OpenClaw.xcodeproj -scheme OpenClaw -destination \"${IOS_DEST:-platform=iOS Simulator,name=iPhone 17}\" -configuration Debug build && xcrun simctl boot \"${IOS_SIM:-iPhone 17}\" || true && xcrun simctl launch booted ai.openclaw.ios'",
+    "ios:ci": "cd apps/ios && xcodegen generate && xcodebuild -project OpenClaw.xcodeproj -scheme OpenClaw -destination 'generic/platform=iOS Simulator' -configuration Debug CODE_SIGNING_ALLOWED=NO build",
+    "lint:swift": "swiftlint lint --config .swiftlint.yml && (cd apps/ios && swiftlint lint --config .swiftlint.yml)",
+    "mac:open": "open dist/OpenClaw.app",
+    "mac:package": "bash scripts/package-mac-app.sh",
+    "mac:restart": "bash scripts/restart-mac.sh",
+    "test:scripts": "vitest run --config vitest.config.ts"
+  },
+  "devDependencies": {
+    "@mariozechner/pi-ai": "0.73.1",
+    "tsx": "^4.23.1",
+    "vitest": "^3.2.4"
   }
 }

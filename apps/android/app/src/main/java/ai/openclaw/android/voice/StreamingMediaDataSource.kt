@@ -1,0 +1,123 @@
+package ai.openclaw.android.voice
+
+import android.media.MediaDataSource
+import java.util.concurrent.locks.ReentrantLock
+import kotlin.math.min
+
+internal class StreamingMediaDataSource : MediaDataSource() {
+  private data class Chunk(
+    val start: Long,
+    val data: ByteArray,
+  )
+
+  private val lock = ReentrantLock()
+  private val dataAvailable = lock.newCondition()
+  private val chunks = ArrayList<Chunk>()
+  private var totalSize: Long = 0
+  private var closed = false
+  private var finished = false
+  private var lastReadIndex = 0
+
+  fun append(data: ByteArray) {
+    if (data.isEmpty()) return
+    lock.lock()
+    try {
+      if (closed || finished) return
+      val chunk = Chunk(totalSize, data)
+      chunks.add(chunk)
+      totalSize += data.size.toLong()
+      dataAvailable.signalAll()
+    } finally {
+      lock.unlock()
+    }
+  }
+
+  fun finish() {
+    lock.lock()
+    try {
+      if (closed) return
+      finished = true
+      dataAvailable.signalAll()
+    } finally {
+      lock.unlock()
+    }
+  }
+
+  fun fail() {
+    lock.lock()
+    try {
+      closed = true
+      dataAvailable.signalAll()
+    } finally {
+      lock.unlock()
+    }
+  }
+
+  override fun readAt(
+    position: Long,
+    buffer: ByteArray,
+    offset: Int,
+    size: Int,
+  ): Int {
+    if (position < 0) return -1
+    lock.lock()
+    try {
+      while (!closed && !finished && position >= totalSize) {
+        dataAvailable.await()
+      }
+      if (closed) return -1
+      if (position >= totalSize && finished) return -1
+
+      val available = (totalSize - position).toInt()
+      val toRead = min(size, available)
+      var remaining = toRead
+      var destOffset = offset
+      var pos = position
+
+      var index = findChunkIndex(pos)
+      while (remaining > 0 && index < chunks.size) {
+        val chunk = chunks[index]
+        val inChunkOffset = (pos - chunk.start).toInt()
+        if (inChunkOffset >= chunk.data.size) {
+          index++
+          continue
+        }
+        val copyLen = min(remaining, chunk.data.size - inChunkOffset)
+        System.arraycopy(chunk.data, inChunkOffset, buffer, destOffset, copyLen)
+        remaining -= copyLen
+        destOffset += copyLen
+        pos += copyLen
+        if (inChunkOffset + copyLen >= chunk.data.size) {
+          index++
+        }
+      }
+
+      return toRead - remaining
+    } finally {
+      lock.unlock()
+    }
+  }
+
+  override fun getSize(): Long = -1
+
+  override fun close() {
+    lock.lock()
+    try {
+      closed = true
+      dataAvailable.signalAll()
+    } finally {
+      lock.unlock()
+    }
+  }
+
+  private fun findChunkIndex(position: Long): Int {
+    var index = lastReadIndex
+    while (index < chunks.size) {
+      val chunk = chunks[index]
+      if (position < chunk.start + chunk.data.size) break
+      index++
+    }
+    lastReadIndex = index
+    return index
+  }
+}
