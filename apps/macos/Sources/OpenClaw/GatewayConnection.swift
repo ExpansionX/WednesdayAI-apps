@@ -1,8 +1,8 @@
 import Foundation
-import os
 import OpenClawChatUI
 import OpenClawKit
 import OpenClawProtocol
+import os
 import OSLog
 
 private let gatewayConnectionLogger = os.Logger(subsystem: "ai.openclaw", category: "gateway.connection")

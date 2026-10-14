@@ -1,6 +1,6 @@
 import CoreAudio
-import os
 import Foundation
+import os
 import OSLog
 
 final class AudioInputDeviceObserver {

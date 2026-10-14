@@ -1,7 +1,7 @@
 import AppKit
-import os
 import Foundation
 import Observation
+import os
 
 @MainActor
 @Observable

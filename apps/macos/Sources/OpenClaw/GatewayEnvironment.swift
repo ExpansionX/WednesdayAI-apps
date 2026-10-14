@@ -1,6 +1,6 @@
 import Foundation
-import os
 import OpenClawIPC
+import os
 import OSLog
 
 /// Lightweight SemVer helper (major.minor.patch only) for gateway compatibility checks.

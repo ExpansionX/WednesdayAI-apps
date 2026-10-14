@@ -1,6 +1,6 @@
 import Foundation
-import os
 import JavaScriptCore
+import os
 
 enum ModelCatalogLoader {
     static var defaultPath: String {

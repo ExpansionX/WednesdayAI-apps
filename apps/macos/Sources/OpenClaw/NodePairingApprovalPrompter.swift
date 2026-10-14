@@ -1,11 +1,11 @@
 import AppKit
-import os
 import Foundation
 import Observation
 import OpenClawDiscovery
 import OpenClawIPC
 import OpenClawKit
 import OpenClawProtocol
+import os
 import OSLog
 import UserNotifications
 

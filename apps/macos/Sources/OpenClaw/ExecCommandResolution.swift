@@ -5,18 +5,51 @@ struct ExecCommandResolution: Sendable {
     let resolvedPath: String?
     let executableName: String
     let cwd: String?
+    var effectiveArgv: [String]?
+    var wrapperChain: [String]?
+    var policyBlocked: Bool
+    var blockedWrapper: String?
 
-    static func resolve(
-        command: [String],
-        rawCommand: String?,
+    init(
+        rawExecutable: String,
+        resolvedPath: String?,
+        executableName: String,
         cwd: String?,
-        env: [String: String]?) -> ExecCommandResolution?
+        effectiveArgv: [String]? = nil,
+        wrapperChain: [String]? = nil,
+        policyBlocked: Bool = false,
+        blockedWrapper: String? = nil)
     {
-        let trimmedRaw = rawCommand?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        if !trimmedRaw.isEmpty, let token = self.parseFirstToken(trimmedRaw) {
-            return self.resolveExecutable(rawExecutable: token, cwd: cwd, env: env)
+        self.rawExecutable = rawExecutable
+        self.resolvedPath = resolvedPath
+        self.executableName = executableName
+        self.cwd = cwd
+        self.effectiveArgv = effectiveArgv
+        self.wrapperChain = wrapperChain
+        self.policyBlocked = policyBlocked
+        self.blockedWrapper = blockedWrapper
+    }
+
+    /// Mirror of core `resolveCommandResolutionFromArgv`: dispatch wrapper plans are
+    /// resolved first and `rawExecutable` is the first token of the plan's effective
+    /// argv. Env-modifier preludes, sudo-style dispatch wrappers and depth overflow
+    /// yield `policyBlocked` resolutions that keep the outermost wrapper as
+    /// `rawExecutable` — those can never be auto-approved by the allowlist.
+    static func resolve(command: [String], cwd: String?, env: [String: String]?) -> ExecCommandResolution? {
+        let plan = ExecDispatchWrapper.resolveDispatchWrapperExecutionPlan(command)
+        guard let raw = plan.argv.first?.trimmingCharacters(in: .whitespacesAndNewlines), !raw.isEmpty else {
+            return nil
         }
-        return self.resolve(command: command, cwd: cwd, env: env)
+        let resolution = self.resolveExecutable(rawExecutable: raw, cwd: cwd, env: env)
+        return ExecCommandResolution(
+            rawExecutable: resolution.rawExecutable,
+            resolvedPath: resolution.resolvedPath,
+            executableName: resolution.executableName,
+            cwd: resolution.cwd,
+            effectiveArgv: plan.argv,
+            wrapperChain: plan.wrappers,
+            policyBlocked: plan.policyBlocked,
+            blockedWrapper: plan.blockedWrapper)
     }
 
     static func resolveForAllowlist(
@@ -37,9 +70,11 @@ struct ExecCommandResolution: Sendable {
             var resolutions: [ExecCommandResolution] = []
             resolutions.reserveCapacity(segments.count)
             for segment in segments {
-                guard let token = self.parseFirstToken(segment),
-                      let resolution = self.resolveExecutable(rawExecutable: token, cwd: cwd, env: env)
+                guard let segmentArgv = ExecShellArgvTokenizer.split(segment), !segmentArgv.isEmpty,
+                      let resolution = self.resolve(command: segmentArgv, cwd: cwd, env: env),
+                      !resolution.policyBlocked
                 else {
+                    // Fail closed on unparsable or policy-blocked segments.
                     return []
                 }
                 resolutions.append(resolution)
@@ -47,59 +82,66 @@ struct ExecCommandResolution: Sendable {
             return resolutions
         }
 
-        guard let resolution = self.resolve(command: command, rawCommand: rawCommand, cwd: cwd, env: env) else {
+        guard let resolution = self.resolve(command: command, cwd: cwd, env: env), !resolution.policyBlocked else {
+            // Policy-blocked dispatch wrappers (env modifiers, sudo-style dispatch,
+            // wrapper-depth overflow) can never satisfy the allowlist; execution
+            // still requires an explicit ask decision.
             return []
         }
         return [resolution]
     }
 
-    static func resolve(command: [String], cwd: String?, env: [String: String]?) -> ExecCommandResolution? {
-        let effective = ExecEnvInvocationUnwrapper.unwrapDispatchWrappersForResolution(command)
-        guard let raw = effective.first?.trimmingCharacters(in: .whitespacesAndNewlines), !raw.isEmpty else {
-            return nil
-        }
-        return self.resolveExecutable(rawExecutable: raw, cwd: cwd, env: env)
-    }
-
+    /// Mirror of core `resolveExecutablePath` + `buildCommandResolution`.
     private static func resolveExecutable(
         rawExecutable: String,
         cwd: String?,
-        env: [String: String]?) -> ExecCommandResolution?
+        env: [String: String]?) -> ExecCommandResolution
     {
         let expanded = rawExecutable.hasPrefix("~") ? (rawExecutable as NSString).expandingTildeInPath : rawExecutable
-        let hasPathSeparator = expanded.contains("/") || expanded.contains("\\")
-        let resolvedPath: String? = {
-            if hasPathSeparator {
-                if expanded.hasPrefix("/") {
-                    return expanded
-                }
-                let base = cwd?.trimmingCharacters(in: .whitespacesAndNewlines)
-                let root = (base?.isEmpty == false) ? base! : FileManager().currentDirectoryPath
-                return URL(fileURLWithPath: root).appendingPathComponent(expanded).path
-            }
-            let searchPaths = self.searchPaths(from: env)
-            return CommandResolver.findExecutable(named: expanded, searchPaths: searchPaths)
-        }()
-        let name = resolvedPath.map { URL(fileURLWithPath: $0).lastPathComponent } ?? expanded
+        let resolvedPath = self.resolveExecutablePath(expanded, cwd: cwd, env: env)
+        let name = resolvedPath.map { URL(fileURLWithPath: $0).lastPathComponent } ?? rawExecutable
         return ExecCommandResolution(
-            rawExecutable: expanded,
+            rawExecutable: rawExecutable,
             resolvedPath: resolvedPath,
             executableName: name,
             cwd: cwd)
     }
 
-    private static func parseFirstToken(_ command: String) -> String? {
-        let trimmed = command.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return nil }
-        guard let first = trimmed.first else { return nil }
-        if first == "\"" || first == "'" {
-            let rest = trimmed.dropFirst()
-            if let end = rest.firstIndex(of: first) {
-                return String(rest[..<end])
-            }
-            return String(rest)
+    private static func isExecutableFile(_ path: String) -> Bool {
+        var isDirectory: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: path, isDirectory: &isDirectory), !isDirectory.boolValue else {
+            return false
         }
-        return trimmed.split(whereSeparator: { $0.isWhitespace }).first.map(String.init)
+        return FileManager.default.isExecutableFile(atPath: path)
+    }
+
+    private static func resolveExecutablePath(
+        _ expanded: String,
+        cwd: String?,
+        env: [String: String]?) -> String?
+    {
+        if expanded.contains("/") || expanded.contains("\\") {
+            if expanded.hasPrefix("/") {
+                return self.isExecutableFile(expanded) ? expanded : nil
+            }
+            let base = cwd?.trimmingCharacters(in: .whitespacesAndNewlines)
+            let root = (base?.isEmpty == false) ? base! : FileManager.default.currentDirectoryPath
+            let candidate = URL(fileURLWithPath: root).appendingPathComponent(expanded).path
+            return self.isExecutableFile(candidate) ? candidate : nil
+        }
+        let processEnv = ProcessInfo.processInfo.environment
+        let pathEnv = env?["PATH"] ?? env?["Path"] ?? processEnv["PATH"] ?? processEnv["Path"] ?? ""
+        return self.resolveExecutableFromPathEnv(expanded, pathEnv: pathEnv)
+    }
+
+    private static func resolveExecutableFromPathEnv(_ executable: String, pathEnv: String) -> String? {
+        for entry in pathEnv.split(separator: ":", omittingEmptySubsequences: true) {
+            let candidate = URL(fileURLWithPath: String(entry)).appendingPathComponent(executable).path
+            if self.isExecutableFile(candidate) {
+                return candidate
+            }
+        }
+        return nil
     }
 
     private enum ShellTokenContext {
@@ -235,24 +277,16 @@ struct ExecCommandResolution: Sendable {
         }
         return nil
     }
-
-    private static func searchPaths(from env: [String: String]?) -> [String] {
-        let raw = env?["PATH"]
-        if let raw, !raw.isEmpty {
-            return raw.split(separator: ":").map(String.init)
-        }
-        return CommandResolver.preferredPaths()
-    }
 }
 
 enum ExecCommandFormatter {
+    /// Mirror of core `formatExecCommand` (src/infra/system-run-command.ts).
     static func displayString(for argv: [String]) -> String {
         argv.map { arg in
-            let trimmed = arg.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !trimmed.isEmpty else { return "\"\"" }
-            let needsQuotes = trimmed.contains { $0.isWhitespace || $0 == "\"" }
-            if !needsQuotes { return trimmed }
-            let escaped = trimmed.replacingOccurrences(of: "\"", with: "\\\"")
+            if arg.isEmpty { return "\"\"" }
+            let needsQuotes = arg.contains { $0.isWhitespace || $0 == "\"" }
+            if !needsQuotes { return arg }
+            let escaped = arg.replacingOccurrences(of: "\"", with: "\\\"")
             return "\"\(escaped)\""
         }.joined(separator: " ")
     }

@@ -1,6 +1,6 @@
 import Foundation
-import os
 import OpenClawProtocol
+import os
 
 enum OpenClawConfigFile {
     private static let logger = os.Logger(subsystem: "ai.openclaw", category: "config")

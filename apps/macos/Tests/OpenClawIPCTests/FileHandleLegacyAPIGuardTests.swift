@@ -1,8 +1,8 @@
 import Foundation
 import Testing
 
-@Suite struct FileHandleLegacyAPIGuardTests {
-    @Test func sourcesAvoidLegacyNonThrowingFileHandleReadAPIs() throws {
+struct FileHandleLegacyAPIGuardTests {
+    @Test func `sources avoid legacy non throwing file handle read APIs`() throws {
         let testFile = URL(fileURLWithPath: #filePath)
         let packageRoot = testFile
             .deletingLastPathComponent() // OpenClawIPCTests

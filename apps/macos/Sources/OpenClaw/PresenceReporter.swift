@@ -1,6 +1,6 @@
 import Cocoa
-import os
 import Foundation
+import os
 import OSLog
 
 @MainActor

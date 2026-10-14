@@ -1,7 +1,7 @@
 import AppKit
-import os
 import AVFoundation
 import Dispatch
+import os
 import OSLog
 import Speech
 

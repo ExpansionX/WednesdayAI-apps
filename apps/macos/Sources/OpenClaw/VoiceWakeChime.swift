@@ -1,6 +1,6 @@
 import AppKit
-import os
 import Foundation
+import os
 import OSLog
 
 enum VoiceWakeChime: Codable, Equatable, Sendable {

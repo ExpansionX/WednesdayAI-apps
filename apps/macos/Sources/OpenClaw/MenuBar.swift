@@ -1,9 +1,9 @@
 import AppKit
-import os
 import Darwin
 import Foundation
 import MenuBarExtraAccess
 import Observation
+import os
 import OSLog
 import Security
 import SwiftUI

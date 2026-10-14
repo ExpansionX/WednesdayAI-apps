@@ -1,7 +1,7 @@
 import AppKit
 import OpenClawKit
-import OSLog
 import os
+import OSLog
 
 final class PairingAlertHostWindow: NSWindow {
     override var canBecomeKey: Bool {

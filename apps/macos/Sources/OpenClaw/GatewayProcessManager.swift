@@ -1,6 +1,6 @@
 import Foundation
-import os
 import Observation
+import os
 
 @MainActor
 @Observable

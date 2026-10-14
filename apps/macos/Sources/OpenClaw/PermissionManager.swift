@@ -1,5 +1,4 @@
 import AppKit
-import os
 import ApplicationServices
 import AVFoundation
 import CoreGraphics
@@ -7,6 +6,7 @@ import CoreLocation
 import Foundation
 import Observation
 import OpenClawIPC
+import os
 import Speech
 import UserNotifications
 

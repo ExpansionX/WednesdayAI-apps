@@ -1,6 +1,6 @@
 import ConcurrencyExtras
-import os
 import Foundation
+import os
 import OSLog
 
 enum GatewayEndpointState: Sendable, Equatable {
