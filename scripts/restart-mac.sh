@@ -96,8 +96,8 @@ for arg in "$@"; do
       log "  OPENCLAW_GATEWAY_WAIT_SECONDS=0  Wait time before gateway port check (unsigned only)"
       log ""
       log "Unsigned recovery:"
-      log "  node openclaw.mjs daemon install --force --runtime node"
-      log "  node openclaw.mjs daemon restart"
+      log "  openclaw daemon install --force --runtime node"
+      log "  openclaw daemon restart"
       log ""
       log "Reset unsigned overrides:"
       log "  rm ~/.openclaw/disable-launchagent"
@@ -211,11 +211,15 @@ if [[ "$NO_SIGN" -ne 1 && "$ATTACH_ONLY" -ne 1 && -f "${LAUNCHAGENT_DISABLE_MARK
   run_step "clear launchagent disable marker" /bin/rm -f "${LAUNCHAGENT_DISABLE_MARKER}"
 fi
 
-# When unsigned, ensure the gateway LaunchAgent targets the repo CLI (before the app launches).
-# This reduces noisy "could not connect" errors during app startup.
+# When unsigned, ensure the gateway LaunchAgent targets the installed CLI (before the app
+# launches). This reduces noisy "could not connect" errors during app startup. The apps repo
+# has no bundled CLI; the gateway CLI comes from the globally installed `openclaw` package.
 if [ "$NO_SIGN" -eq 1 ] && [ "$ATTACH_ONLY" -ne 1 ]; then
-  run_step "install gateway launch agent (unsigned)" bash -lc "cd '${ROOT_DIR}' && node openclaw.mjs daemon install --force --runtime node"
-  run_step "restart gateway daemon (unsigned)" bash -lc "cd '${ROOT_DIR}' && node openclaw.mjs daemon restart"
+  if ! command -v openclaw >/dev/null 2>&1; then
+    fail "openclaw CLI not found on PATH. Install it with: npm install -g openclaw@$(cat "${ROOT_DIR}/apps/shared/contracts/CORE_VERSION" 2>/dev/null || echo latest)"
+  fi
+  run_step "install gateway launch agent (unsigned)" openclaw daemon install --force --runtime node
+  run_step "restart gateway daemon (unsigned)" openclaw daemon restart
   if [[ "${GATEWAY_WAIT_SECONDS}" -gt 0 ]]; then
     run_step "wait for gateway (unsigned)" sleep "${GATEWAY_WAIT_SECONDS}"
   fi
