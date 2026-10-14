@@ -2,7 +2,7 @@
 workstream: glasses-platform
 doc_type: review
 title: "Glasses platform Phase A: code review and remediation"
-status: active
+status: shipped
 id: 2026-10-14-glasses-platform-phase-a-code-review
 created: 2026-10-14
 updated: 2026-10-14

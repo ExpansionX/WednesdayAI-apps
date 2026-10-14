@@ -2,7 +2,7 @@
 workstream: glasses-platform
 doc_type: log
 title: "Glasses platform Phase A: glance, notifications and gateway transcription"
-status: active
+status: shipped
 id: 2026-10-14-glasses-phase-a
 created: 2026-10-14
 updated: 2026-10-14

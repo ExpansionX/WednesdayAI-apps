@@ -2,10 +2,10 @@
 workstream: glasses-platform
 doc_type: plan
 title: "Glasses platform Phase A: implementation plan"
-status: active
+status: partial
 id: 2026-10-13-glasses-platform-phase-a
 created: 2026-10-13
-updated: 2026-10-13
+updated: 2026-10-14
 authors: [agent]
 ---
 
@@ -580,3 +580,14 @@ Hand these to the user in the final message; agents cannot run them.
 - **Interim transcripts.** Gateway transcription relies on Mentra STT sending interim transcripts, which is what opens the capture with pre-roll. If a final transcript carrying wake word + question arrives with no capture open, the Mentra query is sent unchanged. This is by design, not a bug to fix.
 - **Different event shape.** If `talk.event` frames reach the miniapp with a different shape than documented, Task 4 parses defensively (ignore unknown shapes) and Task 7 falls back to Mentra. Record the observed shape as a ledger ruling.
 - **SDK version.** If `session.imu`, `session.phone` or `session.mic` types differ from `@mentra/miniapp` 3.2.1 as described, follow the installed `node_modules/@mentra/miniapp/src/modules/*.ts` signatures and record a ruling.
+
+## Outcome (2026-10-14)
+
+Shipped in [PR #18](https://github.com/ExpansionX/WednesdayAI-apps/pull/18). Tasks 0–9 are done; validation (code review, unit tests, docs, live end-to-end on a real gateway, CodeRabbit) is recorded in the [code review record](reviews/2026-10-14-code-review.md) and the [dev log](../../../../logs/2026-10-14-glasses-phase-a.md). Status is `partial` until the operator device checks above pass.
+
+Open follow-ups:
+
+- Operator device checks V2, A2, A3, A4/V5, A5/V1 (above). V2 decides whether the tilt glance coexists with the firmware tilt dashboard.
+- [WednesdayAI-core#1022](https://github.com/ExpansionX/WednesdayAI-core/issues/1022): first pairing on a Tailscale-serve gateway needs `devices approve` plus a rescan.
+- [WednesdayAI-core#1023](https://github.com/ExpansionX/WednesdayAI-core/issues/1023): gateway STT close does not await the provider's final transcript; very short questions fall back to Mentra.
+- Logged review items L-01 to L-04, L-06, L-07 in the code review record (grapheme paging, `gatewayStt`/controller refactors, repo linter).
