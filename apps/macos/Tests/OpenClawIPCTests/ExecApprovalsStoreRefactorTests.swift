@@ -4,23 +4,32 @@ import Testing
 
 @Suite(.serialized)
 struct ExecApprovalsStoreRefactorTests {
+    /// Isolates each test from parallel tests that resolve the store through the
+    /// process-global OPENCLAW_STATE_DIR: the env points at a throwaway dir that
+    /// absorbs foreign writers, while the store calls below pin an explicit
+    /// fixture directory that no other test can touch.
     private func withTempStateDir(
         _ body: @escaping @Sendable (URL) async throws -> Void) async throws
     {
-        let stateDir = FileManager().temporaryDirectory
-            .appendingPathComponent("openclaw-state-\(UUID().uuidString)", isDirectory: true)
-        defer { try? FileManager().removeItem(at: stateDir) }
+        let envDir = FileManager().temporaryDirectory
+            .appendingPathComponent("openclaw-state-env-\(UUID().uuidString)", isDirectory: true)
+        let fixtureDir = FileManager().temporaryDirectory
+            .appendingPathComponent("openclaw-state-fixture-\(UUID().uuidString)", isDirectory: true)
+        defer {
+            try? FileManager().removeItem(at: envDir)
+            try? FileManager().removeItem(at: fixtureDir)
+        }
 
-        try await TestIsolation.withEnvValues(["OPENCLAW_STATE_DIR": stateDir.path]) {
-            try await body(stateDir)
+        try await TestIsolation.withEnvValues(["OPENCLAW_STATE_DIR": envDir.path]) {
+            try await body(fixtureDir)
         }
     }
 
     @Test
     func `ensure file skips rewrite when unchanged`() async throws {
-        try await self.withTempStateDir { _ in
-            _ = ExecApprovalsStore.ensureFile()
-            let url = ExecApprovalsStore.fileURL()
+        try await self.withTempStateDir { stateDir in
+            _ = ExecApprovalsStore.ensureFile(inDirectory: stateDir.path)
+            let url = ExecApprovalsStore.fileURL(inDirectory: stateDir.path)
             // Stamp a known past mtime so a rewrite is detectable regardless of
             // filesystem timestamp granularity: a rewrite would move mtime to
             // ~now, which can never equal the stamped date.
@@ -31,7 +40,7 @@ struct ExecApprovalsStoreRefactorTests {
             let stampedDate = try Self.modificationDate(at: url)
             let original = try String(contentsOf: url, encoding: .utf8)
 
-            _ = ExecApprovalsStore.ensureFile()
+            _ = ExecApprovalsStore.ensureFile(inDirectory: stateDir.path)
 
             let writeDate = try Self.modificationDate(at: url)
             #expect(writeDate == stampedDate)
@@ -42,25 +51,26 @@ struct ExecApprovalsStoreRefactorTests {
 
     @Test
     func `update allowlist reports rejected basename pattern`() async throws {
-        try await self.withTempStateDir { _ in
+        try await self.withTempStateDir { stateDir in
             let rejected = ExecApprovalsStore.updateAllowlist(
                 agentId: "main",
                 allowlist: [
                     ExecAllowlistEntry(pattern: "echo"),
                     ExecAllowlistEntry(pattern: "/bin/echo"),
-                ])
+                ],
+                inDirectory: stateDir.path)
             #expect(rejected.count == 1)
             #expect(rejected.first?.reason == .missingPathComponent)
             #expect(rejected.first?.pattern == "echo")
 
-            let resolved = ExecApprovalsStore.resolve(agentId: "main")
+            let resolved = ExecApprovalsStore.resolve(agentId: "main", inDirectory: stateDir.path)
             #expect(resolved.allowlist.map(\.pattern) == ["/bin/echo"])
         }
     }
 
     @Test
     func `update allowlist migrates legacy pattern from resolved path`() async throws {
-        try await self.withTempStateDir { _ in
+        try await self.withTempStateDir { stateDir in
             let rejected = ExecApprovalsStore.updateAllowlist(
                 agentId: "main",
                 allowlist: [
@@ -69,10 +79,11 @@ struct ExecApprovalsStoreRefactorTests {
                         lastUsedAt: nil,
                         lastUsedCommand: nil,
                         lastResolvedPath: " /usr/bin/echo "),
-                ])
+                ],
+                inDirectory: stateDir.path)
             #expect(rejected.isEmpty)
 
-            let resolved = ExecApprovalsStore.resolve(agentId: "main")
+            let resolved = ExecApprovalsStore.resolve(agentId: "main", inDirectory: stateDir.path)
             #expect(resolved.allowlist.map(\.pattern) == ["/usr/bin/echo"])
         }
     }
@@ -83,7 +94,7 @@ struct ExecApprovalsStoreRefactorTests {
             try FileManager().createDirectory(at: stateDir, withIntermediateDirectories: true)
             try FileManager().setAttributes([.posixPermissions: 0o755], ofItemAtPath: stateDir.path)
 
-            _ = ExecApprovalsStore.ensureFile()
+            _ = ExecApprovalsStore.ensureFile(inDirectory: stateDir.path)
             let attrs = try FileManager().attributesOfItem(atPath: stateDir.path)
             let permissions = (attrs[.posixPermissions] as? NSNumber)?.intValue ?? -1
             #expect(permissions & 0o777 == 0o700)
