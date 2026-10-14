@@ -1,4 +1,5 @@
 import Foundation
+import os
 import Network
 import Observation
 import SwiftUI
@@ -72,7 +73,7 @@ enum HealthState: Equatable {
 final class HealthStore {
     static let shared = HealthStore()
 
-    private static let logger = Logger(subsystem: "ai.openclaw", category: "health")
+    private static let logger = os.Logger(subsystem: "ai.openclaw", category: "health")
 
     private(set) var snapshot: HealthSnapshot?
     private(set) var lastSuccess: Date?

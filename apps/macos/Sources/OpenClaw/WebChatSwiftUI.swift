@@ -1,4 +1,5 @@
 import AppKit
+import os
 import Foundation
 import OpenClawChatUI
 import OpenClawKit
@@ -7,7 +8,7 @@ import OSLog
 import QuartzCore
 import SwiftUI
 
-private let webChatSwiftLogger = Logger(subsystem: "ai.openclaw", category: "WebChatSwiftUI")
+private let webChatSwiftLogger = os.Logger(subsystem: "ai.openclaw", category: "WebChatSwiftUI")
 
 private enum WebChatSwiftUILayout {
     static let windowSize = NSSize(width: 500, height: 840)

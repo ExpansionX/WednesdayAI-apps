@@ -1,4 +1,5 @@
 import AVFoundation
+import os
 import Foundation
 import Speech
 import SwabbleKit
@@ -30,7 +31,7 @@ final class VoiceWakeTester {
     private var currentTriggers: [String] = []
     private var holdingAfterDetect = false
     private var detectedText: String?
-    private let logger = Logger(subsystem: "ai.openclaw", category: "voicewake")
+    private let logger = os.Logger(subsystem: "ai.openclaw", category: "voicewake")
     private let silenceWindow: TimeInterval = 1.0
 
     init(locale: Locale = .current) {
@@ -277,7 +278,7 @@ final class VoiceWakeTester {
         guard VoiceWakeRecognitionDebugSupport.shouldLogTranscript(
             transcript: transcript,
             isFinal: isFinal,
-            loggerLevel: self.logger.logLevel,
+            loggerLevel: AppLogSettings.logLevel(),
             lastLoggedText: &self.lastLoggedText,
             lastLoggedAt: &self.lastLoggedAt)
         else { return }
@@ -291,9 +292,7 @@ final class VoiceWakeTester {
         let matchSummary = VoiceWakeRecognitionDebugSupport.matchSummary(match)
 
         self.logger.debug(
-            "voicewake test transcript='\(transcript, privacy: .private)' textOnly=\(summary.textOnly) " +
-                "isFinal=\(isFinal) timing=\(summary.timingCount)/\(segments.count) " +
-                "\(matchSummary) gaps=[\(gaps, privacy: .private)] segments=[\(segmentSummary, privacy: .private)]")
+            "voicewake test transcript='\(transcript, privacy: .private)' textOnly=\(summary.textOnly) isFinal=\(isFinal) timing=\(summary.timingCount)/\(segments.count) \(matchSummary) gaps=[\(gaps, privacy: .private)] segments=[\(segmentSummary, privacy: .private)]")
     }
 
     private static func debugSegments(_ segments: [WakeWordSegment]) -> String {
@@ -424,8 +423,7 @@ final class VoiceWakeTester {
     private func logInputSelection(preferredMicID: String?) {
         let preferred = (preferredMicID?.isEmpty == false) ? preferredMicID! : "system-default"
         self.logger.info(
-            "voicewake test input preferred=\(preferred, privacy: .public) " +
-                "\(AudioInputDeviceObserver.defaultInputDeviceSummary(), privacy: .public)")
+            "voicewake test input preferred=\(preferred, privacy: .public) \(AudioInputDeviceObserver.defaultInputDeviceSummary(), privacy: .public)")
     }
 
     private nonisolated static func ensurePermissions() async throws -> Bool {

@@ -1,8 +1,9 @@
 import Foundation
+import os
 import OpenClawProtocol
 
 enum OpenClawConfigFile {
-    private static let logger = Logger(subsystem: "ai.openclaw", category: "config")
+    private static let logger = os.Logger(subsystem: "ai.openclaw", category: "config")
     private static let configAuditFileName = "config-audit.jsonl"
 
     static func url() -> URL {

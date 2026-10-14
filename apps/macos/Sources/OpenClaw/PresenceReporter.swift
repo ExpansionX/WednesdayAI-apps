@@ -1,4 +1,5 @@
 import Cocoa
+import os
 import Foundation
 import OSLog
 
@@ -6,7 +7,7 @@ import OSLog
 final class PresenceReporter {
     static let shared = PresenceReporter()
 
-    private let logger = Logger(subsystem: "ai.openclaw", category: "presence")
+    private let logger = os.Logger(subsystem: "ai.openclaw", category: "presence")
     private var task: Task<Void, Never>?
     private let interval: TimeInterval = 180 // a few minutes
     private let instanceId: String = InstanceIdentity.instanceId

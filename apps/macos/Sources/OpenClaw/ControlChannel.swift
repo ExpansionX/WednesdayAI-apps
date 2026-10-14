@@ -1,4 +1,5 @@
 import Foundation
+import os
 import Observation
 import OpenClawKit
 import OpenClawProtocol
@@ -79,7 +80,7 @@ final class ControlChannel {
     private(set) var lastPingMs: Double?
     private(set) var authSourceLabel: String?
 
-    private let logger = Logger(subsystem: "ai.openclaw", category: "control")
+    private let logger = os.Logger(subsystem: "ai.openclaw", category: "control")
 
     private var eventTask: Task<Void, Never>?
     private var recoveryTask: Task<Void, Never>?
@@ -103,8 +104,7 @@ final class ControlChannel {
                 _ = (target, identity)
                 let idSet = !identity.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                 self.logger.info(
-                    "control channel configure mode=remote " +
-                        "target=\(target, privacy: .public) identitySet=\(idSet, privacy: .public)")
+                    "control channel configure mode=remote target=\(target, privacy: .public) identitySet=\(idSet, privacy: .public)")
                 self.state = .connecting
                 _ = try await GatewayEndpointStore.shared.ensureRemoteControlTunnel()
                 await self.refreshEndpoint(reason: "configure")
@@ -270,9 +270,7 @@ final class ControlChannel {
             let trimmedReason = reason.trimmingCharacters(in: .whitespacesAndNewlines)
             let reasonText = trimmedReason.isEmpty ? "unknown" : trimmedReason
             self.logger.info(
-                "control channel recovery starting " +
-                    "mode=\(String(describing: mode), privacy: .public) " +
-                    "reason=\(reasonText, privacy: .public)")
+                "control channel recovery starting mode=\(String(describing: mode), privacy: .public) reason=\(reasonText, privacy: .public)")
             if mode == .local {
                 GatewayProcessManager.shared.setActive(true)
             }

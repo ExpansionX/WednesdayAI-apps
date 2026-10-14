@@ -1,4 +1,5 @@
 import AVFoundation
+import os
 import Foundation
 import OpenClawChatUI
 import OpenClawKit
@@ -8,8 +9,8 @@ import Speech
 actor TalkModeRuntime {
     static let shared = TalkModeRuntime()
 
-    private let logger = Logger(subsystem: "ai.openclaw", category: "talk.runtime")
-    private let ttsLogger = Logger(subsystem: "ai.openclaw", category: "talk.tts")
+    private let logger = os.Logger(subsystem: "ai.openclaw", category: "talk.runtime")
+    private let ttsLogger = os.Logger(subsystem: "ai.openclaw", category: "talk.tts")
     private static let defaultModelIdFallback = "eleven_v3"
     private static let defaultTalkProvider = "elevenlabs"
 
@@ -344,9 +345,7 @@ actor TalkModeRuntime {
         let runId = UUID().uuidString
         let startedAt = Date().timeIntervalSince1970
         self.logger.info(
-            "talk send start runId=\(runId, privacy: .public) " +
-                "session=\(sessionKey, privacy: .public) " +
-                "chars=\(prompt.count, privacy: .public)")
+            "talk send start runId=\(runId, privacy: .public) session=\(sessionKey, privacy: .public) chars=\(prompt.count, privacy: .public)")
 
         do {
             let response = try await GatewayConnection.shared.chatSend(
@@ -357,8 +356,7 @@ actor TalkModeRuntime {
                 attachments: [])
             guard self.isCurrent(gen) else { return }
             self.logger.info(
-                "talk chat.send ok runId=\(response.runId, privacy: .public) " +
-                    "session=\(sessionKey, privacy: .public)")
+                "talk chat.send ok runId=\(response.runId, privacy: .public) session=\(sessionKey, privacy: .public)")
 
             guard let assistantText = await self.waitForAssistantText(
                 sessionKey: sessionKey,
@@ -454,8 +452,7 @@ actor TalkModeRuntime {
         } catch {
             self.ttsLogger
                 .error(
-                    "talk TTS failed: \(error.localizedDescription, privacy: .public); " +
-                        "falling back to system voice")
+                    "talk TTS failed: \(error.localizedDescription, privacy: .public); falling back to system voice")
             do {
                 try await self.playSystemVoice(input: input)
             } catch {
@@ -490,8 +487,7 @@ actor TalkModeRuntime {
         if !parse.unknownKeys.isEmpty {
             self.logger
                 .warning(
-                    "talk directive ignored keys: " +
-                        "\(parse.unknownKeys.joined(separator: ","), privacy: .public)")
+                    "talk directive ignored keys: \(parse.unknownKeys.joined(separator: ","), privacy: .public)")
         }
 
         let requestedVoice = directive?.voiceId?.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -539,8 +535,7 @@ actor TalkModeRuntime {
         } else if let voiceId {
             self.ttsLogger
                 .info(
-                    "talk TTS request voiceId=\(voiceId, privacy: .public) " +
-                        "chars=\(cleaned.count, privacy: .public)")
+                    "talk TTS request voiceId=\(voiceId, privacy: .public) chars=\(cleaned.count, privacy: .public)")
         }
         self.lastSpokenText = cleaned
 
@@ -564,8 +559,7 @@ actor TalkModeRuntime {
         if outputFormat == nil, !desiredOutputFormat.isEmpty {
             self.logger
                 .warning(
-                    "talk output_format unsupported for local playback: " +
-                        "\(desiredOutputFormat, privacy: .public)")
+                    "talk output_format unsupported for local playback: \(desiredOutputFormat, privacy: .public)")
         }
 
         let modelId = input.directive?.modelId ?? self.currentModelId ?? self.defaultModelId
@@ -610,8 +604,7 @@ actor TalkModeRuntime {
             stream: stream)
         self.ttsLogger
             .info(
-                "talk audio result finished=\(result.finished, privacy: .public) " +
-                    "interruptedAt=\(String(describing: result.interruptedAt), privacy: .public)")
+                "talk audio result finished=\(result.finished, privacy: .public) interruptedAt=\(String(describing: result.interruptedAt), privacy: .public)")
         if !result.finished, result.interruptedAt == nil {
             throw NSError(domain: "StreamingAudioPlayer", code: 1, userInfo: [
                 NSLocalizedDescriptionKey: "audio playback failed",
@@ -784,10 +777,7 @@ extension TalkModeRuntime {
         let modelLabel = (cfg.modelId?.isEmpty == false) ? cfg.modelId! : "none"
         self.logger
             .info(
-                "talk config voiceId=\(voiceLabel, privacy: .public) " +
-                    "modelId=\(modelLabel, privacy: .public) " +
-                    "apiKey=\(hasApiKey, privacy: .public) " +
-                    "interrupt=\(cfg.interruptOnSpeech, privacy: .public)")
+                "talk config voiceId=\(voiceLabel, privacy: .public) modelId=\(modelLabel, privacy: .public) apiKey=\(hasApiKey, privacy: .public) interrupt=\(cfg.interruptOnSpeech, privacy: .public)")
     }
 
     private struct TalkRuntimeConfig {
@@ -1002,7 +992,7 @@ extension TalkModeRuntime {
         return spoken.contains(probe)
     }
 
-    private static func resolveSpeed(speed: Double?, rateWPM: Int?, logger: Logger) -> Double? {
+    private static func resolveSpeed(speed: Double?, rateWPM: Int?, logger: os.Logger) -> Double? {
         if let rateWPM, rateWPM > 0 {
             let resolved = Double(rateWPM) / 175.0
             if resolved <= 0.5 || resolved >= 2.0 {
@@ -1021,7 +1011,7 @@ extension TalkModeRuntime {
         return nil
     }
 
-    private static func validatedUnit(_ value: Double?, name: String, logger: Logger) -> Double? {
+    private static func validatedUnit(_ value: Double?, name: String, logger: os.Logger) -> Double? {
         guard let value else { return nil }
         if value < 0 || value > 1 {
             logger.warning("talk \(name, privacy: .public) out of range: \(value, privacy: .public)")
@@ -1030,7 +1020,7 @@ extension TalkModeRuntime {
         return value
     }
 
-    private static func validatedSeed(_ value: Int?, logger: Logger) -> UInt32? {
+    private static func validatedSeed(_ value: Int?, logger: os.Logger) -> UInt32? {
         guard let value else { return nil }
         if value < 0 || value > 4_294_967_295 {
             logger.warning("talk seed out of range: \(value, privacy: .public)")
@@ -1039,7 +1029,7 @@ extension TalkModeRuntime {
         return UInt32(value)
     }
 
-    private static func validatedNormalize(_ value: String?, logger: Logger) -> String? {
+    private static func validatedNormalize(_ value: String?, logger: os.Logger) -> String? {
         guard let value else { return nil }
         let normalized = value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         guard ["auto", "on", "off"].contains(normalized) else {

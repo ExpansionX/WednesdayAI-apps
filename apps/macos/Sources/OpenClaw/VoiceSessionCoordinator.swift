@@ -1,4 +1,5 @@
 import AppKit
+import os
 import Foundation
 import Observation
 
@@ -19,7 +20,7 @@ final class VoiceSessionCoordinator {
         var autoSendDelay: TimeInterval?
     }
 
-    private let logger = Logger(subsystem: "ai.openclaw", category: "voicewake.coordinator")
+    private let logger = os.Logger(subsystem: "ai.openclaw", category: "voicewake.coordinator")
     private var session: Session?
 
     // MARK: - API

@@ -1,4 +1,5 @@
 import AppKit
+import os
 import ApplicationServices
 import AVFoundation
 import CoreGraphics
@@ -349,7 +350,7 @@ final class LocationPermissionRequester: NSObject, CLLocationManagerDelegate {
 }
 
 enum AppleScriptPermission {
-    private static let logger = Logger(subsystem: "ai.openclaw", category: "AppleScriptPermission")
+    private static let logger = os.Logger(subsystem: "ai.openclaw", category: "AppleScriptPermission")
 
     /// Sends a benign AppleScript to Terminal to verify Automation permission.
     @MainActor

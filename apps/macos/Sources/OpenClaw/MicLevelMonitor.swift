@@ -1,9 +1,10 @@
 import AVFoundation
+import os
 import OSLog
 import SwiftUI
 
 actor MicLevelMonitor {
-    private let logger = Logger(subsystem: "ai.openclaw", category: "voicewake.meter")
+    private let logger = os.Logger(subsystem: "ai.openclaw", category: "voicewake.meter")
     private var engine: AVAudioEngine?
     private var update: (@Sendable (Double) -> Void)?
     private var running = false

@@ -1,11 +1,12 @@
 import Foundation
+import os
 import OSLog
 
 /// Manages the SSH tunnel that forwards the remote gateway/control port to localhost.
 actor RemoteTunnelManager {
     static let shared = RemoteTunnelManager()
 
-    private let logger = Logger(subsystem: "ai.openclaw", category: "remote-tunnel")
+    private let logger = os.Logger(subsystem: "ai.openclaw", category: "remote-tunnel")
     private var controlTunnel: RemotePortTunnel?
     private var restartInFlight = false
     private var lastRestartAt: Date?
@@ -38,9 +39,7 @@ actor RemoteTunnelManager {
            self.isSshProcess(desc)
         {
             self.logger.info(
-                "reusing existing SSH tunnel listener " +
-                    "localPort=\(desiredPort, privacy: .public) " +
-                    "pid=\(desc.pid, privacy: .public)")
+                "reusing existing SSH tunnel listener localPort=\(desiredPort, privacy: .public) pid=\(desc.pid, privacy: .public)")
             return desiredPort
         }
         return nil
@@ -59,8 +58,7 @@ actor RemoteTunnelManager {
 
         let identitySet = !settings.identity.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         self.logger.info(
-            "ensure SSH tunnel target=\(settings.target, privacy: .public) " +
-                "identitySet=\(identitySet, privacy: .public)")
+            "ensure SSH tunnel target=\(settings.target, privacy: .public) identitySet=\(identitySet, privacy: .public)")
 
         if let local = await self.controlTunnelPortIfRunning() { return local }
         await self.waitForRestartBackoffIfNeeded()

@@ -1,4 +1,5 @@
 import AVFoundation
+import os
 import CoreGraphics
 import Foundation
 import OpenClawIPC
@@ -36,7 +37,7 @@ actor CameraCaptureService {
         }
     }
 
-    private let logger = Logger(subsystem: "ai.openclaw", category: "camera")
+    private let logger = os.Logger(subsystem: "ai.openclaw", category: "camera")
 
     func listDevices() -> [CameraDeviceInfo] {
         Self.availableCameras().map { device in
@@ -341,9 +342,9 @@ private final class PhotoCaptureDelegate: NSObject, AVCapturePhotoCaptureDelegat
 
 private final class MovieFileDelegate: NSObject, AVCaptureFileOutputRecordingDelegate {
     private var cont: CheckedContinuation<URL, Error>?
-    private let logger: Logger
+    private let logger: os.Logger
 
-    init(_ cont: CheckedContinuation<URL, Error>, logger: Logger) {
+    init(_ cont: CheckedContinuation<URL, Error>, logger: os.Logger) {
         self.cont = cont
         self.logger = logger
     }

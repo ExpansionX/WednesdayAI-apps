@@ -1,4 +1,5 @@
 import AVFoundation
+import os
 import Foundation
 import OpenClawKit
 import OSLog
@@ -26,7 +27,7 @@ final class ScreenRecordService {
         }
     }
 
-    private let logger = Logger(subsystem: "ai.openclaw", category: "screenRecord")
+    private let logger = os.Logger(subsystem: "ai.openclaw", category: "screenRecord")
 
     func record(
         screenIndex: Int?,
@@ -102,7 +103,7 @@ final class ScreenRecordService {
 private final class StreamRecorder: NSObject, SCStreamOutput, SCStreamDelegate, @unchecked Sendable {
     let queue = DispatchQueue(label: "ai.openclaw.screenRecord.writer")
 
-    private let logger: Logger
+    private let logger: os.Logger
     private let writer: AVAssetWriter
     private let input: AVAssetWriterInput
     private let audioInput: AVAssetWriterInput?
@@ -113,7 +114,7 @@ private final class StreamRecorder: NSObject, SCStreamOutput, SCStreamDelegate, 
     private var didFinish = false
     private var pendingErrorMessage: String?
 
-    init(outputURL: URL, width: Int, height: Int, includeAudio: Bool, logger: Logger) throws {
+    init(outputURL: URL, width: Int, height: Int, includeAudio: Bool, logger: os.Logger) throws {
         self.logger = logger
         self.writer = try AVAssetWriter(outputURL: outputURL, fileType: .mp4)
 

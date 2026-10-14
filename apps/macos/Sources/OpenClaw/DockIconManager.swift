@@ -1,4 +1,5 @@
 import AppKit
+import os
 
 /// Central manager for Dock icon visibility.
 /// Shows the Dock icon while any windows are visible, regardless of user preference.
@@ -6,7 +7,7 @@ final class DockIconManager: NSObject, @unchecked Sendable {
     static let shared = DockIconManager()
 
     private var windowsObservation: NSKeyValueObservation?
-    private let logger = Logger(subsystem: "ai.openclaw", category: "DockIconManager")
+    private let logger = os.Logger(subsystem: "ai.openclaw", category: "DockIconManager")
 
     override private init() {
         super.init()

@@ -1,4 +1,5 @@
 import Foundation
+import os
 import Network
 import Observation
 import OpenClawKit
@@ -76,7 +77,7 @@ public final class GatewayDiscoveryModel {
     private var pendingServiceResolvers: [String: GatewayServiceResolver] = [:]
     private var wideAreaFallbackTask: Task<Void, Never>?
     private var wideAreaFallbackGateways: [DiscoveredGateway] = []
-    private let logger = Logger(subsystem: "ai.openclaw", category: "gateway-discovery")
+    private let logger = os.Logger(subsystem: "ai.openclaw", category: "gateway-discovery")
 
     public init(
         localDisplayName: String? = nil,

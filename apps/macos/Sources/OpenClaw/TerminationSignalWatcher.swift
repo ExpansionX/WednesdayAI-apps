@@ -1,4 +1,5 @@
 import AppKit
+import os
 import Foundation
 import OSLog
 
@@ -6,7 +7,7 @@ import OSLog
 final class TerminationSignalWatcher {
     static let shared = TerminationSignalWatcher()
 
-    private let logger = Logger(subsystem: "ai.openclaw", category: "lifecycle")
+    private let logger = os.Logger(subsystem: "ai.openclaw", category: "lifecycle")
     private var sources: [DispatchSourceSignal] = []
     private var terminationRequested = false
 

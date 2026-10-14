@@ -1,4 +1,5 @@
 import AppKit
+import os
 import Foundation
 import Observation
 import OpenClawKit
@@ -10,7 +11,7 @@ import OSLog
 final class DevicePairingApprovalPrompter {
     static let shared = DevicePairingApprovalPrompter()
 
-    private let logger = Logger(subsystem: "ai.openclaw", category: "device-pairing")
+    private let logger = os.Logger(subsystem: "ai.openclaw", category: "device-pairing")
     private var task: Task<Void, Never>?
     private var isStopping = false
     private var isPresenting = false
@@ -225,8 +226,7 @@ final class DevicePairingApprovalPrompter {
             self.endActiveAlert()
             let decision = resolution.rawValue
             self.logger.info(
-                "device pairing resolved while active requestId=\(resolved.requestId, privacy: .public) " +
-                    "decision=\(decision, privacy: .public)")
+                "device pairing resolved while active requestId=\(resolved.requestId, privacy: .public) decision=\(decision, privacy: .public)")
             return
         }
         self.queue.removeAll { $0.requestId == resolved.requestId }

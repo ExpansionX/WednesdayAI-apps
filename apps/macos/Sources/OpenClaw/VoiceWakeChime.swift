@@ -1,4 +1,5 @@
 import AppKit
+import os
 import Foundation
 import OSLog
 
@@ -43,7 +44,7 @@ enum VoiceWakeChimeCatalog {
 
 @MainActor
 enum VoiceWakeChimePlayer {
-    private static let logger = Logger(subsystem: "ai.openclaw", category: "voicewake.chime")
+    private static let logger = os.Logger(subsystem: "ai.openclaw", category: "voicewake.chime")
     private static var lastSound: NSSound?
 
     static func play(_ chime: VoiceWakeChime, reason: String? = nil) {

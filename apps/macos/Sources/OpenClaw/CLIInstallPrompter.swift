@@ -1,11 +1,12 @@
 import AppKit
+import os
 import Foundation
 import OSLog
 
 @MainActor
 final class CLIInstallPrompter {
     static let shared = CLIInstallPrompter()
-    private let logger = Logger(subsystem: "ai.openclaw", category: "cli.prompt")
+    private let logger = os.Logger(subsystem: "ai.openclaw", category: "cli.prompt")
     private var isPrompting = false
 
     func checkAndPromptIfNeeded(reason: String) {

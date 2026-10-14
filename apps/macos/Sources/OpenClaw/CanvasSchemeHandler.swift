@@ -1,9 +1,10 @@
 import Foundation
+import os
 import OpenClawKit
 import OSLog
 import WebKit
 
-private let canvasLogger = Logger(subsystem: "ai.openclaw", category: "Canvas")
+private let canvasLogger = os.Logger(subsystem: "ai.openclaw", category: "Canvas")
 
 final class CanvasSchemeHandler: NSObject, WKURLSchemeHandler {
     private let root: URL

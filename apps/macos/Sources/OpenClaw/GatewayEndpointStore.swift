@@ -1,4 +1,5 @@
 import ConcurrencyExtras
+import os
 import Foundation
 import OSLog
 
@@ -23,7 +24,7 @@ actor GatewayEndpointStore {
         "custom",
     ]
     private static let remoteConnectingDetail = "Connecting to remote gateway…"
-    private static let staticLogger = Logger(subsystem: "ai.openclaw", category: "gateway-endpoint")
+    private static let staticLogger = os.Logger(subsystem: "ai.openclaw", category: "gateway-endpoint")
     private enum EnvOverrideWarningKind: Sendable {
         case token
         case password
@@ -225,12 +226,11 @@ actor GatewayEndpointStore {
         }
         guard shouldWarn else { return }
         Self.staticLogger.warning(
-            "\(envVar, privacy: .public) is set and overrides \(configKey, privacy: .public). " +
-                "If this is unintentional, clear it with: launchctl unsetenv \(envVar, privacy: .public)")
+            "\(envVar, privacy: .public) is set and overrides \(configKey, privacy: .public). If this is unintentional, clear it with: launchctl unsetenv \(envVar, privacy: .public)")
     }
 
     private let deps: Deps
-    private let logger = Logger(subsystem: "ai.openclaw", category: "gateway-endpoint")
+    private let logger = os.Logger(subsystem: "ai.openclaw", category: "gateway-endpoint")
 
     private var state: GatewayEndpointState
     private var subscribers: [UUID: AsyncStream<GatewayEndpointState>.Continuation] = [:]

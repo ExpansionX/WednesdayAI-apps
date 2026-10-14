@@ -1,4 +1,5 @@
 import Foundation
+import os
 import Network
 import OSLog
 #if canImport(Darwin)
@@ -9,7 +10,7 @@ import Darwin
 ///
 /// Uses `ssh -N -L` to forward the remote gateway ports to localhost.
 final class RemotePortTunnel {
-    private static let logger = Logger(subsystem: "ai.openclaw", category: "remote.tunnel")
+    private static let logger = os.Logger(subsystem: "ai.openclaw", category: "remote.tunnel")
 
     let process: Process
     let localPort: UInt16?
@@ -63,12 +64,10 @@ final class RemotePortTunnel {
         let resolvedRemotePort = remotePortOverride ?? remotePort
         if let override = remotePortOverride {
             Self.logger.info(
-                "ssh tunnel remote port override " +
-                    "host=\(sshHost, privacy: .public) port=\(override, privacy: .public)")
+                "ssh tunnel remote port override host=\(sshHost, privacy: .public) port=\(override, privacy: .public)")
         } else {
             Self.logger.debug(
-                "ssh tunnel using default remote port " +
-                    "host=\(sshHost, privacy: .public) port=\(remotePort, privacy: .public)")
+                "ssh tunnel using default remote port host=\(sshHost, privacy: .public) port=\(remotePort, privacy: .public)")
         }
         let options: [String] = [
             "-o", "BatchMode=yes",

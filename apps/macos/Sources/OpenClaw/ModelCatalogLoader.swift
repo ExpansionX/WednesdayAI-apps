@@ -1,4 +1,5 @@
 import Foundation
+import os
 import JavaScriptCore
 
 enum ModelCatalogLoader {
@@ -6,7 +7,7 @@ enum ModelCatalogLoader {
         self.resolveDefaultPath()
     }
 
-    private static let logger = Logger(subsystem: "ai.openclaw", category: "models")
+    private static let logger = os.Logger(subsystem: "ai.openclaw", category: "models")
     private nonisolated static let appSupportDir: URL = {
         let base = FileManager().urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
         return base.appendingPathComponent("OpenClaw", isDirectory: true)

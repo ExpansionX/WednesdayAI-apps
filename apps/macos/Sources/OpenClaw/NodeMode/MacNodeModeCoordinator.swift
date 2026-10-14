@@ -1,4 +1,5 @@
 import Foundation
+import os
 import OpenClawKit
 import OSLog
 
@@ -6,7 +7,7 @@ import OSLog
 final class MacNodeModeCoordinator {
     static let shared = MacNodeModeCoordinator()
 
-    private let logger = Logger(subsystem: "ai.openclaw", category: "mac-node")
+    private let logger = os.Logger(subsystem: "ai.openclaw", category: "mac-node")
     private var task: Task<Void, Never>?
     private let runtime = MacNodeRuntime()
     private let session = GatewayNodeSession()

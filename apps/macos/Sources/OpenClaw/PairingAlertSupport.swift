@@ -1,6 +1,7 @@
 import AppKit
 import OpenClawKit
 import OSLog
+import os
 
 final class PairingAlertHostWindow: NSWindow {
     override var canBecomeKey: Bool {
@@ -246,7 +247,7 @@ enum PairingAlertSupport {
     static func approveRequest(
         requestId: String,
         kind: String,
-        logger: Logger,
+        logger: os.Logger,
         action: @escaping () async throws -> Void) async -> Bool
     {
         do {
@@ -263,7 +264,7 @@ enum PairingAlertSupport {
     static func rejectRequest(
         requestId: String,
         kind: String,
-        logger: Logger,
+        logger: os.Logger,
         action: @escaping () async throws -> Void) async
     {
         do {

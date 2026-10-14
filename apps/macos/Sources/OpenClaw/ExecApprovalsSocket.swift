@@ -1,4 +1,5 @@
 import AppKit
+import os
 import CryptoKit
 import Darwin
 import Foundation
@@ -645,7 +646,7 @@ enum ExecApprovalsSocketPathGuard {
 }
 
 private final class ExecApprovalsSocketServer: @unchecked Sendable {
-    private let logger = Logger(subsystem: "ai.openclaw", category: "exec-approvals.socket")
+    private let logger = os.Logger(subsystem: "ai.openclaw", category: "exec-approvals.socket")
     private let socketPath: String
     private let token: String
     private let onPrompt: @Sendable (ExecApprovalPromptRequest) async -> ExecApprovalDecision

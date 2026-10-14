@@ -1,8 +1,9 @@
 import Foundation
+import os
 import OSLog
 
 enum VoiceWakeForwarder {
-    private static let logger = Logger(subsystem: "ai.openclaw", category: "voicewake.forward")
+    private static let logger = os.Logger(subsystem: "ai.openclaw", category: "voicewake.forward")
 
     static func prefixedTranscript(_ transcript: String, machineName: String? = nil) -> String {
         let resolvedMachine = machineName

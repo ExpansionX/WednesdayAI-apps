@@ -1,4 +1,5 @@
 import Foundation
+import os
 import OpenClawIPC
 import OSLog
 
@@ -70,7 +71,7 @@ struct GatewayCommandResolution {
 }
 
 enum GatewayEnvironment {
-    private static let logger = Logger(subsystem: "ai.openclaw", category: "gateway.env")
+    private static let logger = os.Logger(subsystem: "ai.openclaw", category: "gateway.env")
     private static let supportedBindModes: Set<String> = ["loopback", "tailnet", "lan", "auto"]
 
     static func gatewayPort() -> Int {

@@ -1,4 +1,5 @@
 import AppKit
+import os
 import Foundation
 import OpenClawIPC
 import OpenClawKit
@@ -8,7 +9,7 @@ import OSLog
 final class CanvasManager {
     static let shared = CanvasManager()
 
-    private static let logger = Logger(subsystem: "ai.openclaw", category: "CanvasManager")
+    private static let logger = os.Logger(subsystem: "ai.openclaw", category: "CanvasManager")
 
     private var panelController: CanvasWindowController?
     private var panelSessionKey: String?

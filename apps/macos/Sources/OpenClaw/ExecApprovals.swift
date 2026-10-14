@@ -1,4 +1,5 @@
 import CryptoKit
+import os
 import Foundation
 import OSLog
 import Security
@@ -220,7 +221,7 @@ struct ExecApprovalsResolvedDefaults {
 }
 
 enum ExecApprovalsStore {
-    private static let logger = Logger(subsystem: "ai.openclaw", category: "exec-approvals")
+    private static let logger = os.Logger(subsystem: "ai.openclaw", category: "exec-approvals")
     private static let defaultAgentId = "main"
     private static let defaultSecurity: ExecSecurity = .deny
     private static let defaultAsk: ExecAsk = .onMiss

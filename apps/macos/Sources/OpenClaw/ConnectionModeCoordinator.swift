@@ -1,11 +1,12 @@
 import Foundation
+import os
 import OSLog
 
 @MainActor
 final class ConnectionModeCoordinator {
     static let shared = ConnectionModeCoordinator()
 
-    private let logger = Logger(subsystem: "ai.openclaw", category: "connection")
+    private let logger = os.Logger(subsystem: "ai.openclaw", category: "connection")
     private var lastMode: AppState.ConnectionMode?
 
     /// Apply the requested connection mode by starting/stopping local gateway,

@@ -1,4 +1,5 @@
 import AppKit
+import os
 import Observation
 import OSLog
 import SwiftUI
@@ -12,7 +13,7 @@ final class TalkOverlayController {
     static let orbPadding: CGFloat = 12
     static let orbHitSlop: CGFloat = 10
 
-    private let logger = Logger(subsystem: "ai.openclaw", category: "talk.overlay")
+    private let logger = os.Logger(subsystem: "ai.openclaw", category: "talk.overlay")
 
     struct Model {
         var isVisible: Bool = false
