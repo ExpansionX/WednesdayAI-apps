@@ -100,6 +100,8 @@ kotlin {
 }
 
 ktlint {
+  // Pinned: upstream openclaw pins ktlint-cli 1.8.0 (plugin default is 1.5.0).
+  version.set("1.8.0")
   android.set(true)
   ignoreFailures.set(false)
   filter {
