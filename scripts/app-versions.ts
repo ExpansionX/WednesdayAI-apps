@@ -112,7 +112,8 @@ type Stamper = (content: string, version: string, build: number) => string;
 // set covers every version-bearing iOS file (ADR 0004). App versions equal the synced
 // CORE_VERSION — the macOS app derives its expected gateway version from the bundle version —
 // and core no longer stamps these files (ADR 0097).
-const STAMPERS: Record<string, Stamper> = {
+// Exported for the exact-content meta-test in contracts.test.ts.
+export const APP_STAMPERS: Record<string, Stamper> = {
   "apps/android/app/build.gradle.kts": stampAndroid,
   "apps/ios/project.yml": stampProjectYml,
   "apps/ios/Sources/Info.plist": stampPlist,
@@ -123,14 +124,14 @@ const STAMPERS: Record<string, Stamper> = {
   "apps/macos/Sources/OpenClaw/Resources/Info.plist": stampPlist,
 };
 
-export const APP_VERSION_TARGETS: readonly string[] = Object.keys(STAMPERS);
+export const APP_VERSION_TARGETS: readonly string[] = Object.keys(APP_STAMPERS);
 
 // Stamp every app version location to `version`. Returns the repo-relative paths that changed.
 export function stampAppVersions(version: string): string[] {
   const rootDir = resolve(".");
   const build = deriveBuildNumber(version);
   const touched: string[] = [];
-  for (const [relPath, stamp] of Object.entries(STAMPERS)) {
+  for (const [relPath, stamp] of Object.entries(APP_STAMPERS)) {
     const full = join(rootDir, relPath);
     if (!existsSync(full)) {
       continue;

@@ -5,7 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { APP_VERSION_TARGETS, deriveBuildNumber } from "./app-versions.ts";
+import { APP_STAMPERS, APP_VERSION_TARGETS, deriveBuildNumber } from "./app-versions.ts";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const contractsDir = path.join(repoRoot, "apps/shared/contracts");
@@ -133,10 +133,18 @@ describe("synced contracts", () => {
 });
 
 describe("app versions match CORE_VERSION", () => {
-  it("every declared target exists and already holds the synced core version", () => {
-    for (const relPath of APP_VERSION_TARGETS) {
-      const content = fs.readFileSync(path.join(repoRoot, relPath), "utf8"); // throws if a declared target is missing
-      expect(content, `${relPath} should be stamped to ${coreVersion}`).toContain(coreVersion);
+  it("every declared target exactly matches its stamper output for the synced core version", () => {
+    const build = deriveBuildNumber(coreVersion);
+    for (const [relPath, stamp] of Object.entries(APP_STAMPERS)) {
+      const committed = fs.readFileSync(path.join(repoRoot, relPath), "utf8"); // throws if a declared target is missing
+      // A stamper is idempotent on correctly stamped content and rewrites any drifted
+      // version/build field, so exact equality proves the file is stamped to CORE_VERSION
+      // including build numbers and versionCode — a substring check would miss 0.4.110 vs
+      // 0.4.11 or an off-by-one CFBundleVersion.
+      expect(
+        committed,
+        `${relPath} is not exactly its stamped content for ${coreVersion}`,
+      ).toBe(stamp(committed, coreVersion, build));
     }
   });
 
