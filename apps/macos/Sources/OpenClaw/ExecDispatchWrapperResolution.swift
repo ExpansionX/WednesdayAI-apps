@@ -250,12 +250,15 @@ enum ExecDispatchWrapper {
         onFlag: @escaping (String, String) -> ScanDirective,
         adjustCommandIndex: ((Int, [String]) -> Int?)? = nil) -> [String]?
     {
-        let params = ScanParams(separators: ["--"], onToken: { token, lower in
-            if !token.hasPrefix("-") || token == "-" {
-                return .stop
-            }
-            return onFlag(self.flagPart(ofLowerToken: lower), lower)
-        }, adjustCommandIndex: adjustCommandIndex)
+        let params = ScanParams(
+            separators: ["--"],
+            onToken: { token, lower in
+                if !token.hasPrefix("-") || token == "-" {
+                    return .stop
+                }
+                return onFlag(self.flagPart(ofLowerToken: lower), lower)
+            },
+            adjustCommandIndex: adjustCommandIndex)
         return self.scanWrapperInvocation(argv, params: params)
     }
 
@@ -294,19 +297,22 @@ enum ExecDispatchWrapper {
     }
 
     private static func unwrapTimeoutInvocation(_ argv: [String]) -> [String]? {
-        self.unwrapDashOptionInvocation(argv, onFlag: { flag, lower in
-            if self.timeoutFlagOptions.contains(flag) {
-                return .continue
-            }
-            if self.timeoutOptionsWithValue.contains(flag) {
-                return lower.contains("=") ? .continue : .consumeNext
-            }
-            return .invalid
-        }, adjustCommandIndex: { commandIndex, current in
-            // timeout consumes a required duration token before the wrapped command.
-            let wrappedCommandIndex = commandIndex + 1
-            return wrappedCommandIndex < current.count ? wrappedCommandIndex : nil
-        })
+        self.unwrapDashOptionInvocation(
+            argv,
+            onFlag: { flag, lower in
+                if self.timeoutFlagOptions.contains(flag) {
+                    return .continue
+                }
+                if self.timeoutOptionsWithValue.contains(flag) {
+                    return lower.contains("=") ? .continue : .consumeNext
+                }
+                return .invalid
+            },
+            adjustCommandIndex: { commandIndex, current in
+                // timeout consumes a required duration token before the wrapped command.
+                let wrappedCommandIndex = commandIndex + 1
+                return wrappedCommandIndex < current.count ? wrappedCommandIndex : nil
+            })
     }
 
     static func unwrapKnownDispatchWrapperInvocation(_ argv: [String]) -> UnwrapResult {

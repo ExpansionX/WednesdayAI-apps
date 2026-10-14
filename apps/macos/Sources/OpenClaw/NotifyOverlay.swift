@@ -67,11 +67,10 @@ final class NotifyOverlayController {
             target: target,
             onFirstPresent: {
                 self.model.isVisible = true
-            })
-        { window in
-            self.updateWindowFrame(animate: true)
-            window.orderFrontRegardless()
-        }
+            }) { window in
+                self.updateWindowFrame(animate: true)
+                window.orderFrontRegardless()
+            }
     }
 
     private func ensureWindow() {

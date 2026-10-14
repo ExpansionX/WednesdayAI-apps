@@ -210,7 +210,7 @@ struct ExecAllowlistTests {
         #expect(resolutions[1].executableName == "touch")
     }
 
-    @Test func resolveForAllowlistUnwrapsTransparentEnvToEffectiveDirectExecutable() {
+    @Test func `resolve for allowlist unwraps transparent env to effective direct executable`() {
         // A bare `env <command>` (no modifiers) is transparent: resolution targets
         // the wrapped executable.
         let command = ["/usr/bin/env", "/usr/bin/printf", "ok"]
@@ -226,7 +226,7 @@ struct ExecAllowlistTests {
         #expect(!resolutions[0].policyBlocked)
     }
 
-    @Test func resolveForAllowlistFailsClosedOnEnvAssignmentPrelude() {
+    @Test func `resolve for allowlist fails closed on env assignment prelude`() {
         // Core parity (a1c4bf07): env assignments/flags are semantic dispatch
         // usage — the resolution is policyBlocked and can never satisfy the
         // allowlist; only an explicit ask decision can approve execution.
@@ -244,7 +244,7 @@ struct ExecAllowlistTests {
         #expect(resolution?.blockedWrapper == "env")
     }
 
-    @Test func resolveForAllowlistFailsClosedOnBlockedDispatchWrappers() {
+    @Test func `resolve for allowlist fails closed on blocked dispatch wrappers`() {
         let command = ["/usr/bin/sudo", "/usr/bin/printf", "ok"]
         let resolutions = ExecCommandResolution.resolveForAllowlist(
             command: command,
