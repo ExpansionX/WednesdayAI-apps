@@ -14,10 +14,6 @@ enum LogLocator {
         logDir.appendingPathComponent("openclaw-stdout.log")
     }
 
-    private static var gatewayLog: URL {
-        logDir.appendingPathComponent("openclaw-gateway.log")
-    }
-
     private static func ensureLogDirExists() {
         try? FileManager().createDirectory(at: self.logDir, withIntermediateDirectories: true)
     }

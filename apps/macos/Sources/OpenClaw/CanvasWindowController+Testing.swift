@@ -15,10 +15,6 @@ extension CanvasWindowController {
         self.jsOptionalStringLiteral(value)
     }
 
-    static func _testStoredFrameKey(sessionKey: String) -> String {
-        self.storedFrameDefaultsKey(sessionKey: sessionKey)
-    }
-
     static func _testStoreAndLoadFrame(
         sessionKey: String,
         frame: NSRect,
