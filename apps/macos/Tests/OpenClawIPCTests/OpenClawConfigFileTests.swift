@@ -97,6 +97,39 @@ struct OpenClawConfigFileTests {
         }
     }
 
+    @Test
+    func `explicit nil env override masks an outer override`() async {
+        // Review S2: an inner `withEnvValues(["OPENCLAW_CONFIG_PATH": nil])`
+        // must mask the key (unset semantics) instead of deleting the override
+        // and revealing the outer level's value.
+        let outerOverride = FileManager().temporaryDirectory
+            .appendingPathComponent("openclaw-outer-\(UUID().uuidString)")
+            .appendingPathComponent("openclaw.json")
+            .path
+        let stateDir = FileManager().temporaryDirectory
+            .appendingPathComponent("openclaw-state-\(UUID().uuidString)", isDirectory: true)
+            .path
+
+        await TestIsolation.withEnvValues(["OPENCLAW_CONFIG_PATH": outerOverride]) {
+            #expect(OpenClawConfigFile.url().path == outerOverride)
+
+            await TestIsolation.withEnvValues([
+                "OPENCLAW_CONFIG_PATH": nil,
+                "OPENCLAW_STATE_DIR": stateDir,
+            ]) {
+                // Masked: the outer override is not visible and the state-dir
+                // fixture path wins. The mask is ENCODED (empty override), not
+                // deleted, so the outer value cannot leak through the live
+                // environment fallback.
+                #expect(OpenClawEnv.overrideValue(forKey: "OPENCLAW_CONFIG_PATH") == "")
+                #expect(OpenClawConfigFile.url().path == "\(stateDir)/openclaw.json")
+            }
+
+            // The outer override is restored after the inner scope ends.
+            #expect(OpenClawConfigFile.url().path == outerOverride)
+        }
+    }
+
     @MainActor
     @Test
     func `save dict appends config audit log`() async throws {

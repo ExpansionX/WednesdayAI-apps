@@ -30,28 +30,48 @@ actor TestIsolationLock {
 
 @MainActor
 enum TestIsolation {
+    /// Nesting depth of `withIsolatedState`. `TestIsolationLock` is not
+    /// reentrant, so a nested scope (an inner `withEnvValues` inside an outer
+    /// one) skips the acquire/release and layers its overrides on top of the
+    /// outer scope's; the override stack restores in order.
+    private static var isolationDepth = 0
+
     static func withIsolatedState<T>(
         env: [String: String?] = [:],
         _ body: () async throws -> T) async rethrows -> T
     {
-        await TestIsolationLock.shared.acquire()
+        let nested = self.isolationDepth > 0
+        if !nested {
+            await TestIsolationLock.shared.acquire()
+        }
+        self.isolationDepth += 1
         // Env isolation goes through the OpenClawEnv override seam, not the
         // process-global environment: Foundation may snapshot the environment
         // at first access, hiding mid-run setenv calls from later reads.
         var previousOverrides: [String: String?] = [:]
         for (key, value) in env {
             previousOverrides[key] = OpenClawEnv.overrideValue(forKey: key)
-            OpenClawEnv.setOverrideValue(value, forKey: key)
+            // An explicit nil masks the key for the body (unset semantics): it
+            // must NOT reveal an outer override. Encoding the mask as the
+            // empty string works because OpenClawEnv.path normalizes "" to
+            // unset; `value ?? ""` therefore never deletes an outer override.
+            OpenClawEnv.setOverrideValue(value ?? "", forKey: key)
         }
 
         do {
             let result = try await body()
             restoreOverrides(previousOverrides)
-            await TestIsolationLock.shared.release()
+            self.isolationDepth -= 1
+            if !nested {
+                await TestIsolationLock.shared.release()
+            }
             return result
         } catch {
             restoreOverrides(previousOverrides)
-            await TestIsolationLock.shared.release()
+            self.isolationDepth -= 1
+            if !nested {
+                await TestIsolationLock.shared.release()
+            }
             throw error
         }
     }
