@@ -31,7 +31,7 @@ Run from the repo root with npm (this repo has no pnpm):
 
 ## Generated files
 
-Never hand-edit `apps/shared/contracts/*`, `GatewayModels.swift`, `HostEnvSecurityPolicy.generated.swift`, or app version fields (Info.plist, `project.yml`, Gradle version fields); run `npm run contracts:sync` instead.
+Never hand-edit `apps/shared/contracts/*`, `GatewayModels.swift`, `HostEnvSecurityPolicy.generated.swift`, or app version fields (Info.plist, `project.yml`, Gradle version fields); run `npm run contracts:sync -- --version "$(cat apps/shared/contracts/CORE_VERSION)"` instead (or `-- --version <semver|latest>` to move to a different core release).
 
 ## Dependency pins
 

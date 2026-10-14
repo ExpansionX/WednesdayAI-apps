@@ -50,7 +50,7 @@ Do not update these from mixed sources. All three ASC fields must come from the 
 
 The macOS app is built and packaged in the [WednesdayAI-apps](https://github.com/ExpansionX/WednesdayAI-apps) repository, not in core:
 
-- Sync client contracts and stamp app versions before packaging: `npm run contracts:sync` (pins `apps/shared/contracts/CORE_VERSION`, regenerates Swift, stamps app versions).
+- Sync client contracts and stamp app versions before packaging: `npm run contracts:sync -- --version "$(cat apps/shared/contracts/CORE_VERSION)"` (re-syncs the pinned release; use `-- --version <other-version>` to move to a different core release). This pins `apps/shared/contracts/CORE_VERSION`, regenerates Swift and stamps app versions.
 - Package the app: `npm run mac:package` (wraps `scripts/package-mac-app.sh`; outputs `dist/OpenClaw.app`). The app no longer bundles the gateway.
 - Do not run core-only steps here (`pnpm` scripts, npm publish, `version:sync`); core versioning is owned by the WednesdayAI-core release, and app versions follow the synced `CORE_VERSION` (ADR 0097).
 
