@@ -126,9 +126,7 @@ describe("GatewaySttCapture", () => {
     expect(AUDIO_FLUSH_MS).toBe(250)
     expect(STT_RESULT_TIMEOUT_MS).toBe(6000)
     expect(MAX_CAPTURE_MS).toBe(20000)
-    // Must meet the provider's endpointing threshold (ElevenLabs realtime
-    // VAD silence default 1.5 s) or clips that end on speech lose words.
-    expect(TRAILING_SILENCE_MS).toBe(1500)
+    expect(TRAILING_SILENCE_MS).toBe(500)
   })
 
   it("creates a transcription session with the exact params", async () => {

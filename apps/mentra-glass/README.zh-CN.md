@@ -245,8 +245,8 @@ unavailable"，然后使用 Mentra 的转写结果。
 携带最近 1.5 秒预滚（pre-roll）的 `talk.session`，把实时音频按不超过
 `MAX_APPEND_BYTES`（96,000 字节解码后，约 16 kHz PCM16 的 3 秒）的有序
 帧追加，close 后最多等 6 秒拿转写结果，一次采集上限 20 秒。close 前会给
-携带过音频的采集补 1.5 秒数字静音，达到提供方的端点检测阈值，否则会切掉
-以语音结尾的片段。网关转写与
+携带过音频的采集补 500 毫秒数字静音，否则中继的端点检测会切掉以语音
+结尾的片段。网关转写与
 Mentra 转写都到达时以网关为准；网关无法转写时每次 hello 只警告一次
 （"WednesdayAI transcription unavailable: …"），改用 Mentra 的转写
 结果。
