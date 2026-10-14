@@ -4,7 +4,10 @@ on:
   push:
     branches: ["**"]
     paths:
-      - "apps/{ios,macos,shared}/**"
+      # GitHub Actions paths filters do not support {} brace expansion.
+      - "apps/ios/**"
+      - "apps/macos/**"
+      - "apps/shared/**"
       - "scripts/**"
       - "package.json"
       - "package-lock.json"
@@ -13,7 +16,9 @@ on:
       - ".github/workflows/apple.yml"
   pull_request:
     paths:
-      - "apps/{ios,macos,shared}/**"
+      - "apps/ios/**"
+      - "apps/macos/**"
+      - "apps/shared/**"
       - "scripts/**"
       - "package.json"
       - "package-lock.json"
