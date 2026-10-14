@@ -46,6 +46,14 @@ Do not update these from mixed sources. All three ASC fields must come from the 
   - a successful private mac validation run for the same tag/source SHA
 - If preflight source SHA differs from tag SHA, validation must also use the same `source_ref`; promotion rejects mismatched proof.
 
+## Build and Package (WednesdayAI-apps)
+
+The macOS app is built and packaged in the [WednesdayAI-apps](https://github.com/ExpansionX/WednesdayAI-apps) repository, not in core:
+
+- Sync client contracts and stamp app versions before packaging: `npm run contracts:sync` (pins `apps/shared/contracts/CORE_VERSION`, regenerates Swift, stamps app versions).
+- Package the app: `npm run mac:package` (wraps `scripts/package-mac-app.sh`; outputs `dist/OpenClaw.app`). The app no longer bundles the gateway.
+- Do not run core-only steps here (`pnpm` scripts, npm publish, `version:sync`); core versioning is owned by the WednesdayAI-core release, and app versions follow the synced `CORE_VERSION` (ADR 0097).
+
 ## Notarization
 
 - WednesdayAI uses `scripts/notarize-mac-artifact.sh`.

@@ -9,7 +9,7 @@ APP_ROOT="$ROOT_DIR/dist/OpenClaw.app"
 BUILD_ROOT="$ROOT_DIR/apps/macos/.build"
 PRODUCT="OpenClaw"
 BUNDLE_ID="${BUNDLE_ID:-ai.openclaw.mac.debug}"
-PKG_VERSION="$(cd "$ROOT_DIR" && node -p "require('./package.json').version" 2>/dev/null || echo "0.0.0")"
+PKG_VERSION="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$ROOT_DIR/apps/macos/Sources/OpenClaw/Resources/Info.plist" 2>/dev/null || echo "0.0.0")"
 BUILD_TS=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 GIT_COMMIT=$(cd "$ROOT_DIR" && git rev-parse --short HEAD 2>/dev/null || echo "unknown")
 GIT_BUILD_NUMBER=$(cd "$ROOT_DIR" && git rev-list --count HEAD 2>/dev/null || echo "0")
@@ -107,8 +107,8 @@ merge_framework_machos() {
   done < <(find "$primary" -type f -print0)
 }
 
-echo "📦 Ensuring deps (pnpm install)"
-(cd "$ROOT_DIR" && pnpm install --no-frozen-lockfile --config.node-linker=hoisted)
+echo "📦 Ensuring deps (npm ci)"
+(cd "$ROOT_DIR" && npm ci)
 
 if [[ -z "${APP_BUILD:-}" ]]; then
   APP_BUILD="$GIT_BUILD_NUMBER"
@@ -126,20 +126,6 @@ fi
 if [[ "$AUTO_CHECKS" == "true" && ! "$APP_BUILD" =~ ^[0-9]+$ ]]; then
   echo "ERROR: APP_BUILD must be numeric for Sparkle compare (CFBundleVersion). Got: $APP_BUILD" >&2
   exit 1
-fi
-
-if [[ "${SKIP_TSC:-0}" != "1" ]]; then
-  echo "📦 Building JS (pnpm build)"
-  (cd "$ROOT_DIR" && pnpm build)
-else
-  echo "📦 Skipping JS build (SKIP_TSC=1)"
-fi
-
-if [[ "${SKIP_UI_BUILD:-0}" != "1" ]]; then
-  echo "🖥  Building Control UI (ui:build)"
-  (cd "$ROOT_DIR" && node scripts/ui.js build)
-else
-  echo "🖥  Skipping Control UI build (SKIP_UI_BUILD=1)"
 fi
 
 cd "$ROOT_DIR/apps/macos"

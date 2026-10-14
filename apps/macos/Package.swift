@@ -21,7 +21,7 @@ let package = Package(
         .package(url: "https://github.com/sparkle-project/Sparkle", from: "2.8.1"),
         .package(url: "https://github.com/steipete/Peekaboo.git", branch: "main"),
         .package(path: "../shared/OpenClawKit"),
-        .package(path: "../../Swabble"),
+        .package(path: "../shared/Swabble"),
     ],
     targets: [
         .target(

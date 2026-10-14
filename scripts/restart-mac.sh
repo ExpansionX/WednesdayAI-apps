@@ -25,7 +25,7 @@ ATTACH_ONLY=1
 log()  { printf '%s\n' "$*"; }
 fail() { printf 'ERROR: %s\n' "$*" >&2; exit 1; }
 
-# Ensure local node binaries (rolldown, pnpm) are discoverable for the steps below.
+# Ensure local node binaries are discoverable for the steps below.
 export PATH="${ROOT_DIR}/node_modules/.bin:${PATH}"
 
 run_step() {
@@ -153,9 +153,6 @@ log "==> Killing existing OpenClaw instances"
 kill_all_openclaw
 stop_launch_agent
 
-# Bundle Gateway-hosted Canvas A2UI assets.
-run_step "bundle canvas a2ui" bash -lc "cd '${ROOT_DIR}' && pnpm canvas:a2ui:bundle"
-
 # 2) Rebuild into the same path the packager consumes (.build).
 run_step "clean build cache" bash -lc "cd '${ROOT_DIR}/apps/macos' && rm -rf .build .build-swift .swiftpm 2>/dev/null || true"
 run_step "swift build" bash -lc "cd '${ROOT_DIR}/apps/macos' && swift build -q --product OpenClaw"
@@ -184,7 +181,7 @@ elif [ "$SIGN" -eq 1 ]; then
 fi
 
 # 3) Package app (no embedded gateway).
-run_step "package app" bash -lc "cd '${ROOT_DIR}' && SKIP_TSC=${SKIP_TSC:-1} '${ROOT_DIR}/scripts/package-mac-app.sh'"
+run_step "package app" bash -lc "cd '${ROOT_DIR}' && '${ROOT_DIR}/scripts/package-mac-app.sh'"
 
 choose_app_bundle() {
   if [[ -n "${APP_BUNDLE}" && -d "${APP_BUNDLE}" ]]; then

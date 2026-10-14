@@ -14,7 +14,7 @@ packages:
   OpenClawKit:
     path: ../shared/OpenClawKit
   Swabble:
-    path: ../../Swabble
+    path: ../shared/Swabble
 
 schemes:
   OpenClaw:

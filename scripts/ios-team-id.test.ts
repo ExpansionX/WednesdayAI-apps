@@ -3,9 +3,10 @@ import { chmodSync } from "node:fs";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
-const SCRIPT = path.join(process.cwd(), "scripts", "ios-team-id.sh");
+const SCRIPT = path.join(path.dirname(fileURLToPath(import.meta.url)), "ios-team-id.sh");
 const BASH_BIN = process.platform === "win32" ? "bash" : "/bin/bash";
 const BASH_ARGS = process.platform === "win32" ? [SCRIPT] : ["--noprofile", "--norc", SCRIPT];
 const BASE_PATH = process.env.PATH ?? "/usr/bin:/bin";

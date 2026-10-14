@@ -13,7 +13,8 @@ let package = Package(
         .executable(name: "swabble", targets: ["SwabbleCLI"]),
     ],
     dependencies: [
-        .package(url: "https://github.com/steipete/Commander.git", exact: "0.2.4"),
+        // Pinned: Peekaboo → AXorcist 0.1.0 requires Commander 0.2.1 (macOS app graph).
+        .package(url: "https://github.com/steipete/Commander.git", exact: "0.2.1"),
         .package(url: "https://github.com/apple/swift-testing", from: "0.99.0"),
     ],
     targets: [

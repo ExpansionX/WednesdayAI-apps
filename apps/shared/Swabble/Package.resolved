@@ -1,13 +1,13 @@
 {
-  "originHash" : "88bc20adfdd74118ce04415f86127dc0c82ee2dcdd78d0ba00b1522f73dd52d4",
+  "originHash" : "3301ba1e117adfd7a7d30cac6a6c1531bc9d0ab5e256bb9f5dd2f0743c9ab2a4",
   "pins" : [
     {
       "identity" : "commander",
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/steipete/Commander.git",
       "state" : {
-        "revision" : "bd219c4ee9032fee3e009856f81fcc6ec09a85f4",
-        "version" : "0.2.4"
+        "revision" : "9e349575c8e3c6745e81fe19e5bb5efa01b078ce",
+        "version" : "0.2.1"
       }
     },
     {
