@@ -60,6 +60,50 @@ struct LowCoverageHelperTests {
         #expect(result.timedOut == true)
     }
 
+    @Test func `shell executor drains stdout beyond pipe capacity`() async {
+        let result = await ShellExecutor.runDetailed(
+            command: ["/bin/sh", "-c", "yes x | /usr/bin/head -c 1048576"],
+            cwd: nil,
+            env: nil,
+            timeout: nil)
+        #expect(result.timedOut == false)
+        #expect(result.success == true)
+        #expect(result.stdout.utf8.count == 1_048_576)
+    }
+
+    @Test func `shell executor drains stderr beyond pipe capacity`() async {
+        let result = await ShellExecutor.runDetailed(
+            command: ["/bin/sh", "-c", "yes err | /usr/bin/head -c 1048576 >&2"],
+            cwd: nil,
+            env: nil,
+            timeout: nil)
+        #expect(result.timedOut == false)
+        #expect(result.success == true)
+        #expect(result.stderr.utf8.count == 1_048_576)
+    }
+
+    @Test func `shell executor drains stdout beyond capacity with timeout`() async {
+        let result = await ShellExecutor.runDetailed(
+            command: ["/bin/sh", "-c", "yes x | /usr/bin/head -c 1048576"],
+            cwd: nil,
+            env: nil,
+            timeout: 10)
+        #expect(result.timedOut == false)
+        #expect(result.success == true)
+        #expect(result.stdout.utf8.count == 1_048_576)
+    }
+
+    @Test func `shell executor drains stderr beyond capacity with timeout`() async {
+        let result = await ShellExecutor.runDetailed(
+            command: ["/bin/sh", "-c", "yes err | /usr/bin/head -c 1048576 >&2"],
+            cwd: nil,
+            env: nil,
+            timeout: 10)
+        #expect(result.timedOut == false)
+        #expect(result.success == true)
+        #expect(result.stderr.utf8.count == 1_048_576)
+    }
+
     @Test func `shell executor drains stdout and stderr`() async {
         let script = """
         i=0

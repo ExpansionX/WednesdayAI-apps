@@ -52,17 +52,35 @@ enum ShellExecutor {
 
         // waitUntilExit and the pipe drains block; run them on GCD so they cannot
         // starve the cooperative pool (a starved pool delayed the timeout task past
-        // the child's natural exit on loaded CI runners).
+        // the child's natural exit on loaded CI runners). Drains must run concurrently
+        // with the wait: a child that fills the pipe buffer never exits otherwise.
         let waitTask = Task { () -> ShellResult in
             await withCheckedContinuation { (continuation: CheckedContinuation<ShellResult, Never>) in
+                let group = DispatchGroup()
+                let outBox = DataBox()
+                let errBox = DataBox()
+
+                group.enter()
+                DispatchQueue.global().async {
+                    outBox.data = stdoutPipe.fileHandleForReading.readToEndSafely()
+                    group.leave()
+                }
+                group.enter()
+                DispatchQueue.global().async {
+                    errBox.data = stderrPipe.fileHandleForReading.readToEndSafely()
+                    group.leave()
+                }
+                group.enter()
                 DispatchQueue.global().async {
                     process.waitUntilExit()
-                    let out = stdoutPipe.fileHandleForReading.readToEndSafely()
-                    let err = stderrPipe.fileHandleForReading.readToEndSafely()
+                    group.leave()
+                }
+
+                group.notify(queue: .global()) {
                     let status = Int(process.terminationStatus)
                     continuation.resume(returning: ShellResult(
-                        stdout: String(bytes: out, encoding: .utf8) ?? "",
-                        stderr: String(bytes: err, encoding: .utf8) ?? "",
+                        stdout: String(bytes: outBox.data, encoding: .utf8) ?? "",
+                        stderr: String(bytes: errBox.data, encoding: .utf8) ?? "",
                         exitCode: status,
                         timedOut: false,
                         success: status == 0,
@@ -134,5 +152,24 @@ private final class TimeoutTracker: @unchecked Sendable {
         self.lock.lock()
         defer { self.lock.unlock() }
         return self.fired
+    }
+}
+
+/// Thread-safe Data holder for concurrent GCD drain results.
+private final class DataBox: @unchecked Sendable {
+    private let lock = NSLock()
+    private var storage = Data()
+
+    var data: Data {
+        get {
+            self.lock.lock()
+            defer { self.lock.unlock() }
+            return self.storage
+        }
+        set {
+            self.lock.lock()
+            self.storage = newValue
+            self.lock.unlock()
+        }
     }
 }
