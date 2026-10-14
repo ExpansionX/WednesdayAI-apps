@@ -136,7 +136,10 @@ struct OpenClawConfigFileTests {
         // serialize (the second acquires the lock only after the first
         // restores), each observing only its own value, and the live
         // resolution must return to its original state afterwards.
-        let original = OpenClawConfigFile.url().path
+        // Baseline and final snapshots are their own root lock scopes: another
+        // suite's legitimate override scope may hold the lock concurrently, so
+        // reading live resolution outside serialization would be flaky.
+        let original = await TestIsolation.withLock { OpenClawConfigFile.url().path }
         let first = FileManager().temporaryDirectory
             .appendingPathComponent("openclaw-concurrent-a-\(UUID().uuidString)")
             .appendingPathComponent("openclaw.json")
@@ -154,7 +157,8 @@ struct OpenClawConfigFileTests {
         let observed = await [firstObserved, secondObserved]
 
         #expect(observed == [first, second])
-        #expect(OpenClawConfigFile.url().path == original)
+        let final = await TestIsolation.withLock { OpenClawConfigFile.url().path }
+        #expect(final == original)
     }
 
     private static func configPathWhileOverridden(path: String) async -> String? {

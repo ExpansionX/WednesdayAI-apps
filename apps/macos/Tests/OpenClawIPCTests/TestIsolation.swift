@@ -61,6 +61,28 @@ enum TestIsolation {
         }
     }
 
+    /// Acquires `TestIsolationLock` without installing any overrides — a root
+    /// scope for observing live resolution under the same serialization rules
+    /// as the override scopes (e.g. baseline/final snapshots around concurrent
+    /// override scopes). Lexical children of the locked body still skip
+    /// re-acquiring.
+    static func withLock<T>(_ body: () async throws -> T) async rethrows -> T {
+        if Self.isHoldingIsolationLock {
+            return try await body()
+        }
+        await TestIsolationLock.shared.acquire()
+        do {
+            let result = try await Self.$isHoldingIsolationLock.withValue(true) {
+                try await body()
+            }
+            await TestIsolationLock.shared.release()
+            return result
+        } catch {
+            await TestIsolationLock.shared.release()
+            throw error
+        }
+    }
+
     private static func runWithOverrides<T>(
         env: [String: String?],
         _ body: () async throws -> T) async rethrows -> T
