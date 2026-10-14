@@ -1,5 +1,5 @@
 import { execFileSync, spawnSync } from "node:child_process";
-import { copyFileSync, mkdtempSync, rmSync } from "node:fs";
+import { copyFileSync, mkdtempSync, readdirSync, rmSync } from "node:fs";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -195,6 +195,9 @@ describe("derived-location coverage", () => {
 describe("contracts sync", () => {
   it("fails before writing when the source is missing a fixture", () => {
     const stage = mkdtempSync(path.join(os.tmpdir(), "contracts-sync-test-"));
+    // Dedicated TMPDIR so the test can prove the sync's own contracts-sync-* temp dir is
+    // removed even when it fails (errors must unwind through main()'s finally).
+    const isolatedTmp = mkdtempSync(path.join(os.tmpdir(), "contracts-sync-tmpdir-"));
     try {
       for (const [file, source] of [
         ["gateway-protocol.schema.json", contractsDir],
@@ -218,7 +221,7 @@ describe("contracts sync", () => {
           "--core-version",
           coreVersionBefore.trim(),
         ],
-        { cwd: repoRoot, encoding: "utf8" },
+        { cwd: repoRoot, encoding: "utf8", env: { ...process.env, TMPDIR: isolatedTmp } },
       );
       expect(run.status).toBe(1);
       expect(run.stderr).toContain(
@@ -227,8 +230,12 @@ describe("contracts sync", () => {
       expect(fs.readFileSync(path.join(contractsDir, "CORE_VERSION"), "utf8")).toBe(
         coreVersionBefore,
       );
+      expect(
+        readdirSync(isolatedTmp).filter((name) => name.startsWith("contracts-sync-")),
+      ).toEqual([]);
     } finally {
       rmSync(stage, { recursive: true, force: true });
+      rmSync(isolatedTmp, { recursive: true, force: true });
     }
   });
 });

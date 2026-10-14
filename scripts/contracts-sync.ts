@@ -60,20 +60,22 @@ function parseArgs(argv: string[]): Args {
         i++;
         break;
       default:
-        console.error(`Unknown argument: ${argv[i]}`);
-        console.error(
-          "Usage: node --import tsx scripts/contracts-sync.ts --version <semver|latest> | " +
+        fail(
+          `Unknown argument: ${argv[i]}\n` +
+            "Usage: node --import tsx scripts/contracts-sync.ts --version <semver|latest> | " +
             "--from-dir <dir> --core-version <semver>",
         );
-        process.exit(1);
     }
   }
   return args;
 }
 
+// All sync failures unwind through main()'s finally (temp-dir cleanup) and are reported at the
+// entry point below; never call process.exit from inside the sync flow.
+class SyncError extends Error {}
+
 function fail(message: string): never {
-  console.error(message);
-  process.exit(1);
+  throw new SyncError(message);
 }
 
 function missingMessage(versionLabel: string, file: string): string {
@@ -201,4 +203,9 @@ function main(): void {
   }
 }
 
-main();
+try {
+  main();
+} catch (err) {
+  console.error(err instanceof Error ? err.message : err);
+  process.exitCode = 1;
+}
