@@ -34,7 +34,9 @@ enum ExecAllowlistMatcher {
         return matches
     }
 
-    private static func matches(pattern: String, target: String) -> Bool {
+    /// Full TS `matchesExecAllowlistPattern` pipeline (trim → tilde → lowercase
+    /// normalize → glob match); internal for the generated parity tests.
+    static func matches(pattern: String, target: String) -> Bool {
         let trimmed = pattern.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return false }
         let expanded = ExecPathScalars.hasPrefix(trimmed, "~")
@@ -54,14 +56,19 @@ enum ExecAllowlistMatcher {
         case anyRun(includingSlash: Bool)
     }
 
-    /// Direct UTF-16 glob matcher with JavaScript non-unicode RegExp semantics,
-    /// port of TS `compileGlobRegex` + `new RegExp(regex, "i")`
-    /// (src/infra/exec-allowlist-pattern.ts): `*` matches any run of units
-    /// excluding "/", `**` any run including "/", and `?` consumes exactly ONE
-    /// UTF-16 unit — a supplementary code point is two units. ICU/NSRegularExpression
-    /// gives `.` whole-scalar width, so it matches supplementary characters
-    /// where the TS matcher does not (review U2).
-    private static func globMatch(pattern: String, target: String) -> Bool {
+    /// The JS line terminators (V2): with no `s` flag, `.` and `.*` never
+    /// consume these; `[^/]*` is a negated class and does. Exactly these four —
+    /// U+000B/U+000C/U+0085 remain dot-matchable, so CharacterSet-based
+    /// whitespace sets must not be substituted.
+    private static func isLineTerminator(_ unit: UInt16) -> Bool {
+        unit == 0x000A || unit == 0x000D || unit == 0x2028 || unit == 0x2029
+    }
+
+    /// Token scan of TS `compileGlobRegex` (src/infra/exec-allowlist-pattern.ts):
+    /// adjacent `**` pair groups into a slash-crossing run, a single `*` is a
+    /// run excluding "/", `?` is one unit, everything else is a literal
+    /// (regex-metacharacter escaping has no effect on a direct matcher).
+    private static func compileGlobTokens(_ pattern: String) -> [GlobToken] {
         var tokens: [GlobToken] = []
         tokens.reserveCapacity(pattern.utf16.count)
         let units = Array(pattern.utf16)
@@ -86,65 +93,103 @@ enum ExecAllowlistMatcher {
             tokens.append(.literal(unit))
             idx += 1
         }
-        let targetUnits = Array(target.utf16)
-        var deadEnds = Set<Int>()
-        return self.matchGlob(tokens, 0, targetUnits, 0, &deadEnds)
+        return tokens
     }
 
-    /// Greedy backtracking match with memoized dead ends (same shape as the
-    /// compiled TS regex: `*` → `[^/]*`, `**` → `.*`, `?` → `.` per unit).
-    private static func matchGlob(
-        _ tokens: [GlobToken],
-        _ tokenIndex: Int,
-        _ units: [UInt16],
-        _ unitIndex: Int,
-        _ deadEnds: inout Set<Int>) -> Bool
+    /// Farthest unit index a star run may consume (greedy upper bound): `.*`
+    /// (`**`) crosses "/" but stops before JS line terminators; `[^/]*` (`*`)
+    /// stops before "/" and consumes line terminators.
+    private static func starMaxEnd(
+        includingSlash: Bool,
+        units: [UInt16],
+        _ from: Int) -> Int
     {
-        var ti = tokenIndex
-        var ui = unitIndex
-        while ti < tokens.count {
-            switch tokens[ti] {
-            case let .literal(expected):
-                guard ui < units.count,
-                      Self.jsCanonicalUnit(units[ui]) == Self.jsCanonicalUnit(expected)
-                else { return false }
-                ui += 1
-                ti += 1
-            case .anyUnit:
-                guard ui < units.count else { return false }
-                ui += 1
-                ti += 1
-            case let .anyRun(includingSlash):
-                let key = ti * (units.count + 1) + ui
-                if deadEnds.contains(key) { return false }
-                var maxEnd = units.count
-                if !includingSlash {
-                    maxEnd = ui
-                    while maxEnd < units.count, units[maxEnd] != 0x2F {
-                        maxEnd += 1
-                    }
-                }
-                var cursor = maxEnd
-                while true {
-                    if self.matchGlob(tokens, ti + 1, units, cursor, &deadEnds) { return true }
-                    if cursor == ui { break }
-                    cursor -= 1
-                }
-                deadEnds.insert(key)
-                return false
+        var end = from
+        if includingSlash {
+            while end < units.count, !Self.isLineTerminator(units[end]) {
+                end += 1
+            }
+        } else {
+            while end < units.count, units[end] != 0x2F {
+                end += 1
             }
         }
-        return ui == units.count
+        return end
+    }
+
+    /// Direct UTF-16 glob matcher with JavaScript non-unicode RegExp semantics,
+    /// port of TS `compileGlobRegex` + `new RegExp(regex, "i")`
+    /// (src/infra/exec-allowlist-pattern.ts): `*` matches any run of units
+    /// excluding "/", `**` any run including "/" but no line terminator, and
+    /// `?` consumes exactly ONE UTF-16 unit that is not a line terminator — a
+    /// supplementary code point is two units. Backtracking is iterative (V3):
+    /// an explicit heap frame stack retries each star one unit shorter on
+    /// failure, so pattern length never grows the native call stack.
+    private static func globMatch(pattern: String, target: String) -> Bool {
+        let tokens = Self.compileGlobTokens(pattern)
+        let units = Array(target.utf16)
+        var tokenIndex = 0
+        var unitIndex = 0
+        var frames: [(star: Int, min: Int, end: Int)] = []
+        while true {
+            var dead = false
+            while tokenIndex < tokens.count, !dead {
+                switch tokens[tokenIndex] {
+                case let .literal(expected):
+                    if unitIndex < units.count,
+                       Self.jsCanonicalUnit(units[unitIndex]) == Self.jsCanonicalUnit(expected)
+                    {
+                        unitIndex += 1
+                        tokenIndex += 1
+                    } else {
+                        dead = true
+                    }
+                case .anyUnit:
+                    if unitIndex < units.count, !Self.isLineTerminator(units[unitIndex]) {
+                        unitIndex += 1
+                        tokenIndex += 1
+                    } else {
+                        dead = true
+                    }
+                case let .anyRun(includingSlash):
+                    let end = Self.starMaxEnd(includingSlash: includingSlash, units: units, unitIndex)
+                    frames.append((star: tokenIndex, min: unitIndex, end: end))
+                    tokenIndex += 1
+                    unitIndex = end
+                }
+            }
+            if !dead, unitIndex == units.count {
+                return true
+            }
+            // Backtrack: retry the newest star one unit shorter; discard it
+            // once its run is empty. Frames beneath stay pending.
+            while true {
+                guard var frame = frames.last else { return false }
+                if frame.end > frame.min {
+                    frame.end -= 1
+                    frames[frames.count - 1] = frame
+                    tokenIndex = frame.star + 1
+                    unitIndex = frame.end
+                    break
+                }
+                frames.removeLast()
+            }
+        }
     }
 
     /// ECMAScript RegExp `i` canonicalization without the Unicode flag
-    /// (Canonicalize): ToUpperCase of the unit's scalar when that mapping is
-    /// still a single code unit, otherwise the unit itself.
-    private static func jsCanonicalUnit(_ unit: UInt16) -> UInt16 {
+    /// (Canonicalize, ECMA-262 22.2.2.7.3): ToUpperCase of the unit's scalar
+    /// when that mapping is still a single code unit, else the unit itself;
+    /// and a non-ASCII unit is never canonicalized down to an ASCII unit
+    /// (V1: U+0131 stays U+0131 and does not match ASCII i).
+    static func jsCanonicalUnit(_ unit: UInt16) -> UInt16 {
         guard let scalar = Unicode.Scalar(unit) else { return unit } // lone surrogate: no case mapping
         let upper = String(scalar).uppercased()
         var iterator = upper.unicodeScalars.makeIterator()
         guard let first = iterator.next(), iterator.next() == nil, first.value <= 0xFFFF else {
+            return unit
+        }
+        if unit >= 0x80, first.value < 0x80 {
             return unit
         }
         return UInt16(first.value)
