@@ -179,6 +179,11 @@ Question transcription uses `talk.session.*` under the existing
 otherwise the user sees "WednesdayAI transcription unavailable" once and
 Mentra's transcript is used.
 
+Known issue ([WednesdayAI-core#1023](https://github.com/ExpansionX/WednesdayAI-core/issues/1023)):
+the gateway does not wait for the provider's final transcript when the
+session closes. A very short question can come back empty, and Mentra's
+transcript is used for it.
+
 ### Manage devices and wake words
 
 - List/revoke paired glasses: `wednesdayai devices` (e.g. `devices list`).

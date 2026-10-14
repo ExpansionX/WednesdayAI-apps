@@ -166,6 +166,10 @@ setup code。之后的重连使用设备令牌，无需再次批准。
 网关上有转写 provider；否则用户会看到一次 "WednesdayAI transcription
 unavailable"，然后使用 Mentra 的转写结果。
 
+已知问题（[WednesdayAI-core#1023](https://github.com/ExpansionX/WednesdayAI-core/issues/1023)）：
+会话关闭时网关不会等待 provider 的最终转写。很短的问题可能返回空结果，
+此时改用 Mentra 的转写结果。
+
 ### 管理设备与唤醒词
 
 - 查看/吊销已配对眼镜：`wednesdayai devices`（例如 `devices list`）。

@@ -83,3 +83,17 @@ At `d7a4a3e`, from the repo root:
 - Re-reviews: round 1 found three new defects (P1–P3) and partial fixes for A-02 and D4. Round 2 confirmed all six fixed. Round 3 cleared a leftover snapshot push. Final verdict: correct, no new breakage.
 
 Fix commits: `f5ee273`, `466e4a3`, `f4c6067`, `a991812`, `0d15d87`, `60be13d`, `aacfec0`, `d7a4a3e`. Unit-test step and cleanup: `099fbc5` (L-05, L-08), `dabc8ba`.
+
+## End-to-end validation
+
+Run against the real gateway `wss://astro.tailfd11f7.ts.net` (pair, wake words, agents, chat turn, gateway STT, device-token reconnect) and an isolated dev gateway, plus lint (strict `tsc`, one-off `oxlint`), build, `mentra-miniapp pack`, manifest schema validation, and execution tests of both built bundles (background in a bare `node:vm` host, UI in happy-dom). Test devices created on the gateway were removed afterwards.
+
+| ID | Severity | Origin | Finding | Status |
+|---|---|---|---|---|
+| E-01 | Medium | WednesdayAI-core | A short spoken question sent through gateway STT came back empty (`passive talk empty transcript`) and fell back to Mentra. Root cause is in core: streaming-dictation `commitInput()` finalizes with whatever partials have arrived and never awaits the provider's committed transcript. Only real-time audio after speech helps; a 500 ms and a 1.5 s digital silence tail sent on close (`25befab`, `0e45ef9`) both failed live, so they were reverted (`231230c`, `7a53520`). On glasses the mic keeps streaming in real time until Mentra's final arrives, which mitigates it. | Logged as [WednesdayAI-core#1023](https://github.com/ExpansionX/WednesdayAI-core/issues/1023); fallback works; limitation documented in the app README. |
+| E-02 | Medium | WednesdayAI-core | On a Tailscale-serve gateway, a setup code does not auto-pair a new device: transport auth succeeds first, so bootstrap redemption is skipped and the device needs `devices approve` plus a rescan. | Logged as [WednesdayAI-core#1022](https://github.com/ExpansionX/WednesdayAI-core/issues/1022); workaround documented in the app README (`cde918f`). |
+| E-03 | Low | Pre-existing | Plain `npm run build` bundled development React (404 KB vs 188 KB). `pack`/`release` were unaffected. | Fixed in `e9d24d6`. |
+| E-04 | Info | Pre-existing | Background connect sent an empty `packageName`. | Fixed in `468c960`: passed from `miniapp.json`. |
+| E-05 | Info | Pre-existing | `icon.png` was a 1×1 placeholder. | Fixed in `010d68a`: 192×192 WednesdayAI icon. |
+| E-06 | Info | This branch | 23 `no-useless-spread` lint warnings in a test. | Fixed in `cf3a853`. |
+| E-07 | Info | Environment | Dev gateway has no model or transcription provider, so those steps fail cleanly there. | Not an app defect; covered by the real-gateway run. |
