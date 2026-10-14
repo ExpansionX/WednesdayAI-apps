@@ -4,7 +4,7 @@ import os
 import OSLog
 
 final class AudioInputDeviceObserver {
-    private let logger = os.Logger(subsystem: "ai.openclaw", category: "audio.devices")
+    private let logger = Logging.Logger(subsystem: "ai.openclaw", category: "audio.devices")
     private var isActive = false
     private var devicesListener: AudioObjectPropertyListenerBlock?
     private var defaultInputListener: AudioObjectPropertyListenerBlock?
@@ -113,10 +113,14 @@ final class AudioInputDeviceObserver {
             defaultInputListener)
 
         if devicesStatus != noErr || defaultStatus != noErr {
-            self.logger.error("audio device observer install failed devices=\(devicesStatus) default=\(defaultStatus)")
+            self.logger.log(
+                level: .error,
+                "audio device observer install failed devices=\(devicesStatus) default=\(defaultStatus)")
         }
 
-        self.logger.info("audio device observer started (\(Self.defaultInputDeviceSummary(), privacy: .public))")
+        self.logger.log(
+            level: .info,
+            "audio device observer started (\(Self.defaultInputDeviceSummary(), privacy: .public))")
 
         self.devicesListener = devicesListener
         self.defaultInputListener = defaultInputListener
@@ -212,6 +216,8 @@ final class AudioInputDeviceObserver {
     }
 
     private func logDefaultInputChange(reason: StaticString) {
-        self.logger.info("audio input changed (\(reason)) (\(Self.defaultInputDeviceSummary(), privacy: .public))")
+        self.logger.log(
+            level: .info,
+            "audio input changed (\(reason)) (\(Self.defaultInputDeviceSummary(), privacy: .public))")
     }
 }

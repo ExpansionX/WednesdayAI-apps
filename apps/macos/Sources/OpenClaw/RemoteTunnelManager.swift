@@ -6,7 +6,7 @@ import OSLog
 actor RemoteTunnelManager {
     static let shared = RemoteTunnelManager()
 
-    private let logger = os.Logger(subsystem: "ai.openclaw", category: "remote-tunnel")
+    private let logger = Logging.Logger(subsystem: "ai.openclaw", category: "remote-tunnel")
     private var controlTunnel: RemotePortTunnel?
     private var restartInFlight = false
     private var lastRestartAt: Date?
@@ -14,7 +14,7 @@ actor RemoteTunnelManager {
 
     func controlTunnelPortIfRunning() async -> UInt16? {
         if self.restartInFlight {
-            self.logger.info("control tunnel restart in flight; skipping reuse check")
+            self.logger.log(level: .info, "control tunnel restart in flight; skipping reuse check")
             return nil
         }
         if let tunnel = self.controlTunnel,
@@ -23,10 +23,11 @@ actor RemoteTunnelManager {
         {
             let pid = tunnel.process.processIdentifier
             if await PortGuardian.shared.isListening(port: Int(local), pid: pid) {
-                self.logger.info("reusing active SSH tunnel localPort=\(local, privacy: .public)")
+                self.logger.log(level: .info, "reusing active SSH tunnel localPort=\(local, privacy: .public)")
                 return local
             }
-            self.logger.error(
+            self.logger.log(
+                level: .error,
                 "active SSH tunnel on port \(local, privacy: .public) is not listening; restarting")
             await self.beginRestart()
             tunnel.terminate()
@@ -38,7 +39,8 @@ actor RemoteTunnelManager {
         if let desc = await PortGuardian.shared.describe(port: Int(desiredPort)),
            self.isSshProcess(desc)
         {
-            self.logger.info(
+            self.logger.log(
+                level: .info,
                 "reusing existing SSH tunnel listener localPort=\(desiredPort, privacy: .public) pid=\(desc.pid, privacy: .public)")
             return desiredPort
         }
@@ -57,7 +59,8 @@ actor RemoteTunnelManager {
         }
 
         let identitySet = !settings.identity.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        self.logger.info(
+        self.logger.log(
+            level: .info,
             "ensure SSH tunnel target=\(settings.target, privacy: .public) identitySet=\(identitySet, privacy: .public)")
 
         if let local = await self.controlTunnelPortIfRunning() { return local }
@@ -71,7 +74,7 @@ actor RemoteTunnelManager {
         self.controlTunnel = tunnel
         self.endRestart()
         let resolvedPort = tunnel.localPort ?? desiredPort
-        self.logger.info("ssh tunnel ready localPort=\(resolvedPort, privacy: .public)")
+        self.logger.log(level: .info, "ssh tunnel ready localPort=\(resolvedPort, privacy: .public)")
         return tunnel.localPort ?? desiredPort
     }
 
@@ -91,7 +94,7 @@ actor RemoteTunnelManager {
         guard !self.restartInFlight else { return }
         self.restartInFlight = true
         self.lastRestartAt = Date()
-        self.logger.info("control tunnel restart started")
+        self.logger.log(level: .info, "control tunnel restart started")
         Task { [weak self] in
             guard let self else { return }
             try? await Task.sleep(nanoseconds: UInt64(self.restartBackoffSeconds * 1_000_000_000))
@@ -102,7 +105,7 @@ actor RemoteTunnelManager {
     private func endRestart() {
         if self.restartInFlight {
             self.restartInFlight = false
-            self.logger.info("control tunnel restart finished")
+            self.logger.log(level: .info, "control tunnel restart finished")
         }
     }
 
@@ -111,7 +114,8 @@ actor RemoteTunnelManager {
         let elapsed = Date().timeIntervalSince(last)
         let remaining = self.restartBackoffSeconds - elapsed
         guard remaining > 0 else { return }
-        self.logger.info(
+        self.logger.log(
+            level: .info,
             "control tunnel restart backoff \(remaining, privacy: .public)s")
         try? await Task.sleep(nanoseconds: UInt64(remaining * 1_000_000_000))
     }

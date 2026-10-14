@@ -90,15 +90,15 @@ final class VoicePushToTalkHotkey: @unchecked Sendable {
         if chordActive, !self.active {
             self.active = true
             Task {
-                os.Logger(subsystem: "ai.openclaw", category: "voicewake.ptt")
-                    .info("ptt hotkey down")
+                Logging.Logger(subsystem: "ai.openclaw", category: "voicewake.ptt")
+                    .log(level: .info, "ptt hotkey down")
                 await self.beginAction()
             }
         } else if !chordActive, self.active {
             self.active = false
             Task {
-                os.Logger(subsystem: "ai.openclaw", category: "voicewake.ptt")
-                    .info("ptt hotkey up")
+                Logging.Logger(subsystem: "ai.openclaw", category: "voicewake.ptt")
+                    .log(level: .info, "ptt hotkey up")
                 await self.endAction()
             }
         }
@@ -113,7 +113,7 @@ final class VoicePushToTalkHotkey: @unchecked Sendable {
 actor VoicePushToTalk {
     static let shared = VoicePushToTalk()
 
-    private let logger = os.Logger(subsystem: "ai.openclaw", category: "voicewake.ptt")
+    private let logger = Logging.Logger(subsystem: "ai.openclaw", category: "voicewake.ptt")
 
     private var recognizer: SFSpeechRecognizer?
     // Lazily created on begin() to avoid creating an AVAudioEngine at app launch, which can switch Bluetooth
@@ -163,7 +163,7 @@ actor VoicePushToTalk {
         self.timeoutTask?.cancel(); self.timeoutTask = nil
         let snapshot = await MainActor.run { VoiceSessionCoordinator.shared.snapshot() }
         self.adoptedPrefix = snapshot.visible ? snapshot.text.trimmingCharacters(in: .whitespacesAndNewlines) : ""
-        self.logger.info("ptt begin adopted_prefix_len=\(self.adoptedPrefix.count, privacy: .public)")
+        self.logger.log(level: .info, "ptt begin adopted_prefix_len=\(self.adoptedPrefix.count, privacy: .public)")
         if config.triggerChime != .none {
             self.triggerChimePlayed = true
             await MainActor.run { VoiceWakeChimePlayer.play(config.triggerChime, reason: "ptt.trigger") }
@@ -272,7 +272,7 @@ actor VoicePushToTalk {
         self.recognitionTask = recognizer.recognitionTask(with: request) { [weak self] result, error in
             guard let self else { return }
             if let error {
-                self.logger.debug("push-to-talk error: \(error.localizedDescription, privacy: .public)")
+                self.logger.log(level: .debug, "push-to-talk error: \(error.localizedDescription, privacy: .public)")
             }
             let transcript = result?.bestTranscription.formattedString
             let isFinal = result?.isFinal ?? false
@@ -286,7 +286,7 @@ actor VoicePushToTalk {
 
     private func handle(transcript: String?, isFinal: Bool, sessionID: UUID) async {
         guard sessionID == self.sessionID else {
-            self.logger.debug("push-to-talk drop transcript for stale session")
+            self.logger.log(level: .debug, "push-to-talk drop transcript for stale session")
             return
         }
         guard let transcript else { return }
@@ -316,7 +316,7 @@ actor VoicePushToTalk {
     private func finalize(transcriptOverride: String?, reason: String, sessionID: UUID?) async {
         if self.finalized { return }
         if let sessionID, sessionID != self.sessionID {
-            self.logger.debug("push-to-talk drop finalize for stale session")
+            self.logger.log(level: .debug, "push-to-talk drop finalize for stale session")
             return
         }
         self.finalized = true
@@ -335,7 +335,9 @@ actor VoicePushToTalk {
         let token = self.overlayToken
         let logger = self.logger
         await MainActor.run {
-            logger.info("ptt finalize reason=\(reason, privacy: .public) len=\(finalText.count, privacy: .public)")
+            logger.log(
+                level: .info,
+                "ptt finalize reason=\(reason, privacy: .public) len=\(finalText.count, privacy: .public)")
             if let token {
                 VoiceSessionCoordinator.shared.finalize(
                     token: token,

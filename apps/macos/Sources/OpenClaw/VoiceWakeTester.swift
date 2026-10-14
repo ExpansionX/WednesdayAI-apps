@@ -31,7 +31,7 @@ final class VoiceWakeTester {
     private var currentTriggers: [String] = []
     private var holdingAfterDetect = false
     private var detectedText: String?
-    private let logger = os.Logger(subsystem: "ai.openclaw", category: "voicewake")
+    private let logger = Logging.Logger(subsystem: "ai.openclaw", category: "voicewake")
     private let silenceWindow: TimeInterval = 1.0
 
     init(locale: Locale = .current) {
@@ -234,7 +234,7 @@ final class VoiceWakeTester {
         if let match, !match.command.isEmpty {
             self.holdingAfterDetect = true
             self.detectedText = match.command
-            self.logger.info("voice wake detected (test) (len=\(match.command.count))")
+            self.logger.log(level: .info, "voice wake detected (test) (len=\(match.command.count))")
             await MainActor.run { AppStateStore.shared.triggerVoiceEars(ttl: nil) }
             self.stop()
             await MainActor.run {
@@ -291,9 +291,11 @@ final class VoiceWakeTester {
         let segmentSummary = Self.debugSegments(segments)
         let matchSummary = VoiceWakeRecognitionDebugSupport.matchSummary(match)
 
-        self.logger.debug(
+        self.logger.log(
+            level: .debug,
             "voicewake test transcript='\(transcript, privacy: .private)' textOnly=\(summary.textOnly) isFinal=\(isFinal) timing=\(summary.timingCount)/\(segments.count)")
-        self.logger.debug(
+        self.logger.log(
+            level: .debug,
             "voicewake test segments \(matchSummary) gaps=[\(gaps, privacy: .private)] segments=[\(segmentSummary, privacy: .private)]")
     }
 
@@ -379,7 +381,7 @@ final class VoiceWakeTester {
                 self.stop()
                 await MainActor.run { AppStateStore.shared.stopVoiceEars() }
                 if let detectedText {
-                    self.logger.info("voice wake hold finished; len=\(detectedText.count)")
+                    self.logger.log(level: .info, "voice wake hold finished; len=\(detectedText.count)")
                     Task { @MainActor in onUpdate(.detected(detectedText)) }
                 }
             }
@@ -408,7 +410,7 @@ final class VoiceWakeTester {
             else { return }
             self.holdingAfterDetect = true
             self.detectedText = match.command
-            self.logger.info("voice wake detected (test, silence) (len=\(match.command.count))")
+            self.logger.log(level: .info, "voice wake detected (test, silence) (len=\(match.command.count))")
             await MainActor.run { AppStateStore.shared.triggerVoiceEars(ttl: nil) }
             self.stop()
             await MainActor.run {
@@ -424,7 +426,8 @@ final class VoiceWakeTester {
 
     private func logInputSelection(preferredMicID: String?) {
         let preferred = (preferredMicID?.isEmpty == false) ? preferredMicID! : "system-default"
-        self.logger.info(
+        self.logger.log(
+            level: .info,
             "voicewake test input preferred=\(preferred, privacy: .public) \(AudioInputDeviceObserver.defaultInputDeviceSummary(), privacy: .public)")
     }
 

@@ -7,7 +7,7 @@ import OSLog
 final class TerminationSignalWatcher {
     static let shared = TerminationSignalWatcher()
 
-    private let logger = os.Logger(subsystem: "ai.openclaw", category: "lifecycle")
+    private let logger = Logging.Logger(subsystem: "ai.openclaw", category: "lifecycle")
     private var sources: [DispatchSourceSignal] = []
     private var terminationRequested = false
 
@@ -40,7 +40,7 @@ final class TerminationSignalWatcher {
         guard !self.terminationRequested else { return }
         self.terminationRequested = true
 
-        self.logger.info("received signal \(sig, privacy: .public); terminating")
+        self.logger.log(level: .info, "received signal \(sig, privacy: .public); terminating")
         // Ensure any pairing prompt can't accidentally approve during shutdown.
         NodePairingApprovalPrompter.shared.stop()
         DevicePairingApprovalPrompter.shared.stop()

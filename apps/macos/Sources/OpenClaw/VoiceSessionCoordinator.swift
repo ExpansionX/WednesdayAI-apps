@@ -20,7 +20,7 @@ final class VoiceSessionCoordinator {
         var autoSendDelay: TimeInterval?
     }
 
-    private let logger = os.Logger(subsystem: "ai.openclaw", category: "voicewake.coordinator")
+    private let logger = Logging.Logger(subsystem: "ai.openclaw", category: "voicewake.coordinator")
     private var session: Session?
 
     // MARK: - API
@@ -32,7 +32,9 @@ final class VoiceSessionCoordinator {
         forwardEnabled: Bool = false) -> UUID
     {
         let token = UUID()
-        self.logger.info("coordinator start token=\(token.uuidString) source=\(source.rawValue) len=\(text.count)")
+        self.logger.log(
+            level: .info,
+            "coordinator start token=\(token.uuidString) source=\(source.rawValue) len=\(text.count)")
         let attributedText = attributed ?? VoiceWakeOverlayController.shared.makeAttributed(from: text)
         let session = Session(
             token: token,
@@ -68,7 +70,8 @@ final class VoiceSessionCoordinator {
     {
         guard let session, session.token == token else { return }
         self.logger
-            .info(
+            .log(
+                level: .info,
                 "coordinator finalize token=\(token.uuidString) len=\(text.count) autoSendAfter=\(autoSendAfter ?? -1)")
         self.session?.text = text
         self.session?.isFinal = true
@@ -88,7 +91,7 @@ final class VoiceSessionCoordinator {
         guard let session, session.token == token else { return }
         let text = session.text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else {
-            self.logger.info("coordinator sendNow \(reason) empty -> dismiss")
+            self.logger.log(level: .info, "coordinator sendNow \(reason) empty -> dismiss")
             VoiceWakeOverlayController.shared.dismiss(token: token, reason: .empty, outcome: .empty)
             self.clearSession()
             return

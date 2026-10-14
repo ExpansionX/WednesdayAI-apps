@@ -23,7 +23,7 @@ final class CronJobsStore {
     var lastError: String?
     var statusMessage: String?
 
-    private let logger = os.Logger(subsystem: "ai.openclaw", category: "cron.ui")
+    private let logger = Logging.Logger(subsystem: "ai.openclaw", category: "cron.ui")
     private var refreshTask: Task<Void, Never>?
     private var runsTask: Task<Void, Never>?
     private var eventTask: Task<Void, Never>?
@@ -81,7 +81,7 @@ final class CronJobsStore {
                 self.statusMessage = "No cron jobs yet."
             }
         } catch {
-            self.logger.error("cron.list failed \(error.localizedDescription, privacy: .public)")
+            self.logger.log(level: .error, "cron.list failed \(error.localizedDescription, privacy: .public)")
             self.lastError = error.localizedDescription
         }
     }
@@ -94,7 +94,7 @@ final class CronJobsStore {
         do {
             self.runEntries = try await GatewayConnection.shared.cronRuns(jobId: jobId, limit: limit)
         } catch {
-            self.logger.error("cron.runs failed \(error.localizedDescription, privacy: .public)")
+            self.logger.log(level: .error, "cron.runs failed \(error.localizedDescription, privacy: .public)")
             self.lastError = error.localizedDescription
         }
     }

@@ -24,7 +24,7 @@ actor GatewayEndpointStore {
         "custom",
     ]
     private static let remoteConnectingDetail = "Connecting to remote gateway…"
-    private static let staticLogger = os.Logger(subsystem: "ai.openclaw", category: "gateway-endpoint")
+    private static let staticLogger = Logging.Logger(subsystem: "ai.openclaw", category: "gateway-endpoint")
     private enum EnvOverrideWarningKind: Sendable {
         case token
         case password
@@ -225,12 +225,13 @@ actor GatewayEndpointStore {
             }
         }
         guard shouldWarn else { return }
-        Self.staticLogger.warning(
+        Self.staticLogger.log(
+            level: .warning,
             "\(envVar, privacy: .public) is set and overrides \(configKey, privacy: .public). If this is unintentional, clear it with: launchctl unsetenv \(envVar, privacy: .public)")
     }
 
     private let deps: Deps
-    private let logger = os.Logger(subsystem: "ai.openclaw", category: "gateway-endpoint")
+    private let logger = Logging.Logger(subsystem: "ai.openclaw", category: "gateway-endpoint")
 
     private var state: GatewayEndpointState
     private var subscribers: [UUID: AsyncStream<GatewayEndpointState>.Continuation] = [:]
@@ -357,7 +358,7 @@ actor GatewayEndpointStore {
                     code: 1,
                     userInfo: [NSLocalizedDescriptionKey: "Invalid gateway.remote.url port"])
             }
-            self.logger.info("remote transport direct; skipping SSH tunnel")
+            self.logger.log(level: .info, "remote transport direct; skipping SSH tunnel")
             return portInt
         }
         let config = try await self.ensureRemoteConfig(detail: Self.remoteConnectingDetail)
@@ -387,7 +388,8 @@ actor GatewayEndpointStore {
 
             // Auto-recover for remote mode: if the SSH control tunnel died (or hasn't been created yet),
             // recreate it on demand so callers can recover without a manual reconnect.
-            self.logger.info(
+            self.logger.log(
+                level: .info,
                 "endpoint unavailable; ensuring remote control tunnel reason=\(reason, privacy: .public)")
             return try await self.ensureRemoteConfig(detail: Self.remoteConnectingDetail)
         }
@@ -460,7 +462,7 @@ actor GatewayEndpointStore {
             }
             let msg = "Remote control tunnel failed (\(error.localizedDescription))"
             self.setState(.unavailable(mode: .remote, reason: msg))
-            self.logger.error("remote control tunnel ensure failed \(msg, privacy: .public)")
+            self.logger.log(level: .error, "remote control tunnel ensure failed \(msg, privacy: .public)")
             throw NSError(domain: "GatewayEndpoint", code: 1, userInfo: [NSLocalizedDescriptionKey: msg])
         }
     }
@@ -501,17 +503,20 @@ actor GatewayEndpointStore {
             let modeDesc = String(describing: mode)
             let urlDesc = url.absoluteString
             self.logger
-                .debug(
+                .log(
+                    level: .debug,
                     "resolved endpoint mode=\(modeDesc, privacy: .public) url=\(urlDesc, privacy: .public)")
         case let .connecting(mode, detail):
             let modeDesc = String(describing: mode)
             self.logger
-                .debug(
+                .log(
+                    level: .debug,
                     "endpoint connecting mode=\(modeDesc, privacy: .public) detail=\(detail, privacy: .public)")
         case let .unavailable(mode, reason):
             let modeDesc = String(describing: mode)
             self.logger
-                .debug(
+                .log(
+                    level: .debug,
                     "endpoint unavailable mode=\(modeDesc, privacy: .public) reason=\(reason, privacy: .public)")
         }
     }
@@ -541,7 +546,7 @@ actor GatewayEndpointStore {
         let password = self.deps.password()
         let url = URL(string: "\(scheme)://\(tailscaleIP):\(port)")!
 
-        self.logger.info("auto bind fallback to tailnet host=\(tailscaleIP, privacy: .public)")
+        self.logger.log(level: .info, "auto bind fallback to tailnet host=\(tailscaleIP, privacy: .public)")
         self.setState(.ready(mode: .local, url: url, token: token, password: password))
         return (url, token, password)
     }

@@ -247,7 +247,7 @@ enum PairingAlertSupport {
     static func approveRequest(
         requestId: String,
         kind: String,
-        logger: os.Logger,
+        logger: Logging.Logger,
         action: @escaping () async throws -> Void) async -> Bool
     {
         do {
@@ -264,7 +264,7 @@ enum PairingAlertSupport {
     static func rejectRequest(
         requestId: String,
         kind: String,
-        logger: os.Logger,
+        logger: Logging.Logger,
         action: @escaping () async throws -> Void) async
     {
         do {

@@ -7,7 +7,7 @@ import OSLog
 final class VoiceWakeGlobalSettingsSync {
     static let shared = VoiceWakeGlobalSettingsSync()
 
-    private let logger = os.Logger(subsystem: "ai.openclaw", category: "voicewake.sync")
+    private let logger = Logging.Logger(subsystem: "ai.openclaw", category: "voicewake.sync")
     private var task: Task<Void, Never>?
 
     private struct VoiceWakePayload: Codable, Equatable {
@@ -59,7 +59,9 @@ final class VoiceWakeGlobalSettingsSync {
             let decoded = try GatewayPayloadDecoding.decode(payload, as: VoiceWakePayload.self)
             AppStateStore.shared.applyGlobalVoiceWakeTriggers(decoded.triggers)
         } catch {
-            self.logger.error("failed to decode voicewake.changed: \(error.localizedDescription, privacy: .public)")
+            self.logger.log(
+                level: .error,
+                "failed to decode voicewake.changed: \(error.localizedDescription, privacy: .public)")
         }
     }
 }

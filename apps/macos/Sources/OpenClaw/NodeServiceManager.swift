@@ -3,7 +3,7 @@ import os
 import OSLog
 
 enum NodeServiceManager {
-    private static let logger = os.Logger(subsystem: "ai.openclaw", category: "node.service")
+    private static let logger = Logging.Logger(subsystem: "ai.openclaw", category: "node.service")
 
     static func start() async -> String? {
         let result = await self.runServiceCommandResult(
@@ -11,7 +11,7 @@ enum NodeServiceManager {
             timeout: 20,
             quiet: false)
         if let error = self.errorMessage(from: result, treatNotLoadedAsError: true) {
-            self.logger.error("node service start failed: \(error, privacy: .public)")
+            self.logger.log(level: .error, "node service start failed: \(error, privacy: .public)")
             return error
         }
         return nil
@@ -23,7 +23,7 @@ enum NodeServiceManager {
             timeout: 15,
             quiet: false)
         if let error = self.errorMessage(from: result, treatNotLoadedAsError: false) {
-            self.logger.error("node service stop failed: \(error, privacy: .public)")
+            self.logger.log(level: .error, "node service stop failed: \(error, privacy: .public)")
             return error
         }
         return nil
@@ -79,7 +79,7 @@ extension NodeServiceManager {
         let exit = response.exitCode.map { "exit \($0)" } ?? (response.errorMessage ?? "failed")
         let fullMessage = detail.map { "Node service command failed (\(exit)): \($0)" }
             ?? "Node service command failed (\(exit))"
-        self.logger.error("\(fullMessage, privacy: .public)")
+        self.logger.log(level: .error, "\(fullMessage, privacy: .public)")
         return CommandResult(success: false, payload: payload, message: detail, parsed: parsed)
     }
 

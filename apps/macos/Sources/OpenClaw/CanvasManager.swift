@@ -9,7 +9,7 @@ import OSLog
 final class CanvasManager {
     static let shared = CanvasManager()
 
-    private static let logger = os.Logger(subsystem: "ai.openclaw", category: "CanvasManager")
+    private static let logger = Logging.Logger(subsystem: "ai.openclaw", category: "CanvasManager")
 
     private var panelController: CanvasWindowController?
     private var panelSessionKey: String?
@@ -39,7 +39,8 @@ final class CanvasManager {
         target: String? = nil,
         placement: CanvasPlacement? = nil) throws -> CanvasShowResult
     {
-        Self.logger.debug(
+        Self.logger.log(
+            level: .debug,
             """
             showDetailed start session=\(sessionKey, privacy: .public) \
             target=\(target ?? "", privacy: .public) \
@@ -52,7 +53,7 @@ final class CanvasManager {
             .nonEmpty
 
         if let controller = self.panelController, self.panelSessionKey == session {
-            Self.logger.debug("showDetailed reuse existing session=\(session, privacy: .public)")
+            Self.logger.log(level: .debug, "showDetailed reuse existing session=\(session, privacy: .public)")
             controller.onVisibilityChanged = { [weak self] visible in
                 self?.onPanelVisibilityChanged?(visible)
             }
@@ -78,19 +79,19 @@ final class CanvasManager {
                 url: nil)
         }
 
-        Self.logger.debug("showDetailed creating new session=\(session, privacy: .public)")
+        Self.logger.log(level: .debug, "showDetailed creating new session=\(session, privacy: .public)")
         self.panelController?.close()
         self.panelController = nil
         self.panelSessionKey = nil
 
-        Self.logger.debug("showDetailed ensure canvas root dir")
+        Self.logger.log(level: .debug, "showDetailed ensure canvas root dir")
         try FileManager().createDirectory(at: Self.canvasRoot, withIntermediateDirectories: true)
-        Self.logger.debug("showDetailed init CanvasWindowController")
+        Self.logger.log(level: .debug, "showDetailed init CanvasWindowController")
         let controller = try CanvasWindowController(
             sessionKey: session,
             root: Self.canvasRoot,
             presentation: .panel(anchorProvider: anchorProvider))
-        Self.logger.debug("showDetailed CanvasWindowController init done")
+        Self.logger.log(level: .debug, "showDetailed CanvasWindowController init done")
         controller.onVisibilityChanged = { [weak self] visible in
             self?.onPanelVisibilityChanged?(visible)
         }
@@ -100,9 +101,9 @@ final class CanvasManager {
 
         // New session: default to "/" so the user sees either the welcome page or `index.html`.
         let effectiveTarget = normalizedTarget ?? "/"
-        Self.logger.debug("showDetailed showCanvas effectiveTarget=\(effectiveTarget, privacy: .public)")
+        Self.logger.log(level: .debug, "showDetailed showCanvas effectiveTarget=\(effectiveTarget, privacy: .public)")
         controller.showCanvas(path: effectiveTarget)
-        Self.logger.debug("showDetailed showCanvas done")
+        Self.logger.log(level: .debug, "showDetailed showCanvas done")
         if normalizedTarget == nil {
             self.maybeAutoNavigateToA2UIAsync(controller: controller)
         }
@@ -155,17 +156,17 @@ final class CanvasManager {
         guard case let .snapshot(snapshot) = push else { return }
         let raw = snapshot.canvashosturl?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         if raw.isEmpty {
-            Self.logger.debug("canvas host url missing in gateway snapshot")
+            Self.logger.log(level: .debug, "canvas host url missing in gateway snapshot")
         } else {
-            Self.logger.debug("canvas host url snapshot=\(raw, privacy: .public)")
+            Self.logger.log(level: .debug, "canvas host url snapshot=\(raw, privacy: .public)")
         }
         let a2uiUrl = Self.resolveA2UIHostUrl(from: raw)
         if a2uiUrl == nil, !raw.isEmpty {
-            Self.logger.debug("canvas host url invalid; cannot resolve A2UI")
+            Self.logger.log(level: .debug, "canvas host url invalid; cannot resolve A2UI")
         }
         guard let controller = self.panelController else {
             if a2uiUrl != nil {
-                Self.logger.debug("canvas panel not visible; skipping auto-nav")
+                Self.logger.log(level: .debug, "canvas panel not visible; skipping auto-nav")
             }
             return
         }
@@ -187,10 +188,10 @@ final class CanvasManager {
         guard let a2uiUrl else { return }
         let shouldNavigate = controller.shouldAutoNavigateToA2UI(lastAutoTarget: self.lastAutoA2UIUrl)
         guard shouldNavigate else {
-            Self.logger.debug("canvas auto-nav skipped; target unchanged")
+            Self.logger.log(level: .debug, "canvas auto-nav skipped; target unchanged")
             return
         }
-        Self.logger.debug("canvas auto-nav -> \(a2uiUrl, privacy: .public)")
+        Self.logger.log(level: .debug, "canvas auto-nav -> \(a2uiUrl, privacy: .public)")
         controller.load(target: a2uiUrl)
         self.lastAutoA2UIUrl = a2uiUrl
     }

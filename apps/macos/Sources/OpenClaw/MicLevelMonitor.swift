@@ -4,7 +4,7 @@ import OSLog
 import SwiftUI
 
 actor MicLevelMonitor {
-    private let logger = os.Logger(subsystem: "ai.openclaw", category: "voicewake.meter")
+    private let logger = Logging.Logger(subsystem: "ai.openclaw", category: "voicewake.meter")
     private var engine: AVAudioEngine?
     private var update: (@Sendable (Double) -> Void)?
     private var running = false
@@ -13,7 +13,8 @@ actor MicLevelMonitor {
     func start(onLevel: @Sendable @escaping (Double) -> Void) async throws {
         self.update = onLevel
         if self.running { return }
-        self.logger.info(
+        self.logger.log(
+            level: .info,
             "mic level monitor start (\(AudioInputDeviceObserver.defaultInputDeviceSummary(), privacy: .public))")
         guard AudioInputDeviceObserver.hasUsableDefaultInputDevice() else {
             self.engine = nil

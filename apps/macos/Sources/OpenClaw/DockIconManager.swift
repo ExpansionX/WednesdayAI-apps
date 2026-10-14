@@ -7,7 +7,7 @@ final class DockIconManager: NSObject, @unchecked Sendable {
     static let shared = DockIconManager()
 
     private var windowsObservation: NSKeyValueObservation?
-    private let logger = os.Logger(subsystem: "ai.openclaw", category: "DockIconManager")
+    private let logger = Logging.Logger(subsystem: "ai.openclaw", category: "DockIconManager")
 
     override private init() {
         super.init()
@@ -25,7 +25,7 @@ final class DockIconManager: NSObject, @unchecked Sendable {
     func updateDockVisibility() {
         Task { @MainActor in
             guard NSApp != nil else {
-                self.logger.warning("NSApp not ready, skipping Dock visibility update")
+                self.logger.log(level: .warning, "NSApp not ready, skipping Dock visibility update")
                 return
             }
 
@@ -51,7 +51,7 @@ final class DockIconManager: NSObject, @unchecked Sendable {
     func temporarilyShowDock() {
         Task { @MainActor in
             guard NSApp != nil else {
-                self.logger.warning("NSApp not ready, cannot show Dock icon")
+                self.logger.log(level: .warning, "NSApp not ready, cannot show Dock icon")
                 return
             }
             NSApp.setActivationPolicy(.regular)
@@ -61,7 +61,7 @@ final class DockIconManager: NSObject, @unchecked Sendable {
     private func setupObservers() {
         Task { @MainActor in
             guard let app = NSApp else {
-                self.logger.warning("NSApp not ready, delaying Dock observers")
+                self.logger.log(level: .warning, "NSApp not ready, delaying Dock observers")
                 try? await Task.sleep(for: .milliseconds(200))
                 self.setupObservers()
                 return

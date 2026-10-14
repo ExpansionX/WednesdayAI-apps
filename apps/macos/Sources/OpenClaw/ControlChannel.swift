@@ -63,15 +63,15 @@ final class ControlChannel {
             guard oldValue != self.state else { return }
             switch self.state {
             case .connected:
-                self.logger.info("control channel state -> connected")
+                self.logger.log(level: .info, "control channel state -> connected")
             case .connecting:
-                self.logger.info("control channel state -> connecting")
+                self.logger.log(level: .info, "control channel state -> connecting")
             case .disconnected:
-                self.logger.info("control channel state -> disconnected")
+                self.logger.log(level: .info, "control channel state -> disconnected")
                 self.scheduleRecovery(reason: "disconnected")
             case let .degraded(message):
                 let detail = message.isEmpty ? "degraded" : "degraded: \(message)"
-                self.logger.info("control channel state -> \(detail, privacy: .public)")
+                self.logger.log(level: .info, "control channel state -> \(detail, privacy: .public)")
                 self.scheduleRecovery(reason: message)
             }
         }
@@ -80,7 +80,7 @@ final class ControlChannel {
     private(set) var lastPingMs: Double?
     private(set) var authSourceLabel: String?
 
-    private let logger = os.Logger(subsystem: "ai.openclaw", category: "control")
+    private let logger = Logging.Logger(subsystem: "ai.openclaw", category: "control")
 
     private var eventTask: Task<Void, Never>?
     private var recoveryTask: Task<Void, Never>?
@@ -91,7 +91,7 @@ final class ControlChannel {
     }
 
     func configure() async {
-        self.logger.info("control channel configure mode=local")
+        self.logger.log(level: .info, "control channel configure mode=local")
         await self.refreshEndpoint(reason: "configure")
     }
 
@@ -103,7 +103,8 @@ final class ControlChannel {
             do {
                 _ = (target, identity)
                 let idSet = !identity.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                self.logger.info(
+                self.logger.log(
+                    level: .info,
                     "control channel configure mode=remote target=\(target, privacy: .public) identitySet=\(idSet, privacy: .public)")
                 self.state = .connecting
                 _ = try await GatewayEndpointStore.shared.ensureRemoteControlTunnel()
@@ -116,7 +117,7 @@ final class ControlChannel {
     }
 
     func refreshEndpoint(reason: String) async {
-        self.logger.info("control channel refresh endpoint reason=\(reason, privacy: .public)")
+        self.logger.log(level: .info, "control channel refresh endpoint reason=\(reason, privacy: .public)")
         self.state = .connecting
         do {
             try await self.establishGatewayConnection()
@@ -269,7 +270,8 @@ final class ControlChannel {
 
             let trimmedReason = reason.trimmingCharacters(in: .whitespacesAndNewlines)
             let reasonText = trimmedReason.isEmpty ? "unknown" : trimmedReason
-            self.logger.info(
+            self.logger.log(
+                level: .info,
                 "control channel recovery starting mode=\(String(describing: mode), privacy: .public) reason=\(reasonText, privacy: .public)")
             if mode == .local {
                 GatewayProcessManager.shared.setActive(true)
@@ -277,18 +279,21 @@ final class ControlChannel {
             if mode == .remote {
                 do {
                     let port = try await GatewayEndpointStore.shared.ensureRemoteControlTunnel()
-                    self.logger.info("control channel recovery ensured SSH tunnel port=\(port, privacy: .public)")
+                    self.logger.log(
+                        level: .info,
+                        "control channel recovery ensured SSH tunnel port=\(port, privacy: .public)")
                 } catch {
-                    self.logger.error(
+                    self.logger.log(
+                        level: .error,
                         "control channel recovery tunnel failed \(error.localizedDescription, privacy: .public)")
                 }
             }
 
             await self.refreshEndpoint(reason: "recovery:\(reasonText)")
             if case .connected = self.state {
-                self.logger.info("control channel recovery finished")
+                self.logger.log(level: .info, "control channel recovery finished")
             } else if case let .degraded(message) = self.state {
-                self.logger.error("control channel recovery failed \(message, privacy: .public)")
+                self.logger.log(level: .error, "control channel recovery failed \(message, privacy: .public)")
             }
 
             self.recoveryTask = nil

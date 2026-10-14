@@ -16,7 +16,7 @@ final class TailscaleService {
     /// API request timeout in seconds.
     private static let apiTimeoutInterval: TimeInterval = 5.0
 
-    private let logger = os.Logger(subsystem: "ai.openclaw", category: "tailscale")
+    private let logger = Logging.Logger(subsystem: "ai.openclaw", category: "tailscale")
 
     /// Indicates if the Tailscale app is installed on the system.
     private(set) var isInstalled = false
@@ -55,7 +55,7 @@ final class TailscaleService {
 
     func checkAppInstallation() -> Bool {
         let installed = FileManager().fileExists(atPath: "/Applications/Tailscale.app")
-        self.logger.info("Tailscale app installed: \(installed)")
+        self.logger.log(level: .info, "Tailscale app installed: \(installed)")
         return installed
     }
 
@@ -75,7 +75,7 @@ final class TailscaleService {
 
     private func fetchTailscaleStatus() async -> TailscaleAPIResponse? {
         guard let url = URL(string: Self.tailscaleAPIEndpoint) else {
-            self.logger.error("Invalid Tailscale API URL")
+            self.logger.log(level: .error, "Invalid Tailscale API URL")
             return nil
         }
 
@@ -88,14 +88,14 @@ final class TailscaleService {
             guard let httpResponse = response as? HTTPURLResponse,
                   httpResponse.statusCode == 200
             else {
-                self.logger.warning("Tailscale API returned non-200 status")
+                self.logger.log(level: .warning, "Tailscale API returned non-200 status")
                 return nil
             }
 
             let decoder = JSONDecoder()
             return try decoder.decode(TailscaleAPIResponse.self, from: data)
         } catch {
-            self.logger.debug("Failed to fetch Tailscale status: \(String(describing: error))")
+            self.logger.log(level: .debug, "Failed to fetch Tailscale status: \(String(describing: error))")
             return nil
         }
     }
@@ -123,7 +123,8 @@ final class TailscaleService {
                 self.tailscaleIP = apiResponse.iPv4
                 self.statusError = nil
 
-                self.logger.info(
+                self.logger.log(
+                    level: .info,
                     "Tailscale running host=\(self.tailscaleHostname ?? "nil") ip=\(self.tailscaleIP ?? "nil")")
             } else {
                 self.tailscaleHostname = nil
@@ -135,7 +136,7 @@ final class TailscaleService {
             self.tailscaleHostname = nil
             self.tailscaleIP = nil
             self.statusError = "Please start the Tailscale app"
-            self.logger.info("Tailscale API not responding; app likely not running")
+            self.logger.log(level: .info, "Tailscale API not responding; app likely not running")
         }
 
         if self.tailscaleIP == nil, let fallback = TailscaleNetwork.detectTailnetIPv4() {
@@ -144,7 +145,7 @@ final class TailscaleService {
                 self.isRunning = true
             }
             self.statusError = nil
-            self.logger.info("Tailscale interface IP detected (fallback) ip=\(fallback, privacy: .public)")
+            self.logger.log(level: .info, "Tailscale interface IP detected (fallback) ip=\(fallback, privacy: .public)")
         }
 
         if previousIP != self.tailscaleIP {

@@ -54,7 +54,7 @@ enum RuntimeResolutionError: Error {
 }
 
 enum RuntimeLocator {
-    private static let logger = os.Logger(subsystem: "ai.openclaw", category: "runtime")
+    private static let logger = Logging.Logger(subsystem: "ai.openclaw", category: "runtime")
     private static let minNode = RuntimeVersion(major: 22, minor: 0, patch: 0)
 
     static func resolve(
@@ -139,13 +139,15 @@ enum RuntimeLocator {
             let data = try process.runAndReadToEnd(from: pipe)
             let elapsedMs = Int(Date().timeIntervalSince(start) * 1000)
             if elapsedMs > 500 {
-                self.logger.warning(
+                self.logger.log(
+                    level: .warning,
                     """
                     runtime --version slow (\(elapsedMs, privacy: .public)ms) \
                     bin=\(binary, privacy: .public)
                     """)
             } else {
-                self.logger.debug(
+                self.logger.log(
+                    level: .debug,
                     """
                     runtime --version ok (\(elapsedMs, privacy: .public)ms) \
                     bin=\(binary, privacy: .public)
@@ -154,7 +156,8 @@ enum RuntimeLocator {
             return String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines)
         } catch {
             let elapsedMs = Int(Date().timeIntervalSince(start) * 1000)
-            self.logger.error(
+            self.logger.log(
+                level: .error,
                 """
                 runtime --version failed (\(elapsedMs, privacy: .public)ms) \
                 bin=\(binary, privacy: .public) \

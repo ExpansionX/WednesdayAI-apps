@@ -42,7 +42,7 @@ final class InstancesStore {
     var statusMessage: String?
     var isLoading = false
 
-    private let logger = os.Logger(subsystem: "ai.openclaw", category: "instances")
+    private let logger = Logging.Logger(subsystem: "ai.openclaw", category: "instances")
     private var task: Task<Void, Never>?
     private let interval: TimeInterval = 30
     private var eventTask: Task<Void, Never>?
@@ -107,7 +107,7 @@ final class InstancesStore {
             let data = try await ControlChannel.shared.request(method: "system-presence")
             self.lastPayload = data
             if data.isEmpty {
-                self.logger.error("instances fetch returned empty payload")
+                self.logger.log(level: .error, "instances fetch returned empty payload")
                 self.instances = [self.localFallbackInstance(reason: "no presence payload")]
                 self.lastError = nil
                 self.statusMessage = "No presence payload from gateway; showing local fallback + health probe."
@@ -127,7 +127,8 @@ final class InstancesStore {
                 self.statusMessage = nil
             }
         } catch {
-            self.logger.error(
+            self.logger.log(
+                level: .error,
                 """
                 instances fetch failed: \(error.localizedDescription, privacy: .public) \
                 len=\(self.lastPayload?.count ?? 0, privacy: .public) \
@@ -214,7 +215,9 @@ final class InstancesStore {
             self.statusMessage =
                 "Presence unavailable (\(reason ?? "refresh")); showing health probe + local fallback."
         } catch {
-            self.logger.error("instances health probe failed: \(error.localizedDescription, privacy: .public)")
+            self.logger.log(
+                level: .error,
+                "instances health probe failed: \(error.localizedDescription, privacy: .public)")
             if let reason {
                 self.statusMessage =
                     "Presence unavailable (\(reason)), health probe failed: \(error.localizedDescription)"
@@ -227,7 +230,9 @@ final class InstancesStore {
             let decoded = try JSONDecoder().decode([PresenceEntry].self, from: data)
             self.applyPresence(decoded)
         } catch {
-            self.logger.error("presence decode from event failed: \(error.localizedDescription, privacy: .public)")
+            self.logger.log(
+                level: .error,
+                "presence decode from event failed: \(error.localizedDescription, privacy: .public)")
             self.lastError = error.localizedDescription
         }
     }
@@ -237,7 +242,9 @@ final class InstancesStore {
             let wrapper = try GatewayPayloadDecoding.decode(payload, as: PresenceEventPayload.self)
             self.applyPresence(wrapper.presence)
         } catch {
-            self.logger.error("presence event decode failed: \(error.localizedDescription, privacy: .public)")
+            self.logger.log(
+                level: .error,
+                "presence event decode failed: \(error.localizedDescription, privacy: .public)")
             self.lastError = error.localizedDescription
         }
     }

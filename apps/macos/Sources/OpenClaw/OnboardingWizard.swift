@@ -6,7 +6,7 @@ import os
 import OSLog
 import SwiftUI
 
-private let onboardingWizardLogger = os.Logger(subsystem: "ai.openclaw", category: "onboarding.wizard")
+private let onboardingWizardLogger = Logging.Logger(subsystem: "ai.openclaw", category: "onboarding.wizard")
 
 // MARK: - Swift 6 AnyCodable Bridging Helpers
 
@@ -97,7 +97,7 @@ final class OnboardingWizardModel {
         } catch {
             self.status = "error"
             self.errorMessage = error.localizedDescription
-            onboardingWizardLogger.error("start failed: \(error.localizedDescription, privacy: .public)")
+            onboardingWizardLogger.log(level: .error, "start failed: \(error.localizedDescription, privacy: .public)")
         }
     }
 
@@ -124,7 +124,7 @@ final class OnboardingWizardModel {
             }
             self.status = "error"
             self.errorMessage = error.localizedDescription
-            onboardingWizardLogger.error("submit failed: \(error.localizedDescription, privacy: .public)")
+            onboardingWizardLogger.log(level: .error, "submit failed: \(error.localizedDescription, privacy: .public)")
         }
     }
 
@@ -138,7 +138,7 @@ final class OnboardingWizardModel {
         } catch {
             self.status = "error"
             self.errorMessage = error.localizedDescription
-            onboardingWizardLogger.error("cancel failed: \(error.localizedDescription, privacy: .public)")
+            onboardingWizardLogger.log(level: .error, "cancel failed: \(error.localizedDescription, privacy: .public)")
         }
     }
 
@@ -148,7 +148,7 @@ final class OnboardingWizardModel {
         self.errorMessage = res.error
         self.currentStep = decodeWizardStep(res.step)
         if self.currentStep == nil, res.step != nil {
-            onboardingWizardLogger.error("wizard step decode failed")
+            onboardingWizardLogger.log(level: .error, "wizard step decode failed")
         }
         if res.done { self.currentStep = nil }
         self.restartAttempts = 0
@@ -160,7 +160,7 @@ final class OnboardingWizardModel {
         self.errorMessage = res.error
         self.currentStep = decodeWizardStep(res.step)
         if self.currentStep == nil, res.step != nil {
-            onboardingWizardLogger.error("wizard step decode failed")
+            onboardingWizardLogger.log(level: .error, "wizard step decode failed")
         }
         if res.done { self.currentStep = nil }
         if res.done || status == "done" || status == "cancelled" || status == "error" {

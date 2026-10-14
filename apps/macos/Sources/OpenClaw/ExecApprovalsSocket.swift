@@ -646,7 +646,7 @@ enum ExecApprovalsSocketPathGuard {
 }
 
 private final class ExecApprovalsSocketServer: @unchecked Sendable {
-    private let logger = os.Logger(subsystem: "ai.openclaw", category: "exec-approvals.socket")
+    private let logger = Logging.Logger(subsystem: "ai.openclaw", category: "exec-approvals.socket")
     private let socketPath: String
     private let token: String
     private let onPrompt: @Sendable (ExecApprovalPromptRequest) async -> ExecApprovalDecision
@@ -688,7 +688,9 @@ private final class ExecApprovalsSocketServer: @unchecked Sendable {
                 try ExecApprovalsSocketPathGuard.removeExistingSocket(at: self.socketPath)
             } catch {
                 self.logger
-                    .warning("exec approvals socket cleanup failed: \(error.localizedDescription, privacy: .public)")
+                    .log(
+                        level: .warning,
+                        "exec approvals socket cleanup failed: \(error.localizedDescription, privacy: .public)")
             }
         }
     }
@@ -721,7 +723,7 @@ private final class ExecApprovalsSocketServer: @unchecked Sendable {
     private func openSocket() -> Int32 {
         let fd = socket(AF_UNIX, SOCK_STREAM, 0)
         guard fd >= 0 else {
-            self.logger.error("exec approvals socket create failed")
+            self.logger.log(level: .error, "exec approvals socket create failed")
             return -1
         }
         do {
@@ -729,7 +731,9 @@ private final class ExecApprovalsSocketServer: @unchecked Sendable {
             try ExecApprovalsSocketPathGuard.removeExistingSocket(at: self.socketPath)
         } catch {
             self.logger
-                .error("exec approvals socket path hardening failed: \(error.localizedDescription, privacy: .public)")
+                .log(
+                    level: .error,
+                    "exec approvals socket path hardening failed: \(error.localizedDescription, privacy: .public)")
             close(fd)
             return -1
         }
@@ -737,7 +741,7 @@ private final class ExecApprovalsSocketServer: @unchecked Sendable {
         addr.sun_family = sa_family_t(AF_UNIX)
         let maxLen = MemoryLayout.size(ofValue: addr.sun_path)
         if self.socketPath.utf8.count >= maxLen {
-            self.logger.error("exec approvals socket path too long")
+            self.logger.log(level: .error, "exec approvals socket path too long")
             close(fd)
             return -1
         }
@@ -755,23 +759,23 @@ private final class ExecApprovalsSocketServer: @unchecked Sendable {
             }
         }
         if result != 0 {
-            self.logger.error("exec approvals socket bind failed")
+            self.logger.log(level: .error, "exec approvals socket bind failed")
             close(fd)
             return -1
         }
         if chmod(self.socketPath, 0o600) != 0 {
-            self.logger.error("exec approvals socket chmod failed")
+            self.logger.log(level: .error, "exec approvals socket chmod failed")
             close(fd)
             try? ExecApprovalsSocketPathGuard.removeExistingSocket(at: self.socketPath)
             return -1
         }
         if listen(fd, 16) != 0 {
-            self.logger.error("exec approvals socket listen failed")
+            self.logger.log(level: .error, "exec approvals socket listen failed")
             close(fd)
             try? ExecApprovalsSocketPathGuard.removeExistingSocket(at: self.socketPath)
             return -1
         }
-        self.logger.info("exec approvals socket listening at \(self.socketPath, privacy: .public)")
+        self.logger.log(level: .info, "exec approvals socket listening at \(self.socketPath, privacy: .public)")
         return fd
     }
 
@@ -812,7 +816,9 @@ private final class ExecApprovalsSocketServer: @unchecked Sendable {
                 return
             }
         } catch {
-            self.logger.error("exec approvals socket handling failed: \(error.localizedDescription, privacy: .public)")
+            self.logger.log(
+                level: .error,
+                "exec approvals socket handling failed: \(error.localizedDescription, privacy: .public)")
         }
     }
 

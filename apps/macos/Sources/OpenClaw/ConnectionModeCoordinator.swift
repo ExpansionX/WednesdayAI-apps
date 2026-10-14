@@ -6,7 +6,7 @@ import OSLog
 final class ConnectionModeCoordinator {
     static let shared = ConnectionModeCoordinator()
 
-    private let logger = os.Logger(subsystem: "ai.openclaw", category: "connection")
+    private let logger = Logging.Logger(subsystem: "ai.openclaw", category: "connection")
     private var lastMode: AppState.ConnectionMode?
 
     /// Apply the requested connection mode by starting/stopping local gateway,
@@ -50,7 +50,8 @@ final class ConnectionModeCoordinator {
                 try await ControlChannel.shared.configure(mode: .local)
             } catch {
                 // Control channel will mark itself degraded; nothing else to do here.
-                self.logger.error(
+                self.logger.log(
+                    level: .error,
                     "control channel local configure failed: \(error.localizedDescription, privacy: .public)")
             }
             Task.detached { await PortGuardian.shared.sweep(mode: .local) }
@@ -71,7 +72,9 @@ final class ConnectionModeCoordinator {
                     target: settings.target,
                     identity: settings.identity))
             } catch {
-                self.logger.error("remote tunnel/configure failed: \(error.localizedDescription, privacy: .public)")
+                self.logger.log(
+                    level: .error,
+                    "remote tunnel/configure failed: \(error.localizedDescription, privacy: .public)")
             }
 
             Task.detached { await PortGuardian.shared.sweep(mode: .remote) }

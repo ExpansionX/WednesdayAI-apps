@@ -23,7 +23,7 @@ actor PortGuardian {
     }
 
     private var records: [Record] = []
-    private let logger = os.Logger(subsystem: "ai.openclaw", category: "portguard")
+    private let logger = Logging.Logger(subsystem: "ai.openclaw", category: "portguard")
     private nonisolated static let appSupportDir: URL = {
         let base = FileManager().urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
         return base.appendingPathComponent("OpenClaw", isDirectory: true)
@@ -38,9 +38,9 @@ actor PortGuardian {
     }
 
     func sweep(mode: AppState.ConnectionMode) async {
-        self.logger.info("port sweep starting (mode=\(mode.rawValue, privacy: .public))")
+        self.logger.log(level: .info, "port sweep starting (mode=\(mode.rawValue, privacy: .public))")
         guard mode != .unconfigured else {
-            self.logger.info("port sweep skipped (mode=unconfigured)")
+            self.logger.log(level: .info, "port sweep skipped (mode=unconfigured)")
             return
         }
         let ports = [GatewayEnvironment.gatewayPort()]
@@ -53,7 +53,7 @@ actor PortGuardian {
                     port \(port) already served by expected \(listener.command)
                     (pid \(listener.pid)) — keeping
                     """
-                    self.logger.info("\(message, privacy: .public)")
+                    self.logger.log(level: .info, "\(message, privacy: .public)")
                     continue
                 }
                 let killed = await self.kill(listener.pid)
@@ -62,13 +62,15 @@ actor PortGuardian {
                     port \(port) was held by \(listener.command)
                     (pid \(listener.pid)); terminated
                     """
-                    self.logger.error("\(message, privacy: .public)")
+                    self.logger.log(level: .error, "\(message, privacy: .public)")
                 } else {
-                    self.logger.error("failed to terminate pid \(listener.pid) on port \(port, privacy: .public)")
+                    self.logger.log(
+                        level: .error,
+                        "failed to terminate pid \(listener.pid) on port \(port, privacy: .public)")
                 }
             }
         }
-        self.logger.info("port sweep done")
+        self.logger.log(level: .info, "port sweep done")
     }
 
     func record(port: Int, pid: Int32, command: String, mode: AppState.ConnectionMode) async {

@@ -4,7 +4,7 @@ import os
 import OSLog
 import WebKit
 
-private let canvasLogger = os.Logger(subsystem: "ai.openclaw", category: "Canvas")
+private let canvasLogger = Logging.Logger(subsystem: "ai.openclaw", category: "Canvas")
 
 final class CanvasSchemeHandler: NSObject, WKURLSchemeHandler {
     private let root: URL
@@ -93,14 +93,16 @@ final class CanvasSchemeHandler: NSObject, WKURLSchemeHandler {
             let data = try Data(contentsOf: standardizedFile)
             let mime = CanvasScheme.mimeType(forExtension: standardizedFile.pathExtension)
             let servedPath = standardizedFile.path
-            canvasLogger.debug(
+            canvasLogger.log(
+                level: .debug,
                 "served \(session, privacy: .public)/\(path, privacy: .public) -> \(servedPath, privacy: .public)")
             return CanvasResponse(mime: mime, data: data)
         } catch {
             let failedPath = standardizedFile.path
             let errorText = error.localizedDescription
             canvasLogger
-                .error(
+                .log(
+                    level: .error,
                     "failed reading \(failedPath, privacy: .public): \(errorText, privacy: .public)")
             return self.html("Failed to read file.", title: "Canvas error")
         }

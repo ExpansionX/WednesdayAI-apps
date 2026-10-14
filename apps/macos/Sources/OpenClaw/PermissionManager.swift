@@ -350,7 +350,7 @@ final class LocationPermissionRequester: NSObject, CLLocationManagerDelegate {
 }
 
 enum AppleScriptPermission {
-    private static let logger = os.Logger(subsystem: "ai.openclaw", category: "AppleScriptPermission")
+    private static let logger = Logging.Logger(subsystem: "ai.openclaw", category: "AppleScriptPermission")
 
     /// Sends a benign AppleScript to Terminal to verify Automation permission.
     @MainActor
@@ -367,10 +367,10 @@ enum AppleScriptPermission {
 
         if let error, let code = error["NSAppleScriptErrorNumber"] as? Int {
             if code == -1743 { // errAEEventWouldRequireUserConsent
-                Self.logger.debug("AppleScript permission denied (-1743)")
+                Self.logger.log(level: .debug, "AppleScript permission denied (-1743)")
                 return false
             }
-            Self.logger.debug("AppleScript check failed with code \(code)")
+            Self.logger.log(level: .debug, "AppleScript check failed with code \(code)")
         }
 
         return result != nil

@@ -7,7 +7,7 @@ enum ModelCatalogLoader {
         self.resolveDefaultPath()
     }
 
-    private static let logger = os.Logger(subsystem: "ai.openclaw", category: "models")
+    private static let logger = Logging.Logger(subsystem: "ai.openclaw", category: "models")
     private nonisolated static let appSupportDir: URL = {
         let base = FileManager().urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
         return base.appendingPathComponent("OpenClaw", isDirectory: true)
@@ -20,25 +20,27 @@ enum ModelCatalogLoader {
     static func load(from path: String) async throws -> [ModelChoice] {
         let expanded = (path as NSString).expandingTildeInPath
         guard let resolved = self.resolvePath(preferred: expanded) else {
-            self.logger.error("model catalog load failed: file not found")
+            self.logger.log(level: .error, "model catalog load failed: file not found")
             throw NSError(
                 domain: "ModelCatalogLoader",
                 code: 1,
                 userInfo: [NSLocalizedDescriptionKey: "Model catalog file not found"])
         }
-        self.logger.debug("model catalog load start file=\(URL(fileURLWithPath: resolved.path).lastPathComponent)")
+        self.logger.log(
+            level: .debug,
+            "model catalog load start file=\(URL(fileURLWithPath: resolved.path).lastPathComponent)")
         let source = try String(contentsOfFile: resolved.path, encoding: .utf8)
         let sanitized = self.sanitize(source: source)
 
         let ctx = JSContext()
         ctx?.exceptionHandler = { _, exception in
             if let exception {
-                self.logger.warning("model catalog JS exception: \(exception)")
+                self.logger.log(level: .warning, "model catalog JS exception: \(exception)")
             }
         }
         ctx?.evaluateScript(sanitized)
         guard let rawModels = ctx?.objectForKeyedSubscript("MODELS")?.toDictionary() as? [String: Any] else {
-            self.logger.error("model catalog parse failed: MODELS missing")
+            self.logger.log(level: .error, "model catalog parse failed: MODELS missing")
             throw NSError(
                 domain: "ModelCatalogLoader",
                 code: 1,
@@ -62,7 +64,7 @@ enum ModelCatalogLoader {
             }
             return lhs.provider.localizedCaseInsensitiveCompare(rhs.provider) == .orderedAscending
         }
-        self.logger.debug("model catalog loaded providers=\(rawModels.count) models=\(sorted.count)")
+        self.logger.log(level: .debug, "model catalog loaded providers=\(rawModels.count) models=\(sorted.count)")
         if resolved.shouldCache {
             self.cacheCatalog(sourcePath: resolved.path)
         }
@@ -83,18 +85,18 @@ enum ModelCatalogLoader {
         }
 
         if let bundlePath = self.bundleCatalogPath(), bundlePath != preferred {
-            self.logger.warning("model catalog path missing; falling back to bundled catalog")
+            self.logger.log(level: .warning, "model catalog path missing; falling back to bundled catalog")
             return (bundlePath, true)
         }
 
         let cache = self.cachePath.path
         if cache != preferred, FileManager().isReadableFile(atPath: cache) {
-            self.logger.warning("model catalog path missing; falling back to cached catalog")
+            self.logger.log(level: .warning, "model catalog path missing; falling back to cached catalog")
             return (cache, false)
         }
 
         if let nodePath = self.nodeModulesCatalogPath(), nodePath != preferred {
-            self.logger.warning("model catalog path missing; falling back to node_modules catalog")
+            self.logger.log(level: .warning, "model catalog path missing; falling back to node_modules catalog")
             return (nodePath, true)
         }
 
@@ -133,9 +135,9 @@ enum ModelCatalogLoader {
                 try FileManager().removeItem(at: destination)
             }
             try FileManager().copyItem(atPath: sourcePath, toPath: destination.path)
-            self.logger.debug("model catalog cached file=\(destination.lastPathComponent)")
+            self.logger.log(level: .debug, "model catalog cached file=\(destination.lastPathComponent)")
         } catch {
-            self.logger.warning("model catalog cache failed: \(error.localizedDescription)")
+            self.logger.log(level: .warning, "model catalog cache failed: \(error.localizedDescription)")
         }
     }
 

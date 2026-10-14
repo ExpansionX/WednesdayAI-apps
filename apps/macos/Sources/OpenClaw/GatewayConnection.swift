@@ -5,7 +5,7 @@ import OpenClawProtocol
 import os
 import OSLog
 
-private let gatewayConnectionLogger = os.Logger(subsystem: "ai.openclaw", category: "gateway.connection")
+private let gatewayConnectionLogger = Logging.Logger(subsystem: "ai.openclaw", category: "gateway.connection")
 
 enum GatewayAgentChannel: String, Codable, CaseIterable, Sendable {
     case last
@@ -439,7 +439,9 @@ extension GatewayConnection {
             try await self.requestVoid(method: .setHeartbeats, params: ["enabled": AnyCodable(enabled)])
             return true
         } catch {
-            gatewayConnectionLogger.error("setHeartbeatsEnabled failed \(error.localizedDescription, privacy: .public)")
+            gatewayConnectionLogger.log(
+                level: .error,
+                "setHeartbeatsEnabled failed \(error.localizedDescription, privacy: .public)")
             return false
         }
     }

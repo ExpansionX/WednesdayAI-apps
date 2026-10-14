@@ -2,7 +2,7 @@ import Foundation
 import os
 
 enum GatewayLaunchAgentManager {
-    private static let logger = os.Logger(subsystem: "ai.openclaw", category: "gateway.launchd")
+    private static let logger = Logging.Logger(subsystem: "ai.openclaw", category: "gateway.launchd")
     private static let disableLaunchAgentMarker = ".openclaw/disable-launchagent"
 
     private static var disableLaunchAgentMarkerURL: URL {
@@ -54,16 +54,16 @@ enum GatewayLaunchAgentManager {
     static func set(enabled: Bool, bundlePath: String, port: Int) async -> String? {
         _ = bundlePath
         guard !CommandResolver.connectionModeIsRemote() else {
-            self.logger.info("launchd change skipped (remote mode)")
+            self.logger.log(level: .info, "launchd change skipped (remote mode)")
             return nil
         }
         if enabled, self.isLaunchAgentWriteDisabled() {
-            self.logger.info("launchd enable skipped (disable marker set)")
+            self.logger.log(level: .info, "launchd enable skipped (disable marker set)")
             return nil
         }
 
         if enabled {
-            self.logger.info("launchd enable requested via CLI port=\(port)")
+            self.logger.log(level: .info, "launchd enable requested via CLI port=\(port)")
             return await self.runDaemonCommand([
                 "install",
                 "--force",
@@ -74,7 +74,7 @@ enum GatewayLaunchAgentManager {
             ])
         }
 
-        self.logger.info("launchd disable requested via CLI")
+        self.logger.log(level: .info, "launchd disable requested via CLI")
         return await self.runDaemonCommand(["uninstall"])
     }
 
@@ -171,7 +171,7 @@ extension GatewayLaunchAgentManager {
         let exit = response.exitCode.map { "exit \($0)" } ?? (response.errorMessage ?? "failed")
         let fullMessage = detail.map { "Gateway daemon command failed (\(exit)): \($0)" }
             ?? "Gateway daemon command failed (\(exit))"
-        self.logger.error("\(fullMessage, privacy: .public)")
+        self.logger.log(level: .error, "\(fullMessage, privacy: .public)")
         return CommandResult(success: false, payload: payload, message: detail)
     }
 

@@ -220,7 +220,7 @@ struct SessionMenuPreviewView: View {
 }
 
 enum SessionMenuPreviewLoader {
-    private static let logger = os.Logger(subsystem: "ai.openclaw", category: "SessionPreview")
+    private static let logger = Logging.Logger(subsystem: "ai.openclaw", category: "SessionPreview")
     private static let previewTimeoutSeconds: Double = 4
     private static let cacheMaxAgeSeconds: TimeInterval = 30
     private static let previewMaxChars = 240
@@ -240,7 +240,8 @@ enum SessionMenuPreviewLoader {
         } catch {
             if self.isUnknownMethodError(error) { return }
             let errorDescription = String(describing: error)
-            Self.logger.debug(
+            Self.logger.log(
+                level: .debug,
                 "Session preview prewarm failed count=\(keys.count, privacy: .public) error=\(errorDescription, privacy: .public)")
         }
     }
@@ -264,7 +265,8 @@ enum SessionMenuPreviewLoader {
                 return fallback
             }
             let errorDescription = String(describing: error)
-            Self.logger.warning(
+            Self.logger.log(
+                level: .warning,
                 "Session preview failed session=\(sessionKey, privacy: .public) error=\(errorDescription, privacy: .public)")
             return SessionMenuPreviewSnapshot(items: [], status: .error("Preview unavailable"))
         }

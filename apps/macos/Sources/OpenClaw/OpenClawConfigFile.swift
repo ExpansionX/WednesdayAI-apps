@@ -3,7 +3,7 @@ import OpenClawProtocol
 import os
 
 enum OpenClawConfigFile {
-    private static let logger = os.Logger(subsystem: "ai.openclaw", category: "config")
+    private static let logger = Logging.Logger(subsystem: "ai.openclaw", category: "config")
     private static let configAuditFileName = "config-audit.jsonl"
 
     static func url() -> URL {
@@ -24,12 +24,12 @@ enum OpenClawConfigFile {
         do {
             let data = try Data(contentsOf: url)
             guard let root = self.parseConfigData(data) else {
-                self.logger.warning("config JSON root invalid")
+                self.logger.log(level: .warning, "config JSON root invalid")
                 return [:]
             }
             return root
         } catch {
-            self.logger.warning("config read failed: \(error.localizedDescription)")
+            self.logger.log(level: .warning, "config read failed: \(error.localizedDescription)")
             return [:]
         }
     }
@@ -63,7 +63,9 @@ enum OpenClawConfigFile {
                 gatewayModeBefore: gatewayModeBefore,
                 gatewayModeAfter: gatewayModeAfter)
             if !suspicious.isEmpty {
-                self.logger.warning("config write anomaly (\(suspicious.joined(separator: ", "))) at \(url.path)")
+                self.logger.log(
+                    level: .warning,
+                    "config write anomaly (\(suspicious.joined(separator: ", "))) at \(url.path)")
             }
             self.appendConfigWriteAudit([
                 "result": "success",
@@ -78,7 +80,7 @@ enum OpenClawConfigFile {
                 "suspicious": suspicious,
             ])
         } catch {
-            self.logger.error("config save failed: \(error.localizedDescription)")
+            self.logger.log(level: .error, "config save failed: \(error.localizedDescription)")
             self.appendConfigWriteAudit([
                 "result": "failed",
                 "configPath": url.path,
@@ -124,7 +126,7 @@ enum OpenClawConfigFile {
         browser["enabled"] = enabled
         root["browser"] = browser
         self.saveDict(root)
-        self.logger.debug("browser control updated enabled=\(enabled)")
+        self.logger.log(level: .debug, "browser control updated enabled=\(enabled)")
     }
 
     static func agentWorkspace() -> String? {
@@ -136,7 +138,7 @@ enum OpenClawConfigFile {
         AgentWorkspaceConfig.setWorkspace(in: &root, workspace: workspace)
         self.saveDict(root)
         let hasWorkspace = !(workspace?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true)
-        self.logger.debug("agents.defaults.workspace updated set=\(hasWorkspace)")
+        self.logger.log(level: .debug, "agents.defaults.workspace updated set=\(hasWorkspace)")
     }
 
     static func gatewayPassword() -> String? {
@@ -251,7 +253,7 @@ enum OpenClawConfigFile {
             decoder.allowsJSON5 = true
         }
         if let decoded = try? decoder.decode([String: AnyCodable].self, from: data) {
-            self.logger.notice("config parsed with JSON5 decoder")
+            self.logger.log(level: .notice, "config parsed with JSON5 decoder")
             return decoded.mapValues { $0.foundationValue }
         }
         return nil

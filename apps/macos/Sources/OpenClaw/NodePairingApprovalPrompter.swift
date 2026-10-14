@@ -23,7 +23,7 @@ enum NodePairingReconcilePolicy {
 final class NodePairingApprovalPrompter {
     static let shared = NodePairingApprovalPrompter()
 
-    private let logger = os.Logger(subsystem: "ai.openclaw", category: "node-pairing")
+    private let logger = Logging.Logger(subsystem: "ai.openclaw", category: "node-pairing")
     private var task: Task<Void, Never>?
     private var reconcileTask: Task<Void, Never>?
     private var reconcileOnceTask: Task<Void, Never>?
@@ -119,14 +119,16 @@ final class NodePairingApprovalPrompter {
                 let list = try JSONDecoder().decode(PairingList.self, from: data)
                 let pendingCount = list.pending.count
                 guard pendingCount > 0 else { return }
-                self.logger.info(
+                self.logger.log(
+                    level: .info,
                     "loaded \(pendingCount, privacy: .public) pending node pairing request(s) on startup")
                 await self.apply(list: list)
                 return
             } catch {
                 if attempt == 8 {
                     self.logger
-                        .error(
+                        .log(
+                            level: .error,
                             "failed to load pending pairing requests: \(error.localizedDescription, privacy: .public)")
                     return
                 }
@@ -179,7 +181,8 @@ final class NodePairingApprovalPrompter {
 
             if self.alertState.activeRequestId == req.requestId, self.alertState.activeAlert != nil {
                 self.remoteResolutionsByRequestId[req.requestId] = resolution
-                self.logger.info(
+                self.logger.log(
+                    level: .info,
                     """
                     pairing request resolved elsewhere; closing dialog \
                     requestId=\(req.requestId, privacy: .public) \
@@ -189,7 +192,8 @@ final class NodePairingApprovalPrompter {
                 continue
             }
 
-            self.logger.info(
+            self.logger.log(
+                level: .info,
                 """
                 pairing request resolved elsewhere requestId=\(req.requestId, privacy: .public) \
                 resolution=\(resolution.rawValue, privacy: .public)
@@ -231,7 +235,9 @@ final class NodePairingApprovalPrompter {
                 self.enqueue(req)
             } catch {
                 self.logger
-                    .error("failed to decode pairing request: \(error.localizedDescription, privacy: .public)")
+                    .log(
+                        level: .error,
+                        "failed to decode pairing request: \(error.localizedDescription, privacy: .public)")
             }
         case let .event(evt) where evt.event == "node.pair.resolved":
             guard let payload = evt.payload else { return }
@@ -240,7 +246,8 @@ final class NodePairingApprovalPrompter {
                 self.handleResolved(resolved)
             } catch {
                 self.logger
-                    .error(
+                    .log(
+                        level: .error,
                         "failed to decode pairing resolution: \(error.localizedDescription, privacy: .public)")
             }
         case .snapshot:
@@ -275,7 +282,7 @@ final class NodePairingApprovalPrompter {
     }
 
     private func presentAlert(for req: PendingRequest) {
-        self.logger.info("presenting node pairing alert requestId=\(req.requestId, privacy: .public)")
+        self.logger.log(level: .info, "presenting node pairing alert requestId=\(req.requestId, privacy: .public)")
         PairingAlertSupport.presentPairingAlert(
             request: req,
             requestId: req.requestId,
@@ -402,24 +409,28 @@ final class NodePairingApprovalPrompter {
         self.autoApproveAttempts.insert(req.requestId)
 
         guard let target = await self.resolveSSHTarget() else {
-            self.logger.info("silent pairing skipped (no ssh target) requestId=\(req.requestId, privacy: .public)")
+            self.logger.log(
+                level: .info,
+                "silent pairing skipped (no ssh target) requestId=\(req.requestId, privacy: .public)")
             return false
         }
 
         let user = NSUserName().trimmingCharacters(in: .whitespacesAndNewlines)
         guard !user.isEmpty else {
-            self.logger.info("silent pairing skipped (missing local user) requestId=\(req.requestId, privacy: .public)")
+            self.logger.log(
+                level: .info,
+                "silent pairing skipped (missing local user) requestId=\(req.requestId, privacy: .public)")
             return false
         }
 
         let ok = await Self.probeSSH(user: user, host: target.host, port: target.port)
         if !ok {
-            self.logger.info("silent pairing probe failed requestId=\(req.requestId, privacy: .public)")
+            self.logger.log(level: .info, "silent pairing probe failed requestId=\(req.requestId, privacy: .public)")
             return false
         }
 
         guard await self.approve(requestId: req.requestId) else {
-            self.logger.info("silent pairing approve failed requestId=\(req.requestId, privacy: .public)")
+            self.logger.log(level: .info, "silent pairing approve failed requestId=\(req.requestId, privacy: .public)")
             return false
         }
 
@@ -445,7 +456,7 @@ final class NodePairingApprovalPrompter {
                !targetUser.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
                targetUser != user
             {
-                self.logger.info("silent pairing skipped (ssh user mismatch)")
+                self.logger.log(level: .info, "silent pairing skipped (ssh user mismatch)")
                 return nil
             }
             let host = parsed.host.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -564,7 +575,8 @@ final class NodePairingApprovalPrompter {
 
         if self.alertState.activeRequestId == resolved.requestId, self.alertState.activeAlert != nil {
             self.remoteResolutionsByRequestId[resolved.requestId] = resolution
-            self.logger.info(
+            self.logger.log(
+                level: .info,
                 """
                 pairing request resolved elsewhere; closing dialog \
                 requestId=\(resolved.requestId, privacy: .public) \

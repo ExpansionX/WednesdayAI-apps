@@ -7,7 +7,7 @@ import OSLog
 final class MacNodeModeCoordinator {
     static let shared = MacNodeModeCoordinator()
 
-    private let logger = os.Logger(subsystem: "ai.openclaw", category: "mac-node")
+    private let logger = Logging.Logger(subsystem: "ai.openclaw", category: "mac-node")
     private var task: Task<Void, Never>?
     private let runtime = MacNodeRuntime()
     private let session = GatewayNodeSession()
@@ -74,7 +74,7 @@ final class MacNodeModeCoordinator {
                     sessionBox: sessionBox,
                     onConnected: { [weak self] in
                         guard let self else { return }
-                        self.logger.info("mac node connected to gateway")
+                        self.logger.log(level: .info, "mac node connected to gateway")
                         let mainSessionKey = await GatewayConnection.shared.mainSessionKey()
                         await self.runtime.updateMainSessionKey(mainSessionKey)
                         await self.runtime.setEventSender { [weak self] event, payload in
@@ -85,7 +85,7 @@ final class MacNodeModeCoordinator {
                     onDisconnected: { [weak self] reason in
                         guard let self else { return }
                         await self.runtime.setEventSender(nil)
-                        self.logger.error("mac node disconnected: \(reason, privacy: .public)")
+                        self.logger.log(level: .error, "mac node disconnected: \(reason, privacy: .public)")
                     },
                     onInvoke: { [weak self] req in
                         guard let self else {
@@ -100,7 +100,9 @@ final class MacNodeModeCoordinator {
                 retryDelay = 1_000_000_000
                 try? await Task.sleep(nanoseconds: 1_000_000_000)
             } catch {
-                self.logger.error("mac node gateway connect failed: \(error.localizedDescription, privacy: .public)")
+                self.logger.log(
+                    level: .error,
+                    "mac node gateway connect failed: \(error.localizedDescription, privacy: .public)")
                 try? await Task.sleep(nanoseconds: min(retryDelay, 10_000_000_000))
                 retryDelay = min(retryDelay * 2, 10_000_000_000)
             }

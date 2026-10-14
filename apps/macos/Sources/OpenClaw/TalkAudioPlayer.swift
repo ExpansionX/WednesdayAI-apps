@@ -7,7 +7,7 @@ import OSLog
 final class TalkAudioPlayer: NSObject, @preconcurrency AVAudioPlayerDelegate {
     static let shared = TalkAudioPlayer()
 
-    private let logger = os.Logger(subsystem: "ai.openclaw", category: "talk.tts")
+    private let logger = Logging.Logger(subsystem: "ai.openclaw", category: "talk.tts")
     private var player: AVAudioPlayer?
     private var playback: Playback?
 
@@ -95,7 +95,7 @@ final class TalkAudioPlayer: NSObject, @preconcurrency AVAudioPlayerDelegate {
             return
         }
         if let failure {
-            self.logger.error("\(failure, privacy: .public)")
+            self.logger.log(level: .error, "\(failure, privacy: .public)")
         }
         self.player = player
         if player == nil {
@@ -155,7 +155,7 @@ final class TalkAudioPlayer: NSObject, @preconcurrency AVAudioPlayerDelegate {
 
             guard self.playback === playback else { return }
             if self.player?.isPlaying != true {
-                self.logger.error("talk audio player did not start playing")
+                self.logger.log(level: .error, "talk audio player did not start playing")
                 self.finish(playback: playback, result: TalkPlaybackResult(finished: false, interruptedAt: nil))
                 return
             }
@@ -171,7 +171,7 @@ final class TalkAudioPlayer: NSObject, @preconcurrency AVAudioPlayerDelegate {
 
             guard self.playback === playback else { return }
             guard self.player?.isPlaying == true else { return }
-            self.logger.error("talk audio player watchdog fired")
+            self.logger.log(level: .error, "talk audio player watchdog fired")
             self.finish(playback: playback, result: TalkPlaybackResult(finished: false, interruptedAt: nil))
         })
     }

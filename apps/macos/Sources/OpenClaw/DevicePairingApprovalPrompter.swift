@@ -11,7 +11,7 @@ import OSLog
 final class DevicePairingApprovalPrompter {
     static let shared = DevicePairingApprovalPrompter()
 
-    private let logger = os.Logger(subsystem: "ai.openclaw", category: "device-pairing")
+    private let logger = Logging.Logger(subsystem: "ai.openclaw", category: "device-pairing")
     private var task: Task<Void, Never>?
     private var isStopping = false
     private var isPresenting = false
@@ -88,7 +88,9 @@ final class DevicePairingApprovalPrompter {
             let list: PairingList = try await GatewayConnection.shared.requestDecoded(method: .devicePairList)
             await self.apply(list: list)
         } catch {
-            self.logger.error("failed to load device pairing requests: \(error.localizedDescription, privacy: .public)")
+            self.logger.log(
+                level: .error,
+                "failed to load device pairing requests: \(error.localizedDescription, privacy: .public)")
         }
     }
 
@@ -112,7 +114,7 @@ final class DevicePairingApprovalPrompter {
     }
 
     private func presentAlert(for req: PendingRequest) {
-        self.logger.info("presenting device pairing alert requestId=\(req.requestId, privacy: .public)")
+        self.logger.log(level: .info, "presenting device pairing alert requestId=\(req.requestId, privacy: .public)")
         PairingAlertSupport.presentPairingAlert(
             request: req,
             requestId: req.requestId,
@@ -193,7 +195,9 @@ final class DevicePairingApprovalPrompter {
                 self.enqueue(req)
             } catch {
                 self.logger
-                    .error("failed to decode device pairing request: \(error.localizedDescription, privacy: .public)")
+                    .log(
+                        level: .error,
+                        "failed to decode device pairing request: \(error.localizedDescription, privacy: .public)")
             }
         case let .event(evt) where evt.event == "device.pair.resolved":
             guard let payload = evt.payload else { return }
@@ -202,7 +206,8 @@ final class DevicePairingApprovalPrompter {
                 self.handleResolved(resolved)
             } catch {
                 self.logger
-                    .error(
+                    .log(
+                        level: .error,
                         "failed to decode device pairing resolution: \(error.localizedDescription, privacy: .public)")
             }
         default:
@@ -225,7 +230,8 @@ final class DevicePairingApprovalPrompter {
             self.resolvedByRequestId.insert(resolved.requestId)
             self.endActiveAlert()
             let decision = resolution.rawValue
-            self.logger.info(
+            self.logger.log(
+                level: .info,
                 "device pairing resolved while active requestId=\(resolved.requestId, privacy: .public) decision=\(decision, privacy: .public)")
             return
         }

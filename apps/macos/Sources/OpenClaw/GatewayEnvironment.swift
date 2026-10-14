@@ -71,7 +71,7 @@ struct GatewayCommandResolution {
 }
 
 enum GatewayEnvironment {
-    private static let logger = os.Logger(subsystem: "ai.openclaw", category: "gateway.env")
+    private static let logger = Logging.Logger(subsystem: "ai.openclaw", category: "gateway.env")
     private static let supportedBindModes: Set<String> = ["loopback", "tailnet", "lan", "auto"]
 
     static func gatewayPort() -> Int {
@@ -106,9 +106,9 @@ enum GatewayEnvironment {
         defer {
             let elapsedMs = Int(Date().timeIntervalSince(start) * 1000)
             if elapsedMs > 500 {
-                self.logger.warning("gateway env check slow (\(elapsedMs, privacy: .public)ms)")
+                self.logger.log(level: .warning, "gateway env check slow (\(elapsedMs, privacy: .public)ms)")
             } else {
-                self.logger.debug("gateway env check ok (\(elapsedMs, privacy: .public)ms)")
+                self.logger.log(level: .debug, "gateway env check ok (\(elapsedMs, privacy: .public)ms)")
             }
         }
         let expected = self.expectedGatewayVersion()
@@ -176,9 +176,9 @@ enum GatewayEnvironment {
         defer {
             let elapsedMs = Int(Date().timeIntervalSince(start) * 1000)
             if elapsedMs > 500 {
-                self.logger.warning("gateway command resolve slow (\(elapsedMs, privacy: .public)ms)")
+                self.logger.log(level: .warning, "gateway command resolve slow (\(elapsedMs, privacy: .public)ms)")
             } else {
-                self.logger.debug("gateway command resolve ok (\(elapsedMs, privacy: .public)ms)")
+                self.logger.log(level: .debug, "gateway command resolve ok (\(elapsedMs, privacy: .public)ms)")
             }
         }
         let projectRoot = CommandResolver.projectRoot()
@@ -306,13 +306,15 @@ enum GatewayEnvironment {
             let data = try process.runAndReadToEnd(from: pipe)
             let elapsedMs = Int(Date().timeIntervalSince(start) * 1000)
             if elapsedMs > 500 {
-                self.logger.warning(
+                self.logger.log(
+                    level: .warning,
                     """
                     gateway --version slow (\(elapsedMs, privacy: .public)ms) \
                     bin=\(binary, privacy: .public)
                     """)
             } else {
-                self.logger.debug(
+                self.logger.log(
+                    level: .debug,
                     """
                     gateway --version ok (\(elapsedMs, privacy: .public)ms) \
                     bin=\(binary, privacy: .public)
@@ -323,7 +325,8 @@ enum GatewayEnvironment {
             return Semver.parse(raw)
         } catch {
             let elapsedMs = Int(Date().timeIntervalSince(start) * 1000)
-            self.logger.error(
+            self.logger.log(
+                level: .error,
                 """
                 gateway --version failed (\(elapsedMs, privacy: .public)ms) \
                 bin=\(binary, privacy: .public) \

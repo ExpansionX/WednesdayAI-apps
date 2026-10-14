@@ -14,7 +14,7 @@ actor VoiceWakeRuntime {
 
     enum ListeningState { case idle, voiceWake, pushToTalk }
 
-    private let logger = os.Logger(subsystem: "ai.openclaw", category: "voicewake.runtime")
+    private let logger = Logging.Logger(subsystem: "ai.openclaw", category: "voicewake.runtime")
 
     private var recognizer: SFSpeechRecognizer?
     // Lazily created on start to avoid creating an AVAudioEngine at app launch, which can switch Bluetooth
@@ -111,7 +111,7 @@ actor VoiceWakeRuntime {
         }
 
         guard PermissionManager.voiceWakePermissionsGranted() else {
-            self.logger.debug("voicewake runtime not starting: permissions missing")
+            self.logger.log(level: .debug, "voicewake runtime not starting: permissions missing")
             self.stop()
             return
         }
@@ -152,7 +152,7 @@ actor VoiceWakeRuntime {
             self.configureSession(localeID: config.localeID)
 
             guard let recognizer, recognizer.isAvailable else {
-                self.logger.error("voicewake runtime: speech recognizer unavailable")
+                self.logger.log(level: .error, "voicewake runtime: speech recognizer unavailable")
                 return
             }
 
@@ -219,15 +219,18 @@ actor VoiceWakeRuntime {
             }
 
             let preferred = config.micID?.isEmpty == false ? config.micID! : "system-default"
-            self.logger.info(
+            self.logger.log(
+                level: .info,
                 "voicewake runtime input preferred=\(preferred, privacy: .public) \(AudioInputDeviceObserver.defaultInputDeviceSummary(), privacy: .public)")
-            self.logger.info("voicewake runtime started")
+            self.logger.log(level: .info, "voicewake runtime started")
             DiagnosticsFileLog.shared.log(category: "voicewake.runtime", event: "started", fields: [
                 "locale": config.localeID ?? "",
                 "micID": config.micID ?? "",
             ])
         } catch {
-            self.logger.error("voicewake runtime failed to start: \(error.localizedDescription, privacy: .public)")
+            self.logger.log(
+                level: .error,
+                "voicewake runtime failed to start: \(error.localizedDescription, privacy: .public)")
             self.stop()
         }
     }
@@ -254,7 +257,7 @@ actor VoiceWakeRuntime {
         self.currentConfig = nil
         self.listeningState = .idle
         self.activeTriggerEndTime = nil
-        self.logger.debug("voicewake runtime stopped")
+        self.logger.log(level: .debug, "voicewake runtime stopped")
         DiagnosticsFileLog.shared.log(category: "voicewake.runtime", event: "stopped")
 
         let token = self.overlayToken
@@ -280,7 +283,9 @@ actor VoiceWakeRuntime {
             return // stale callback from a superseded recognizer session
         }
         if let error = update.error {
-            self.logger.debug("voicewake recognition error: \(error.localizedDescription, privacy: .public)")
+            self.logger.log(
+                level: .debug,
+                "voicewake recognition error: \(error.localizedDescription, privacy: .public)")
         }
 
         guard let transcript = update.transcript else { return }
@@ -360,9 +365,11 @@ actor VoiceWakeRuntime {
                 return
             }
             if usedFallback {
-                self.logger.info("voicewake runtime detected (text-only fallback) len=\(match.command.count)")
+                self.logger.log(
+                    level: .info,
+                    "voicewake runtime detected (text-only fallback) len=\(match.command.count)")
             } else {
-                self.logger.info("voicewake runtime detected len=\(match.command.count)")
+                self.logger.log(level: .info, "voicewake runtime detected len=\(match.command.count)")
             }
             await self.beginCapture(command: match.command, triggerEndTime: match.triggerEndTime, config: config)
         } else if !transcript.isEmpty, update.error == nil {
@@ -409,9 +416,11 @@ actor VoiceWakeRuntime {
             return "\(seg.text)@\(start)-\(end)"
         }.joined(separator: ", ")
 
-        self.logger.debug(
+        self.logger.log(
+            level: .debug,
             "voicewake runtime transcript='\(transcript, privacy: .private)' textOnly=\(summary.textOnly) isFinal=\(isFinal) timing=\(summary.timingCount)/\(segments.count) capturing=\(capturing) fallback=\(usedFallback)")
-        self.logger.debug(
+        self.logger.log(
+            level: .debug,
             "voicewake runtime segments \(matchSummary) segments=[\(segmentSummary, privacy: .private)]")
     }
 
@@ -422,7 +431,8 @@ actor VoiceWakeRuntime {
         }
         self.lastTapLogAt = now
         let db = 20 * log10(max(rms, 1e-7))
-        self.logger.debug(
+        self.logger.log(
+            level: .debug,
             "voicewake runtime audio tap rms=\(String(format: "%.6f", rms)) db=\(String(format: "%.1f", db)) capturing=\(self.isCapturing)")
     }
 
@@ -434,7 +444,8 @@ actor VoiceWakeRuntime {
         }
         self.lastCallbackLogAt = now
         let errorSummary = error?.localizedDescription ?? "none"
-        self.logger.debug(
+        self.logger.log(
+            level: .debug,
             "voicewake runtime callback empty transcript isFinal=\(isFinal) error=\(errorSummary, privacy: .public)")
     }
 
@@ -489,7 +500,7 @@ actor VoiceWakeRuntime {
         if let cooldown = self.cooldownUntil, Date() < cooldown {
             return
         }
-        self.logger.info("voicewake runtime detected (trigger-only pause)")
+        self.logger.log(level: .info, "voicewake runtime detected (trigger-only pause)")
         await self.beginCapture(command: "", triggerEndTime: nil, config: config)
     }
 
@@ -519,7 +530,7 @@ actor VoiceWakeRuntime {
         if let cooldown = self.cooldownUntil, Date() < cooldown {
             return
         }
-        self.logger.info("voicewake runtime detected (silence fallback) len=\(match.command.count)")
+        self.logger.log(level: .info, "voicewake runtime detected (silence fallback) len=\(match.command.count)")
         await self.beginCapture(
             command: match.command,
             triggerEndTime: match.triggerEndTime,

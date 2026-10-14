@@ -6,7 +6,7 @@ import OSLog
 @MainActor
 final class CLIInstallPrompter {
     static let shared = CLIInstallPrompter()
-    private let logger = os.Logger(subsystem: "ai.openclaw", category: "cli.prompt")
+    private let logger = Logging.Logger(subsystem: "ai.openclaw", category: "cli.prompt")
     private var isPrompting = false
 
     func checkAndPromptIfNeeded(reason: String) {
@@ -32,7 +32,7 @@ final class CLIInstallPrompter {
             break
         }
 
-        self.logger.debug("cli install prompt handled reason=\(reason, privacy: .public)")
+        self.logger.log(level: .debug, "cli install prompt handled reason=\(reason, privacy: .public)")
         self.isPrompting = false
     }
 

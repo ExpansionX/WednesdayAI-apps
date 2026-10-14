@@ -73,7 +73,7 @@ enum HealthState: Equatable {
 final class HealthStore {
     static let shared = HealthStore()
 
-    private static let logger = os.Logger(subsystem: "ai.openclaw", category: "health")
+    private static let logger = Logging.Logger(subsystem: "ai.openclaw", category: "health")
 
     private(set) var snapshot: HealthSnapshot?
     private(set) var lastSuccess: Date?
@@ -126,13 +126,13 @@ final class HealthStore {
                 self.lastSuccess = Date()
                 self.lastError = nil
                 if previousError != nil {
-                    Self.logger.info("health refresh recovered")
+                    Self.logger.log(level: .info, "health refresh recovered")
                 }
             } else {
                 self.lastError = "health output not JSON"
                 if onDemand { self.snapshot = nil }
                 if previousError != self.lastError {
-                    Self.logger.warning("health refresh failed: output not JSON")
+                    Self.logger.log(level: .warning, "health refresh failed: output not JSON")
                 }
             }
         } catch {
@@ -140,7 +140,7 @@ final class HealthStore {
             self.lastError = desc
             if onDemand { self.snapshot = nil }
             if previousError != desc {
-                Self.logger.error("health refresh failed \(desc, privacy: .public)")
+                Self.logger.log(level: .error, "health refresh failed \(desc, privacy: .public)")
             }
         }
     }

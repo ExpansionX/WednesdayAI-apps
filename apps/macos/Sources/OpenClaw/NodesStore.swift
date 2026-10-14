@@ -47,7 +47,7 @@ final class NodesStore {
     var statusMessage: String?
     var isLoading = false
 
-    private let logger = os.Logger(subsystem: "ai.openclaw", category: "nodes")
+    private let logger = Logging.Logger(subsystem: "ai.openclaw", category: "nodes")
     private var task: Task<Void, Never>?
     private let interval: TimeInterval = 30
     private var startCount = 0
@@ -81,14 +81,14 @@ final class NodesStore {
             self.statusMessage = nil
         } catch {
             if Self.isCancelled(error) {
-                self.logger.debug("node.list cancelled; keeping last nodes")
+                self.logger.log(level: .debug, "node.list cancelled; keeping last nodes")
                 if self.nodes.isEmpty {
                     self.statusMessage = "Refreshing devices…"
                 }
                 self.lastError = nil
                 return
             }
-            self.logger.error("node.list failed \(error.localizedDescription, privacy: .public)")
+            self.logger.log(level: .error, "node.list failed \(error.localizedDescription, privacy: .public)")
             self.nodes = []
             self.lastError = error.localizedDescription
             self.statusMessage = nil

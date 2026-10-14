@@ -8,7 +8,7 @@ import OSLog
 import QuartzCore
 import SwiftUI
 
-private let webChatSwiftLogger = os.Logger(subsystem: "ai.openclaw", category: "WebChatSwiftUI")
+private let webChatSwiftLogger = Logging.Logger(subsystem: "ai.openclaw", category: "WebChatSwiftUI")
 
 private enum WebChatSwiftUILayout {
     static let windowSize = NSSize(width: 500, height: 840)
@@ -72,7 +72,9 @@ struct MacGatewayChatTransport: OpenClawChatTransport, Sendable {
                 do {
                     try await GatewayConnection.shared.refresh()
                 } catch {
-                    webChatSwiftLogger.error("gateway refresh failed \(error.localizedDescription, privacy: .public)")
+                    webChatSwiftLogger.log(
+                        level: .error,
+                        "gateway refresh failed \(error.localizedDescription, privacy: .public)")
                 }
 
                 let stream = await GatewayConnection.shared.subscribe()

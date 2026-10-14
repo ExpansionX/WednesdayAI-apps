@@ -3,7 +3,7 @@ import os
 import OSLog
 
 enum VoiceWakeForwarder {
-    private static let logger = os.Logger(subsystem: "ai.openclaw", category: "voicewake.forward")
+    private static let logger = Logging.Logger(subsystem: "ai.openclaw", category: "voicewake.forward")
 
     static func prefixedTranscript(_ transcript: String, machineName: String? = nil) -> String {
         let resolvedMachine = machineName
@@ -57,12 +57,12 @@ enum VoiceWakeForwarder {
             channel: options.channel))
 
         if result.ok {
-            self.logger.info("voice wake forward ok")
+            self.logger.log(level: .info, "voice wake forward ok")
             return .success(())
         }
 
         let message = result.error ?? "agent rpc unavailable"
-        self.logger.error("voice wake forward failed: \(message, privacy: .public)")
+        self.logger.log(level: .error, "voice wake forward failed: \(message, privacy: .public)")
         return .failure(.rpcFailed(message))
     }
 

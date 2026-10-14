@@ -6,7 +6,7 @@ import UserNotifications
 
 @MainActor
 struct NotificationManager {
-    private let logger = os.Logger(subsystem: "ai.openclaw", category: "notifications")
+    private let logger = Logging.Logger(subsystem: "ai.openclaw", category: "notifications")
 
     private static let hasTimeSensitiveEntitlement: Bool = {
         guard let task = SecTaskCreateFromSelf(nil) else { return false }
@@ -21,11 +21,13 @@ struct NotificationManager {
         if status.authorizationStatus == .notDetermined {
             let granted = try? await center.requestAuthorization(options: [.alert, .sound, .badge])
             if granted != true {
-                self.logger.warning("notification permission denied (request)")
+                self.logger.log(level: .warning, "notification permission denied (request)")
                 return false
             }
         } else if status.authorizationStatus != .authorized {
-            self.logger.warning("notification permission denied status=\(status.authorizationStatus.rawValue)")
+            self.logger.log(
+                level: .warning,
+                "notification permission denied status=\(status.authorizationStatus.rawValue)")
             return false
         }
 
@@ -47,7 +49,8 @@ struct NotificationManager {
                 if Self.hasTimeSensitiveEntitlement {
                     content.interruptionLevel = .timeSensitive
                 } else {
-                    self.logger.debug(
+                    self.logger.log(
+                        level: .debug,
                         "time-sensitive notification requested without entitlement; falling back to active")
                     content.interruptionLevel = .active
                 }
@@ -57,10 +60,10 @@ struct NotificationManager {
         let req = UNNotificationRequest(identifier: UUID().uuidString, content: content, trigger: nil)
         do {
             try await center.add(req)
-            self.logger.debug("notification queued")
+            self.logger.log(level: .debug, "notification queued")
             return true
         } catch {
-            self.logger.error("notification send failed: \(error.localizedDescription)")
+            self.logger.log(level: .error, "notification send failed: \(error.localizedDescription)")
             return false
         }
     }

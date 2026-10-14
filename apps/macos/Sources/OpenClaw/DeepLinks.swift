@@ -5,7 +5,7 @@ import os
 import OSLog
 import Security
 
-private let deepLinkLogger = os.Logger(subsystem: "ai.openclaw", category: "DeepLink")
+private let deepLinkLogger = Logging.Logger(subsystem: "ai.openclaw", category: "DeepLink")
 
 enum DeepLinkAgentPolicy {
     static let maxMessageChars = 20000
@@ -57,7 +57,7 @@ final class DeepLinkHandler {
 
     func handle(url: URL) async {
         guard let route = DeepLinkParser.parse(url) else {
-            deepLinkLogger.debug("ignored url \(url.absoluteString, privacy: .public)")
+            deepLinkLogger.log(level: .debug, "ignored url \(url.absoluteString, privacy: .public)")
             return
         }
         guard !AppStateStore.shared.isPaused else {
@@ -83,7 +83,7 @@ final class DeepLinkHandler {
         let allowUnattended = link.key == Self.canvasUnattendedKey || link.key == Self.expectedKey()
         if !allowUnattended {
             if Date().timeIntervalSince(self.lastPromptAt) < 1.0 {
-                deepLinkLogger.debug("throttling deep link prompt")
+                deepLinkLogger.log(level: .debug, "throttling deep link prompt")
                 return
             }
             self.lastPromptAt = Date()

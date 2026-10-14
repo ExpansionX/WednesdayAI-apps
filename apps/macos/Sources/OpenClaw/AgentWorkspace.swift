@@ -3,7 +3,7 @@ import os
 import OSLog
 
 enum AgentWorkspace {
-    private static let logger = os.Logger(subsystem: "ai.openclaw", category: "workspace")
+    private static let logger = Logging.Logger(subsystem: "ai.openclaw", category: "workspace")
     static let agentsFilename = "AGENTS.md"
     static let soulFilename = "SOUL.md"
     static let identityFilename = "IDENTITY.md"
@@ -98,27 +98,27 @@ enum AgentWorkspace {
         let agentsURL = self.agentsURL(workspaceURL: workspaceURL)
         if !FileManager().fileExists(atPath: agentsURL.path) {
             try self.defaultTemplate().write(to: agentsURL, atomically: true, encoding: .utf8)
-            self.logger.info("Created AGENTS.md at \(agentsURL.path, privacy: .public)")
+            self.logger.log(level: .info, "Created AGENTS.md at \(agentsURL.path, privacy: .public)")
         }
         let soulURL = workspaceURL.appendingPathComponent(self.soulFilename)
         if !FileManager().fileExists(atPath: soulURL.path) {
             try self.defaultSoulTemplate().write(to: soulURL, atomically: true, encoding: .utf8)
-            self.logger.info("Created SOUL.md at \(soulURL.path, privacy: .public)")
+            self.logger.log(level: .info, "Created SOUL.md at \(soulURL.path, privacy: .public)")
         }
         let identityURL = workspaceURL.appendingPathComponent(self.identityFilename)
         if !FileManager().fileExists(atPath: identityURL.path) {
             try self.defaultIdentityTemplate().write(to: identityURL, atomically: true, encoding: .utf8)
-            self.logger.info("Created IDENTITY.md at \(identityURL.path, privacy: .public)")
+            self.logger.log(level: .info, "Created IDENTITY.md at \(identityURL.path, privacy: .public)")
         }
         let userURL = workspaceURL.appendingPathComponent(self.userFilename)
         if !FileManager().fileExists(atPath: userURL.path) {
             try self.defaultUserTemplate().write(to: userURL, atomically: true, encoding: .utf8)
-            self.logger.info("Created USER.md at \(userURL.path, privacy: .public)")
+            self.logger.log(level: .info, "Created USER.md at \(userURL.path, privacy: .public)")
         }
         let bootstrapURL = workspaceURL.appendingPathComponent(self.bootstrapFilename)
         if shouldSeedBootstrap, !FileManager().fileExists(atPath: bootstrapURL.path) {
             try self.defaultBootstrapTemplate().write(to: bootstrapURL, atomically: true, encoding: .utf8)
-            self.logger.info("Created BOOTSTRAP.md at \(bootstrapURL.path, privacy: .public)")
+            self.logger.log(level: .info, "Created BOOTSTRAP.md at \(bootstrapURL.path, privacy: .public)")
         }
         return agentsURL
     }

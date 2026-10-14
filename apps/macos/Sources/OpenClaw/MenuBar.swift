@@ -12,7 +12,7 @@ import SwiftUI
 struct OpenClawApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var delegate
     @State private var state: AppState
-    private static let logger = os.Logger(subsystem: "ai.openclaw", category: "app")
+    private static let logger = Logging.Logger(subsystem: "ai.openclaw", category: "app")
     private let gatewayManager = GatewayProcessManager.shared
     private let controlChannel = ControlChannel.shared
     private let activityStore = WorkActivityStore.shared
@@ -100,7 +100,7 @@ struct OpenClawApp: App {
         let args = CommandLine.arguments
         guard args.contains("--attach-only") || args.contains("--no-launchd") else { return }
         if let error = GatewayLaunchAgentManager.setLaunchAgentWriteDisabled(true) {
-            Self.logger.error("attach-only flag failed: \(error, privacy: .public)")
+            Self.logger.log(level: .error, "attach-only flag failed: \(error, privacy: .public)")
             return
         }
         Task {
@@ -109,7 +109,7 @@ struct OpenClawApp: App {
                 bundlePath: Bundle.main.bundlePath,
                 port: GatewayEnvironment.gatewayPort())
         }
-        Self.logger.info("attach-only flag enabled")
+        Self.logger.log(level: .info, "attach-only flag enabled")
     }
 
     private var isGatewaySleeping: Bool {
@@ -244,7 +244,7 @@ private final class StatusItemMouseHandlerView: NSView {
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private var state: AppState?
-    private let webChatAutoLogger = os.Logger(subsystem: "ai.openclaw", category: "Chat")
+    private let webChatAutoLogger = Logging.Logger(subsystem: "ai.openclaw", category: "Chat")
     let updaterController: UpdaterProviding = makeUpdaterController()
 
     func application(_: NSApplication, open urls: [URL]) {
@@ -284,7 +284,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         // Developer/testing helper: auto-open chat when launched with --chat (or legacy --webchat).
         if CommandLine.arguments.contains("--chat") || CommandLine.arguments.contains("--webchat") {
-            self.webChatAutoLogger.debug("Auto-opening chat via CLI flag")
+            self.webChatAutoLogger.log(level: .debug, "Auto-opening chat via CLI flag")
             Task { @MainActor in
                 let sessionKey = await WebChatManager.shared.preferredSessionKey()
                 WebChatManager.shared.show(sessionKey: sessionKey)

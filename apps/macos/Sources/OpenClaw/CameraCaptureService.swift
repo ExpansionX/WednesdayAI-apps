@@ -37,7 +37,7 @@ actor CameraCaptureService {
         }
     }
 
-    private let logger = os.Logger(subsystem: "ai.openclaw", category: "camera")
+    private let logger = Logging.Logger(subsystem: "ai.openclaw", category: "camera")
 
     func listDevices() -> [CameraDeviceInfo] {
         Self.availableCameras().map { device in
@@ -342,9 +342,9 @@ private final class PhotoCaptureDelegate: NSObject, AVCapturePhotoCaptureDelegat
 
 private final class MovieFileDelegate: NSObject, AVCaptureFileOutputRecordingDelegate {
     private var cont: CheckedContinuation<URL, Error>?
-    private let logger: os.Logger
+    private let logger: Logging.Logger
 
-    init(_ cont: CheckedContinuation<URL, Error>, logger: os.Logger) {
+    init(_ cont: CheckedContinuation<URL, Error>, logger: Logging.Logger) {
         self.cont = cont
         self.logger = logger
     }
@@ -367,7 +367,7 @@ private final class MovieFileDelegate: NSObject, AVCaptureFileOutputRecordingDel
                 return
             }
 
-            self.logger.error("camera record failed: \(error.localizedDescription, privacy: .public)")
+            self.logger.log(level: .error, "camera record failed: \(error.localizedDescription, privacy: .public)")
             cont.resume(throwing: error)
             return
         }

@@ -46,7 +46,7 @@ final class GatewayProcessManager {
     #if DEBUG
     private var testingConnection: GatewayConnection?
     #endif
-    private let logger = os.Logger(subsystem: "ai.openclaw", category: "gateway.process")
+    private let logger = Logging.Logger(subsystem: "ai.openclaw", category: "gateway.process")
 
     private let logLimit = 20000 // characters to keep in-memory
     private let environmentRefreshMinInterval: TimeInterval = 30
@@ -65,10 +65,10 @@ final class GatewayProcessManager {
             self.stop()
             self.status = .stopped
             self.appendLog("[gateway] remote mode active; skipping local gateway\n")
-            self.logger.info("gateway process skipped: remote mode active")
+            self.logger.log(level: .info, "gateway process skipped: remote mode active")
             return
         }
-        self.logger.debug("gateway active requested active=\(active)")
+        self.logger.log(level: .debug, "gateway active requested active=\(active)")
         self.desiredActive = active
         self.refreshEnvironmentStatus()
         if active {
@@ -82,7 +82,7 @@ final class GatewayProcessManager {
         guard !CommandResolver.connectionModeIsRemote() else { return }
         if GatewayLaunchAgentManager.isLaunchAgentWriteDisabled() {
             self.appendLog("[gateway] launchd auto-enable skipped (attach-only)\n")
-            self.logger.info("gateway launchd auto-enable skipped (disable marker set)")
+            self.logger.log(level: .info, "gateway launchd auto-enable skipped (disable marker set)")
             return
         }
         let enabled = await GatewayLaunchAgentManager.isLoaded()
@@ -112,7 +112,7 @@ final class GatewayProcessManager {
             break
         }
         self.status = .starting
-        self.logger.debug("gateway start requested")
+        self.logger.log(level: .debug, "gateway start requested")
 
         // First try to latch onto an already-running gateway to avoid spawning a duplicate.
         Task { [weak self] in
@@ -129,7 +129,7 @@ final class GatewayProcessManager {
         self.existingGatewayDetails = nil
         self.lastFailureReason = nil
         self.status = .stopped
-        self.logger.info("gateway stop requested")
+        self.logger.log(level: .info, "gateway stop requested")
         if CommandResolver.connectionModeIsRemote() {
             return
         }
@@ -210,7 +210,7 @@ final class GatewayProcessManager {
                 self.clearLastFailure()
                 self.status = .attachedExisting(details: details)
                 self.appendLog("[gateway] using existing instance: \(details)\n")
-                self.logger.info("gateway using existing instance details=\(details)")
+                self.logger.log(level: .info, "gateway using existing instance details=\(details)")
                 self.refreshControlChannelIfNeeded(reason: "attach existing")
                 self.refreshLog()
                 return true
@@ -226,7 +226,7 @@ final class GatewayProcessManager {
                     self.status = .failed(reason)
                     self.lastFailureReason = reason
                     self.appendLog("[gateway] existing listener on port \(port) but attach failed: \(reason)\n")
-                    self.logger.warning("gateway attach failed reason=\(reason)")
+                    self.logger.log(level: .warning, "gateway attach failed reason=\(reason)")
                     return true
                 }
 
@@ -308,7 +308,7 @@ final class GatewayProcessManager {
             await MainActor.run {
                 self.status = .failed(resolution.status.message)
             }
-            self.logger.error("gateway command resolve failed: \(resolution.status.message)")
+            self.logger.log(level: .error, "gateway command resolve failed: \(resolution.status.message)")
             return
         }
 
@@ -317,19 +317,19 @@ final class GatewayProcessManager {
             self.status = .failed(message)
             self.lastFailureReason = "launchd disabled"
             self.appendLog("[gateway] launchd disabled; skipping auto-start\n")
-            self.logger.info("gateway launchd enable skipped (disable marker set)")
+            self.logger.log(level: .info, "gateway launchd enable skipped (disable marker set)")
             return
         }
 
         let bundlePath = Bundle.main.bundleURL.path
         let port = GatewayEnvironment.gatewayPort()
         self.appendLog("[gateway] enabling launchd job (\(gatewayLaunchdLabel)) on port \(port)\n")
-        self.logger.info("gateway enabling launchd port=\(port)")
+        self.logger.log(level: .info, "gateway enabling launchd port=\(port)")
         let err = await GatewayLaunchAgentManager.set(enabled: true, bundlePath: bundlePath, port: port)
         if let err {
             self.status = .failed(err)
             self.lastFailureReason = err
-            self.logger.error("gateway launchd enable failed: \(err)")
+            self.logger.log(level: .error, "gateway launchd enable failed: \(err)")
             return
         }
 
@@ -343,7 +343,7 @@ final class GatewayProcessManager {
                 let details = instance.map { "pid \($0.pid)" }
                 self.clearLastFailure()
                 self.status = .running(details: details)
-                self.logger.info("gateway started details=\(details ?? "ok")")
+                self.logger.log(level: .info, "gateway started details=\(details ?? "ok")")
                 self.refreshControlChannelIfNeeded(reason: "gateway started")
                 self.refreshLog()
                 return
@@ -354,7 +354,7 @@ final class GatewayProcessManager {
 
         self.status = .failed("Gateway did not start in time")
         self.lastFailureReason = "launchd start timeout"
-        self.logger.warning("gateway start timed out")
+        self.logger.log(level: .warning, "gateway start timed out")
     }
 
     private func appendLog(_ chunk: String) {
@@ -372,7 +372,7 @@ final class GatewayProcessManager {
             break
         }
         self.appendLog("[gateway] refreshing control channel (\(reason))\n")
-        self.logger.debug("gateway control channel refresh reason=\(reason)")
+        self.logger.log(level: .debug, "gateway control channel refresh reason=\(reason)")
         Task { await ControlChannel.shared.configure() }
     }
 
@@ -389,14 +389,14 @@ final class GatewayProcessManager {
             }
         }
         self.appendLog("[gateway] readiness wait timed out\n")
-        self.logger.warning("gateway readiness wait timed out")
+        self.logger.log(level: .warning, "gateway readiness wait timed out")
         return false
     }
 
     func clearLog() {
         self.log = ""
         try? FileManager().removeItem(atPath: GatewayLaunchAgentManager.launchdGatewayLogPath())
-        self.logger.debug("gateway log cleared")
+        self.logger.log(level: .debug, "gateway log cleared")
     }
 
     func setProjectRoot(path: String) {

@@ -10,7 +10,7 @@ import Darwin
 ///
 /// Uses `ssh -N -L` to forward the remote gateway ports to localhost.
 final class RemotePortTunnel {
-    private static let logger = os.Logger(subsystem: "ai.openclaw", category: "remote.tunnel")
+    private static let logger = Logging.Logger(subsystem: "ai.openclaw", category: "remote.tunnel")
 
     let process: Process
     let localPort: UInt16?
@@ -63,10 +63,12 @@ final class RemotePortTunnel {
             : nil
         let resolvedRemotePort = remotePortOverride ?? remotePort
         if let override = remotePortOverride {
-            Self.logger.info(
+            Self.logger.log(
+                level: .info,
                 "ssh tunnel remote port override host=\(sshHost, privacy: .public) port=\(override, privacy: .public)")
         } else {
-            Self.logger.debug(
+            Self.logger.log(
+                level: .debug,
                 "ssh tunnel using default remote port host=\(sshHost, privacy: .public) port=\(remotePort, privacy: .public)")
         }
         let options: [String] = [
@@ -106,7 +108,7 @@ final class RemotePortTunnel {
                 .trimmingCharacters(in: .whitespacesAndNewlines),
                 !line.isEmpty
             else { return }
-            Self.logger.error("ssh tunnel stderr: \(line, privacy: .public)")
+            Self.logger.log(level: .error, "ssh tunnel stderr: \(line, privacy: .public)")
         }
         process.terminationHandler = { _ in
             Self.cleanupStderr(stderrHandle)
@@ -155,7 +157,8 @@ final class RemotePortTunnel {
         let urlKey = OpenClawConfigFile.hostKey(host)
         guard !sshKey.isEmpty, !urlKey.isEmpty else { return nil }
         guard sshKey == urlKey else {
-            Self.logger.debug(
+            Self.logger.log(
+                level: .debug,
                 "remote url host mismatch sshHost=\(sshHost, privacy: .public) urlHost=\(host, privacy: .public)")
             return nil
         }
@@ -288,7 +291,7 @@ final class RemotePortTunnel {
             return String(data: data, encoding: .utf8)?
                 .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         } catch {
-            self.logger.debug("Failed to drain ssh stderr: \(error, privacy: .public)")
+            self.logger.log(level: .debug, "Failed to drain ssh stderr: \(error, privacy: .public)")
             return ""
         }
     }

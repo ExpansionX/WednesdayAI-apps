@@ -6,13 +6,13 @@ import os
 final class TalkModeController {
     static let shared = TalkModeController()
 
-    private let logger = os.Logger(subsystem: "ai.openclaw", category: "talk.controller")
+    private let logger = Logging.Logger(subsystem: "ai.openclaw", category: "talk.controller")
 
     private(set) var phase: TalkModePhase = .idle
     private(set) var isPaused: Bool = false
 
     func setEnabled(_ enabled: Bool) async {
-        self.logger.info("talk enabled=\(enabled)")
+        self.logger.log(level: .info, "talk enabled=\(enabled)")
         if enabled {
             TalkOverlayController.shared.present()
         } else {
@@ -38,7 +38,7 @@ final class TalkModeController {
 
     func setPaused(_ paused: Bool) {
         guard self.isPaused != paused else { return }
-        self.logger.info("talk paused=\(paused)")
+        self.logger.log(level: .info, "talk paused=\(paused)")
         self.isPaused = paused
         TalkOverlayController.shared.updatePaused(paused)
         let effectivePhase = paused ? "paused" : self.phase.rawValue

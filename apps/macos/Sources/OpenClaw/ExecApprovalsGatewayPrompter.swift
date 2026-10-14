@@ -9,7 +9,7 @@ import OSLog
 final class ExecApprovalsGatewayPrompter {
     static let shared = ExecApprovalsGatewayPrompter()
 
-    private let logger = os.Logger(subsystem: "ai.openclaw", category: "exec-approvals.gateway")
+    private let logger = Logging.Logger(subsystem: "ai.openclaw", category: "exec-approvals.gateway")
     private var task: Task<Void, Never>?
 
     struct GatewayApprovalRequest: Codable, Sendable {
@@ -54,7 +54,9 @@ final class ExecApprovalsGatewayPrompter {
                 ],
                 timeoutMs: 10000)
         } catch {
-            self.logger.error("exec approval handling failed \(error.localizedDescription, privacy: .public)")
+            self.logger.log(
+                level: .error,
+                "exec approval handling failed \(error.localizedDescription, privacy: .public)")
         }
     }
 

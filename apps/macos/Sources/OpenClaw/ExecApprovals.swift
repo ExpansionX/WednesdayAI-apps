@@ -221,7 +221,7 @@ struct ExecApprovalsResolvedDefaults {
 }
 
 enum ExecApprovalsStore {
-    private static let logger = os.Logger(subsystem: "ai.openclaw", category: "exec-approvals")
+    private static let logger = Logging.Logger(subsystem: "ai.openclaw", category: "exec-approvals")
     private static let defaultAgentId = "main"
     private static let defaultSecurity: ExecSecurity = .deny
     private static let defaultAsk: ExecAsk = .onMiss
@@ -323,7 +323,9 @@ enum ExecApprovalsStore {
             }
             return decoded
         } catch {
-            self.logger.warning("exec approvals load failed: \(error.localizedDescription, privacy: .public)")
+            self.logger.log(
+                level: .warning,
+                "exec approvals load failed: \(error.localizedDescription, privacy: .public)")
             return ExecApprovalsFile(version: 1, socket: nil, defaults: nil, agents: [:])
         }
     }
@@ -341,7 +343,9 @@ enum ExecApprovalsStore {
             try data.write(to: url, options: [.atomic])
             try? FileManager().setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
         } catch {
-            self.logger.error("exec approvals save failed: \(error.localizedDescription, privacy: .public)")
+            self.logger.log(
+                level: .error,
+                "exec approvals save failed: \(error.localizedDescription, privacy: .public)")
         }
     }
 
@@ -539,7 +543,8 @@ enum ExecApprovalsStore {
             let message =
                 "exec approvals state dir permission hardening failed: \(error.localizedDescription)"
             self.logger
-                .warning(
+                .log(
+                    level: .warning,
                     "\(message, privacy: .public)")
         }
     }

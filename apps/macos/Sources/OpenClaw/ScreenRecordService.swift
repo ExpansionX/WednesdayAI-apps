@@ -27,7 +27,7 @@ final class ScreenRecordService {
         }
     }
 
-    private let logger = os.Logger(subsystem: "ai.openclaw", category: "screenRecord")
+    private let logger = Logging.Logger(subsystem: "ai.openclaw", category: "screenRecord")
 
     func record(
         screenIndex: Int?,
@@ -81,7 +81,8 @@ final class ScreenRecordService {
             try stream.addStreamOutput(recorder, type: .audio, sampleHandlerQueue: recorder.queue)
         }
 
-        self.logger.info(
+        self.logger.log(
+            level: .info,
             "screen record start idx=\(idx) durationMs=\(durationMs) fps=\(fps) out=\(outURL.path, privacy: .public)")
 
         var started = false
@@ -103,7 +104,7 @@ final class ScreenRecordService {
 private final class StreamRecorder: NSObject, SCStreamOutput, SCStreamDelegate, @unchecked Sendable {
     let queue = DispatchQueue(label: "ai.openclaw.screenRecord.writer")
 
-    private let logger: os.Logger
+    private let logger: Logging.Logger
     private let writer: AVAssetWriter
     private let input: AVAssetWriterInput
     private let audioInput: AVAssetWriterInput?
@@ -114,7 +115,7 @@ private final class StreamRecorder: NSObject, SCStreamOutput, SCStreamDelegate, 
     private var didFinish = false
     private var pendingErrorMessage: String?
 
-    init(outputURL: URL, width: Int, height: Int, includeAudio: Bool, logger: os.Logger) throws {
+    init(outputURL: URL, width: Int, height: Int, includeAudio: Bool, logger: Logging.Logger) throws {
         self.logger = logger
         self.writer = try AVAssetWriter(outputURL: outputURL, fileType: .mp4)
 
@@ -159,7 +160,7 @@ private final class StreamRecorder: NSObject, SCStreamOutput, SCStreamDelegate, 
         self.queue.async {
             let msg = String(describing: error)
             self.pendingErrorMessage = msg
-            self.logger.error("screen record stream stopped with error: \(msg, privacy: .public)")
+            self.logger.log(level: .error, "screen record stream stopped with error: \(msg, privacy: .public)")
             _ = stream
         }
     }
@@ -186,7 +187,7 @@ private final class StreamRecorder: NSObject, SCStreamOutput, SCStreamDelegate, 
 
     private func handleVideo(sampleBuffer: CMSampleBuffer) {
         if let msg = self.pendingErrorMessage {
-            self.logger.error("screen record aborting due to prior error: \(msg, privacy: .public)")
+            self.logger.log(level: .error, "screen record aborting due to prior error: \(msg, privacy: .public)")
             return
         }
         if self.didFinish { return }
@@ -210,7 +211,7 @@ private final class StreamRecorder: NSObject, SCStreamOutput, SCStreamDelegate, 
     private func handleAudio(sampleBuffer: CMSampleBuffer) {
         guard let audioInput else { return }
         if let msg = self.pendingErrorMessage {
-            self.logger.error("screen record audio aborting due to prior error: \(msg, privacy: .public)")
+            self.logger.log(level: .error, "screen record audio aborting due to prior error: \(msg, privacy: .public)")
             return
         }
         if self.didFinish || !self.started { return }

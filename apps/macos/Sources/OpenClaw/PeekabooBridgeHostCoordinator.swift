@@ -9,7 +9,7 @@ import Security
 final class PeekabooBridgeHostCoordinator {
     static let shared = PeekabooBridgeHostCoordinator()
 
-    private let logger = os.Logger(subsystem: "ai.openclaw", category: "PeekabooBridge")
+    private let logger = Logging.Logger(subsystem: "ai.openclaw", category: "PeekabooBridge")
 
     private var host: PeekabooBridgeHost?
     private var services: OpenClawPeekabooBridgeServices?
@@ -50,7 +50,7 @@ final class PeekabooBridgeHostCoordinator {
         await host.stop()
         self.host = nil
         self.services = nil
-        self.logger.info("PeekabooBridge host stopped")
+        self.logger.log(level: .info, "PeekabooBridge host stopped")
     }
 
     private func startIfNeeded() async {
@@ -82,7 +82,7 @@ final class PeekabooBridgeHostCoordinator {
 
         await host.start()
         self.logger
-            .info("PeekabooBridge host started at \(Self.openclawSocketPath, privacy: .public)")
+            .log(level: .info, "PeekabooBridge host started at \(Self.openclawSocketPath, privacy: .public)")
     }
 
     private func ensureLegacySocketSymlinks() {
@@ -119,7 +119,7 @@ final class PeekabooBridgeHostCoordinator {
         } catch {
             let message = "Failed to create legacy PeekabooBridge socket symlink: \(error.localizedDescription)"
             self.logger
-                .debug("\(message, privacy: .public)")
+                .log(level: .debug, "\(message, privacy: .public)")
         }
     }
 

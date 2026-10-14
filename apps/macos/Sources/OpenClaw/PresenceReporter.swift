@@ -7,7 +7,7 @@ import OSLog
 final class PresenceReporter {
     static let shared = PresenceReporter()
 
-    private let logger = os.Logger(subsystem: "ai.openclaw", category: "presence")
+    private let logger = Logging.Logger(subsystem: "ai.openclaw", category: "presence")
     private var task: Task<Void, Never>?
     private let interval: TimeInterval = 180 // a few minutes
     private let instanceId: String = InstanceIdentity.instanceId
@@ -53,7 +53,7 @@ final class PresenceReporter {
         do {
             try await ControlChannel.shared.sendSystemEvent(text, params: params)
         } catch {
-            self.logger.error("presence send failed: \(error.localizedDescription, privacy: .public)")
+            self.logger.log(level: .error, "presence send failed: \(error.localizedDescription, privacy: .public)")
         }
     }
 
