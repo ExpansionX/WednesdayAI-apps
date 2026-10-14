@@ -1,5 +1,5 @@
 // Generated file. Do not edit directly.
-// Source: src/infra/host-env-security-policy.json
+// Source: apps/shared/contracts/host-env-security-policy.json (synced from WednesdayAI-core)
 // Regenerate: node scripts/generate-host-env-security-policy-swift.mjs --write
 
 import Foundation

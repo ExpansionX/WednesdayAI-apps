@@ -1,29 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildBuildInfo, FORK_BASE } from "./version-derive.ts";
-
-describe("buildBuildInfo", () => {
-  it("includes version, commit, channel, forkBase and an ISO builtAt", () => {
-    const info = buildBuildInfo({
-      version: "0.1.39",
-      commit: "abc1234",
-      channel: "dev",
-      builtAt: "2026-06-04T00:00:00.000Z",
-    });
-    expect(info).toEqual({
-      version: "0.1.39",
-      commit: "abc1234",
-      channel: "dev",
-      forkBase: FORK_BASE,
-      builtAt: "2026-06-04T00:00:00.000Z",
-    });
-  });
-
-  it("defaults channel to 'dev' when unset", () => {
-    expect(buildBuildInfo({ version: "0.1.39", commit: null, builtAt: "t" }).channel).toBe("dev");
-  });
-});
-
-import { deriveBuildNumber } from "./version-derive.ts";
+import { deriveBuildNumber, stampAndroid, stampPlist, stampProjectYml } from "./app-versions.ts";
 
 describe("deriveBuildNumber", () => {
   it("reproduces the existing convention (0.1.15 -> 115)", () => {
@@ -42,8 +18,6 @@ describe("deriveBuildNumber", () => {
     expect(() => deriveBuildNumber("nope")).toThrow();
   });
 });
-
-import { stampAndroid, stampPlist } from "./version-derive.ts";
 
 describe("stampAndroid", () => {
   it("rewrites versionName and versionCode", () => {
@@ -77,19 +51,6 @@ describe("fail-loud stampers", () => {
     expect(() => stampPlist(onlyShort, "0.1.40", 140)).toThrow();
   });
 });
-
-import { deriveDevVersion } from "./version-derive.ts";
-
-describe("deriveDevVersion", () => {
-  it("bumps patch and encodes commits-since-tag + sha", () => {
-    expect(deriveDevVersion("v0.1.39-7-gabc1234")).toBe("0.1.40-dev.7+abc1234");
-  });
-  it("treats an exact tag as dev.0 of the next patch", () => {
-    expect(deriveDevVersion("v0.1.39")).toBe("0.1.40-dev.0+0000000");
-  });
-});
-
-import { stampProjectYml } from "./version-derive.ts";
 
 describe("stampProjectYml", () => {
   const yml = [

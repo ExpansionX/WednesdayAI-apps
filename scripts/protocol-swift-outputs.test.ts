@@ -1,10 +1,10 @@
 /**
- * Drift guard for the Swift half of the protocol codegen gate.
+ * Drift guard for the Swift half of the contracts codegen gate.
  *
- * `pnpm protocol:gen:swift` writes the same models to two tracked files, but `protocol:check`
+ * `npm run contracts:gen` writes the same models to two tracked files, but `contracts:check`
  * only ever named the macOS one - so an edit to the `apps/shared/OpenClawKit` copy alone passed
  * the gate. These tests fail if the generator's output list, the tracked files and the
- * `protocol:check` pathspec ever disagree again.
+ * `contracts:check` pathspec ever disagree again.
  */
 import { readFile } from "node:fs/promises";
 import path from "node:path";
@@ -19,7 +19,7 @@ async function readPackageScripts(): Promise<Record<string, string>> {
   return (JSON.parse(raw) as { scripts: Record<string, string> }).scripts;
 }
 
-describe("protocol:gen:swift outputs", () => {
+describe("contracts:gen outputs", () => {
   it("is a non-empty list of Swift files that all exist", async () => {
     expect(SWIFT_MODEL_OUTPUT_PATHS.length).toBeGreaterThan(0);
     for (const relPath of SWIFT_MODEL_OUTPUT_PATHS) {
@@ -29,8 +29,8 @@ describe("protocol:gen:swift outputs", () => {
     }
   });
 
-  it("is covered in full by the protocol:check pathspec", async () => {
-    const check = (await readPackageScripts())["protocol:check"];
+  it("is covered in full by the contracts:check pathspec", async () => {
+    const check = (await readPackageScripts())["contracts:check"];
     expect(check).toBeTypeOf("string");
     const missing = SWIFT_MODEL_OUTPUT_PATHS.filter((relPath) => !check.includes(relPath));
     expect(missing).toEqual([]);

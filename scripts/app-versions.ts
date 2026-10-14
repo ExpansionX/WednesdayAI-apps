@@ -1,21 +1,5 @@
-export const FORK_BASE = "openclaw@2026.3.2";
-
-export type BuildChannel = "stable" | "dev";
-
-export function buildBuildInfo(input: {
-  version: string | null;
-  commit: string | null;
-  builtAt: string;
-  channel?: BuildChannel;
-}) {
-  return {
-    version: input.version,
-    commit: input.commit,
-    channel: input.channel ?? "dev",
-    forkBase: FORK_BASE,
-    builtAt: input.builtAt,
-  };
-}
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { join, resolve } from "node:path";
 
 export function deriveBuildNumber(version: string): number {
   const m = /^(\d+)\.(\d+)\.(\d+)/.exec(version.trim());
@@ -118,16 +102,45 @@ export function stampProjectYml(content: string, version: string, buildNumber: n
   return out;
 }
 
-export function deriveDevVersion(gitDescribe: string): string {
-  const exact = /^v(\d+)\.(\d+)\.(\d+)$/.exec(gitDescribe.trim());
-  if (exact) {
-    const [, major, minor, patch] = exact;
-    return `${major}.${minor}.${Number(patch) + 1}-dev.0+0000000`;
+type Stamper = (content: string, version: string, build: number) => string;
+
+// Every derived app version location and the stamper that owns it. `apps/ios/project.yml` is the
+// xcodegen source for the iOS app AND its Share/Watch extensions; the per-extension Info.plists
+// are stamped too so the committed tree stays consistent when not regenerated.
+// docs/install/updating.md is NOT here (it installs `@latest`); Peekaboo/Swabble version
+// independently and are intentionally excluded. The meta-test in contracts.test.ts asserts this
+// set covers every version-bearing iOS file (ADR 0004). App versions equal the synced
+// CORE_VERSION — the macOS app derives its expected gateway version from the bundle version —
+// and core no longer stamps these files (ADR 0097).
+const STAMPERS: Record<string, Stamper> = {
+  "apps/android/app/build.gradle.kts": stampAndroid,
+  "apps/ios/project.yml": stampProjectYml,
+  "apps/ios/Sources/Info.plist": stampPlist,
+  "apps/ios/ShareExtension/Info.plist": stampPlist,
+  "apps/ios/WatchApp/Info.plist": stampPlist,
+  "apps/ios/WatchExtension/Info.plist": stampPlist,
+  "apps/ios/Tests/Info.plist": stampPlist,
+  "apps/macos/Sources/OpenClaw/Resources/Info.plist": stampPlist,
+};
+
+export const APP_VERSION_TARGETS: readonly string[] = Object.keys(STAMPERS);
+
+// Stamp every app version location to `version`. Returns the repo-relative paths that changed.
+export function stampAppVersions(version: string): string[] {
+  const rootDir = resolve(".");
+  const build = deriveBuildNumber(version);
+  const touched: string[] = [];
+  for (const [relPath, stamp] of Object.entries(STAMPERS)) {
+    const full = join(rootDir, relPath);
+    if (!existsSync(full)) {
+      continue;
+    }
+    const before = readFileSync(full, "utf8");
+    const after = stamp(before, version, build);
+    if (after !== before) {
+      writeFileSync(full, after);
+      touched.push(relPath);
+    }
   }
-  const m = /^v(\d+)\.(\d+)\.(\d+)-(\d+)-g([0-9a-f]+)$/.exec(gitDescribe.trim());
-  if (!m) {
-    throw new Error(`Unrecognized git describe output: ${JSON.stringify(gitDescribe)}`);
-  }
-  const [, major, minor, patch, count, sha] = m;
-  return `${major}.${minor}.${Number(patch) + 1}-dev.${count}+${sha}`;
+  return touched;
 }

@@ -14,7 +14,13 @@ if (checkOnly && args.has("--write")) {
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(here, "..");
-const policyPath = path.join(repoRoot, "src", "infra", "host-env-security-policy.json");
+const policyPath = path.join(
+  repoRoot,
+  "apps",
+  "shared",
+  "contracts",
+  "host-env-security-policy.json",
+);
 const outputPath = path.join(
   repoRoot,
   "apps",
@@ -30,7 +36,7 @@ const policy = JSON.parse(fs.readFileSync(policyPath, "utf8"));
 const renderSwiftStringArray = (items) => items.map((item) => `        "${item}"`).join(",\n");
 
 const generated = `// Generated file. Do not edit directly.
-// Source: src/infra/host-env-security-policy.json
+// Source: apps/shared/contracts/host-env-security-policy.json (synced from WednesdayAI-core)
 // Regenerate: node scripts/generate-host-env-security-policy-swift.mjs --write
 
 import Foundation
