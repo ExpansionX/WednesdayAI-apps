@@ -4,7 +4,6 @@ import Testing
 
 struct WideAreaGatewayDiscoveryTests {
     @Test func `discovers beacon from tailnet dns sd fallback`() {
-        setenv("OPENCLAW_WIDE_AREA_DOMAIN", "openclaw.internal", 1)
         let statusJson = """
         {
           "Self": { "TailscaleIPs": ["100.69.232.64"] },
@@ -32,13 +31,22 @@ struct WideAreaGatewayDiscoveryTests {
                     return "\"displayName=Peter\\226\\128\\153s Mac Studio (OpenClaw)\" \"gatewayPort=18789\" \"tailnetDns=peters-mac-studio-1.sheep-coho.ts.net\" \"cliPath=/Users/steipete/openclaw/src/entry.ts\""
                 }
                 return ""
-            })
+            },
+            // Injected instead of a process-env setenv: tests must not mutate
+            // global state, and Foundation may snapshot the environment, so a
+            // mid-run setenv is not reliably visible under parallel runs.
+            wideAreaDomain: { "openclaw.internal" })
 
         let beacons = WideAreaGatewayDiscovery.discover(
             timeoutSeconds: 2.0,
             context: context)
 
-        #expect(beacons.count == 1)
+        // Index only after the count expectation holds: indexing an empty
+        // array after a failed expectation aborts the whole test run.
+        guard beacons.count == 1 else {
+            Issue.record("expected exactly 1 beacon, got \(beacons.count)")
+            return
+        }
         let beacon = beacons[0]
         let expectedDisplay = "Peter\u{2019}s Mac Studio (OpenClaw)"
         #expect(beacon.displayName == expectedDisplay)

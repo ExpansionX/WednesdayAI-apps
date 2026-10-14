@@ -22,6 +22,12 @@ enum WideAreaGatewayDiscovery {
     struct DiscoveryContext: Sendable {
         var tailscaleStatus: @Sendable () -> String?
         var dig: @Sendable (_ args: [String], _ timeout: TimeInterval) -> String?
+        /// Overrides `OpenClawBonjour.wideAreaGatewayServiceDomain` (which reads
+        /// the process environment). Tests must inject this instead of mutating
+        /// process-global env: Foundation may snapshot the environment, so a
+        /// mid-run setenv is not reliably visible (Apple CI failure on
+        /// 89ad0ed6). nil keeps the live env-backed read.
+        var wideAreaDomain: (@Sendable () -> String?)?
 
         static let live = DiscoveryContext(
             tailscaleStatus: { readTailscaleStatus() },
@@ -41,16 +47,17 @@ enum WideAreaGatewayDiscovery {
 
         guard let ips = collectTailnetIPv4s(
             statusJson: context.tailscaleStatus()).nonEmpty else { return [] }
+        let domain = context.wideAreaDomain?() ?? OpenClawBonjour.wideAreaGatewayServiceDomain
         var candidates = Array(ips.prefix(self.maxCandidates))
-        guard let nameserver = findNameserver(
-            candidates: &candidates,
-            remaining: remaining,
-            dig: context.dig)
+        guard let domain, !domain.isEmpty,
+              let nameserver = findNameserver(
+                  candidates: &candidates,
+                  domain: domain,
+                  remaining: remaining,
+                  dig: context.dig)
         else {
             return []
         }
-
-        guard let domain = OpenClawBonjour.wideAreaGatewayServiceDomain else { return [] }
         let domainTrimmed = domain.trimmingCharacters(in: CharacterSet(charactersIn: "."))
         let probeName = "_openclaw-gw._tcp.\(domainTrimmed)"
         guard let ptrLines = context.dig(
@@ -150,10 +157,10 @@ enum WideAreaGatewayDiscovery {
 
     private static func findNameserver(
         candidates: inout [String],
+        domain: String,
         remaining: () -> TimeInterval,
         dig: @escaping @Sendable (_ args: [String], _ timeout: TimeInterval) -> String?) -> String?
     {
-        guard let domain = OpenClawBonjour.wideAreaGatewayServiceDomain else { return nil }
         let domainTrimmed = domain.trimmingCharacters(in: CharacterSet(charactersIn: "."))
         let probeName = "_openclaw-gw._tcp.\(domainTrimmed)"
 
