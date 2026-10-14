@@ -362,11 +362,13 @@ private enum ExecHostExecutor {
             return self.errorResponse(error)
         }
 
+        // rawCommand is forwarded for display only; analysis never consumes it.
         let context = await self.buildContext(
             request: request,
             command: validatedRequest.command,
-            rawCommand: validatedRequest.displayCommand)
+            rawCommand: request.rawCommand)
 
+        var approvedByAsk = request.approvalDecision != nil
         switch ExecHostRequestEvaluator.evaluate(
             context: context,
             approvalDecision: request.approvalDecision)
@@ -393,10 +395,11 @@ private enum ExecHostExecutor {
                 followupDecision = .deny
             case .allowAlways:
                 followupDecision = .allowAlways
-                self.persistAllowlistEntry(decision: decision, context: context)
+                self.persistAllowlistEntry(decision: decision, context: context, cwd: request.cwd)
             case .allowOnce:
                 followupDecision = .allowOnce
             }
+            approvedByAsk = true
 
             switch ExecHostRequestEvaluator.evaluate(
                 context: context,
@@ -414,7 +417,16 @@ private enum ExecHostExecutor {
             }
         }
 
-        self.persistAllowlistEntry(decision: request.approvalDecision, context: context)
+        // Fail closed: allowlist shell wrappers always require explicit approval,
+        // even when the policy fields above were satisfied.
+        if context.security == .allowlist, context.shellCommand != nil, !approvedByAsk {
+            return self.errorResponse(
+                code: "UNAVAILABLE",
+                message: "SYSTEM_RUN_DENIED: approval required",
+                reason: "approval-required")
+        }
+
+        self.persistAllowlistEntry(decision: request.approvalDecision, context: context, cwd: request.cwd)
 
         if context.allowlistSatisfied {
             var seenPatterns = Set<String>()
@@ -433,12 +445,36 @@ private enum ExecHostExecutor {
             }
         }
 
+        // Execute exactly the argv the allowlist approved: for unapproved
+        // direct-argv allowlist execution, run the resolution's planned argv
+        // (effective argv with argv[0] pinned to the resolved executable) so an
+        // outer transparent wrapper script is never launched.
+        let execCommand: [String]
+        switch ExecAllowlistPlan.plannedArgv(
+            security: context.security,
+            shellCommand: context.shellCommand,
+            approvedByAsk: approvedByAsk,
+            analysisOk: context.analysisOk,
+            allowlistSatisfied: context.allowlistSatisfied,
+            segments: context.segments)
+        {
+        case .none:
+            execCommand = validatedRequest.command
+        case let .argv(planned):
+            execCommand = planned
+        case .denied:
+            return self.errorResponse(
+                code: "UNAVAILABLE",
+                message: "SYSTEM_RUN_DENIED: execution plan mismatch",
+                reason: "execution-plan-miss")
+        }
+
         if let errorResponse = await self.ensureScreenRecordingAccess(request.needsScreenRecording) {
             return errorResponse
         }
 
         return await self.runCommand(
-            command: validatedRequest.command,
+            command: execCommand,
             cwd: request.cwd,
             env: context.env,
             timeoutMs: request.timeoutMs)
@@ -459,20 +495,20 @@ private enum ExecHostExecutor {
 
     private static func persistAllowlistEntry(
         decision: ExecApprovalDecision?,
-        context: ExecApprovalContext)
+        context: ExecApprovalContext,
+        cwd: String?)
     {
-        guard decision == .allowAlways, context.security == .allowlist else { return }
+        guard decision == .allowAlways, context.security == .allowlist, context.analysisOk else { return }
+        // Derive persisted entries from canonical analysis segments (never from
+        // display text): dispatch wrappers unwrap to the inner executable and
+        // shell wrappers themselves are never persisted.
+        let patterns = ExecAllowlistPlan.allowAlwaysPatterns(
+            segments: context.segments,
+            cwd: cwd,
+            env: context.env)
         var seenPatterns = Set<String>()
-        for candidate in context.allowlistResolutions {
-            guard let pattern = ExecApprovalHelpers.allowlistPattern(
-                command: context.command,
-                resolution: candidate)
-            else {
-                continue
-            }
-            if seenPatterns.insert(pattern).inserted {
-                ExecApprovalsStore.addAllowlistEntry(agentId: context.agentId, pattern: pattern)
-            }
+        for pattern in patterns where seenPatterns.insert(pattern).inserted {
+            ExecApprovalsStore.addAllowlistEntry(agentId: context.agentId, pattern: pattern)
         }
     }
 

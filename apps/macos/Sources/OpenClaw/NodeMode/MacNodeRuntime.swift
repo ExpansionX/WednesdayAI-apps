@@ -483,12 +483,31 @@ actor MacNodeRuntime {
         if let response = approval.response { return response }
         let approvedByAsk = approval.approvedByAsk
         let persistAllowlist = approval.persistAllowlist
+
+        // Fail closed: allowlist shell wrappers always require explicit approval.
+        if evaluation.security == .allowlist, evaluation.shellCommand != nil, !approvedByAsk {
+            await self.emitExecEvent(
+                "exec.denied",
+                payload: ExecEventPayload(
+                    sessionKey: sessionKey,
+                    runId: runId,
+                    host: "node",
+                    command: evaluation.displayCommand,
+                    reason: "approval-required"))
+            return Self.errorResponse(
+                req,
+                code: .unavailable,
+                message: "SYSTEM_RUN_DENIED: approval required")
+        }
+
         self.persistAllowlistPatterns(
             persistAllowlist: persistAllowlist,
             security: evaluation.security,
+            analysisOk: evaluation.analysisOk,
             agentId: evaluation.agentId,
-            command: command,
-            allowlistResolutions: evaluation.allowlistResolutions)
+            cwd: params.cwd,
+            env: evaluation.env,
+            segments: evaluation.segments)
 
         if evaluation.security == .allowlist, !evaluation.allowlistSatisfied, !evaluation.skillAllow, !approvedByAsk {
             await self.emitExecEvent(
@@ -513,6 +532,37 @@ actor MacNodeRuntime {
             allowlistResolutions: evaluation.allowlistResolutions,
             displayCommand: evaluation.displayCommand)
 
+        // Execute exactly the argv the allowlist approved: for unapproved
+        // direct-argv allowlist execution, run the resolution's planned argv so
+        // an outer transparent wrapper script is never launched.
+        let execCommand: [String]
+        switch ExecAllowlistPlan.plannedArgv(
+            security: evaluation.security,
+            shellCommand: evaluation.shellCommand,
+            approvedByAsk: approvedByAsk,
+            analysisOk: evaluation.analysisOk,
+            allowlistSatisfied: evaluation.allowlistSatisfied,
+            segments: evaluation.segments)
+        {
+        case .none:
+            execCommand = command
+        case let .argv(planned):
+            execCommand = planned
+        case .denied:
+            await self.emitExecEvent(
+                "exec.denied",
+                payload: ExecEventPayload(
+                    sessionKey: sessionKey,
+                    runId: runId,
+                    host: "node",
+                    command: evaluation.displayCommand,
+                    reason: "execution-plan-miss"))
+            return Self.errorResponse(
+                req,
+                code: .unavailable,
+                message: "SYSTEM_RUN_DENIED: execution plan mismatch")
+        }
+
         if let permissionResponse = await self.validateScreenRecordingIfNeeded(
             req: req,
             needsScreenRecording: params.needsScreenRecording,
@@ -526,7 +576,7 @@ actor MacNodeRuntime {
         return try await self.executeSystemRun(
             req: req,
             params: params,
-            command: command,
+            command: execCommand,
             env: evaluation.env,
             sessionKey: sessionKey,
             runId: runId,
@@ -774,19 +824,20 @@ extension MacNodeRuntime {
     private func persistAllowlistPatterns(
         persistAllowlist: Bool,
         security: ExecSecurity,
+        analysisOk: Bool,
         agentId: String?,
-        command: [String],
-        allowlistResolutions: [ExecCommandResolution])
+        cwd: String?,
+        env: [String: String],
+        segments: [ExecCommandSegment])
     {
-        guard persistAllowlist, security == .allowlist else { return }
+        guard persistAllowlist, security == .allowlist, analysisOk else { return }
+        // Mirror core resolveAllowAlwaysPatterns: derive entries from canonical
+        // analysis segments — dispatch wrappers unwrap to inner executables and
+        // shell wrappers themselves are never persisted.
+        let patterns = ExecAllowlistPlan.allowAlwaysPatterns(segments: segments, cwd: cwd, env: env)
         var seenPatterns = Set<String>()
-        for candidate in allowlistResolutions {
-            guard let pattern = ExecApprovalHelpers.allowlistPattern(command: command, resolution: candidate) else {
-                continue
-            }
-            if seenPatterns.insert(pattern).inserted {
-                ExecApprovalsStore.addAllowlistEntry(agentId: agentId, pattern: pattern)
-            }
+        for pattern in patterns where seenPatterns.insert(pattern).inserted {
+            ExecApprovalsStore.addAllowlistEntry(agentId: agentId, pattern: pattern)
         }
     }
 

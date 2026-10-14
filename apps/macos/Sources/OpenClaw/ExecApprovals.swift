@@ -749,11 +749,6 @@ enum ExecApprovalHelpers {
         return false
     }
 
-    static func allowlistPattern(command: [String], resolution: ExecCommandResolution?) -> String? {
-        let pattern = resolution?.resolvedPath ?? resolution?.rawExecutable ?? command.first ?? ""
-        return pattern.isEmpty ? nil : pattern
-    }
-
     private static func containsPathComponent(_ pattern: String) -> Bool {
         pattern.contains("/") || pattern.contains("~") || pattern.contains("\\")
     }
@@ -791,6 +786,30 @@ actor SkillBinsCache {
             await self.refresh()
         }
         return self.bins
+    }
+
+    /// Mirror of core `resolveSkillBinTrustEntries` (src/node-host/runner.ts):
+    /// each bin name is resolved against the process PATH so skill auto-allow
+    /// can compare the invocation's resolved executable path against the
+    /// registered trust entry, not just the name.
+    func currentTrustEntries(force: Bool = false) async -> [SkillBinTrust.Entry] {
+        if force || self.isStale() {
+            await self.refresh()
+        }
+        let pathEnv = ProcessInfo.processInfo.environment["PATH"] ?? ""
+        var entries: [SkillBinTrust.Entry] = []
+        var seen = Set<String>()
+        for bin in self.bins.sorted() {
+            let name = bin.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !name.isEmpty, !name.contains("/"), !name.contains("\\") else { continue }
+            guard let resolvedPath = ExecCommandResolution
+                .resolveExecutableFromPathEnv(name, pathEnv: pathEnv)
+            else { continue }
+            let key = "\(name)\u{0}\(resolvedPath)"
+            guard seen.insert(key).inserted else { continue }
+            entries.append(SkillBinTrust.Entry(name: name, resolvedPath: resolvedPath))
+        }
+        return entries
     }
 
     func refresh() async {
