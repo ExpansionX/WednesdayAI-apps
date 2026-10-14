@@ -48,7 +48,21 @@ jobs:
           BRANCH="bot/contracts-sync-${CORE_VERSION}"
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git checkout -b "$BRANCH"
+          # Reuse an existing bot branch so repeat runs for the same core version fast-forward
+          # its history instead of recreating the commit on a fresh default-branch checkout
+          # (which a plain push would reject as non-fast-forward). contracts:sync output is
+          # deterministic for a release, so the first pass's working-tree changes are discarded
+          # and regenerated on top of the branch.
+          if git fetch origin "refs/heads/$BRANCH" && git rev-parse -q --verify "refs/remotes/origin/$BRANCH"; then
+            git checkout -f -B "$BRANCH" "refs/remotes/origin/$BRANCH"
+            npm run contracts:sync -- --version "$VERSION"
+          else
+            git checkout -B "$BRANCH"
+          fi
+          if [ -z "$(git status --porcelain)" ]; then
+            echo "Branch $BRANCH already matches wednesdayai@$VERSION; nothing to do."
+            exit 0
+          fi
           # contracts:sync touches only the contracts feed, the generated tool-display
           # resource and the app version stamps, all of which live under apps/.
           git add apps
