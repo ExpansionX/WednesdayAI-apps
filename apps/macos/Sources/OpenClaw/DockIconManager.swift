@@ -7,6 +7,7 @@ final class DockIconManager: NSObject, @unchecked Sendable {
     static let shared = DockIconManager()
 
     private var windowsObservation: NSKeyValueObservation?
+    private var launchObserver: NSObjectProtocol?
     private let logger = Logging.Logger(subsystem: "ai.openclaw", category: "DockIconManager")
 
     override private init() {
@@ -19,6 +20,9 @@ final class DockIconManager: NSObject, @unchecked Sendable {
 
     deinit {
         self.windowsObservation?.invalidate()
+        if let launchObserver {
+            NotificationCenter.default.removeObserver(launchObserver)
+        }
         NotificationCenter.default.removeObserver(self)
     }
 
@@ -61,40 +65,60 @@ final class DockIconManager: NSObject, @unchecked Sendable {
     private func setupObservers() {
         Task { @MainActor in
             guard let app = NSApp else {
-                self.logger.log(level: .warning, "NSApp not ready, delaying Dock observers")
-                try? await Task.sleep(for: .milliseconds(200))
-                self.setupObservers()
+                // Headless or early startup: AppKit attaches its observers once the
+                // app finishes launching instead of polling in a perpetual task.
+                self.logger.log(level: .warning, "NSApp not ready; waiting for app launch to attach Dock observers")
+                self.awaitLaunchThenRegisterObservers()
                 return
             }
-
-            self.windowsObservation = app.observe(\.windows, options: [.new]) { [weak self] _, _ in
-                Task { @MainActor in
-                    try? await Task.sleep(for: .milliseconds(50))
-                    self?.updateDockVisibility()
-                }
-            }
-
-            NotificationCenter.default.addObserver(
-                self,
-                selector: #selector(self.windowVisibilityChanged),
-                name: NSWindow.didBecomeKeyNotification,
-                object: nil)
-            NotificationCenter.default.addObserver(
-                self,
-                selector: #selector(self.windowVisibilityChanged),
-                name: NSWindow.didResignKeyNotification,
-                object: nil)
-            NotificationCenter.default.addObserver(
-                self,
-                selector: #selector(self.windowVisibilityChanged),
-                name: NSWindow.willCloseNotification,
-                object: nil)
-            NotificationCenter.default.addObserver(
-                self,
-                selector: #selector(self.dockPreferenceChanged),
-                name: UserDefaults.didChangeNotification,
-                object: nil)
+            self.registerObservers(on: app)
         }
+    }
+
+    @MainActor
+    private func awaitLaunchThenRegisterObservers() {
+        self.launchObserver = NotificationCenter.default.addObserver(
+            forName: NSApplication.didFinishLaunchingNotification,
+            object: nil,
+            queue: .main)
+        { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self, let app = NSApp else { return }
+                self.registerObservers(on: app)
+                self.updateDockVisibility()
+            }
+        }
+    }
+
+    @MainActor
+    private func registerObservers(on app: NSApplication) {
+        self.windowsObservation = app.observe(\.windows, options: [.new]) { [weak self] _, _ in
+            Task { @MainActor in
+                try? await Task.sleep(for: .milliseconds(50))
+                self?.updateDockVisibility()
+            }
+        }
+
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(self.windowVisibilityChanged),
+            name: NSWindow.didBecomeKeyNotification,
+            object: nil)
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(self.windowVisibilityChanged),
+            name: NSWindow.didResignKeyNotification,
+            object: nil)
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(self.windowVisibilityChanged),
+            name: NSWindow.willCloseNotification,
+            object: nil)
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(self.dockPreferenceChanged),
+            name: UserDefaults.didChangeNotification,
+            object: nil)
     }
 
     @objc
