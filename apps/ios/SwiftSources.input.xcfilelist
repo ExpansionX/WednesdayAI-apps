@@ -59,6 +59,6 @@ Sources/Voice/VoiceWakePreferences.swift
 ../shared/OpenClawKit/Sources/OpenClawKit/StoragePaths.swift
 ../shared/OpenClawKit/Sources/OpenClawKit/SystemCommands.swift
 ../shared/OpenClawKit/Sources/OpenClawKit/TalkDirective.swift
-../../Swabble/Sources/SwabbleKit/WakeWordGate.swift
+../shared/Swabble/Sources/SwabbleKit/WakeWordGate.swift
 Sources/Voice/TalkModeManager.swift
 Sources/Voice/TalkOrbOverlay.swift
