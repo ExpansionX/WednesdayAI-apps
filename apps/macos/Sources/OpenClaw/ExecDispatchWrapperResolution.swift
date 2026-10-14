@@ -54,6 +54,16 @@ enum ExecDispatchWrapper {
         self.shellWrapperNames.contains(self.normalizeExecutableToken(token))
     }
 
+    /// Canonical dispatch wrapper names (env/nice/nohup/stdbuf/timeout plus the
+    /// always-blocked sudo-style set); `.exe` handled by normalization.
+    static func isDispatchWrapperExecutable(_ token: String) -> Bool {
+        self.dispatchWrapperNames.contains(self.normalizeExecutableToken(token))
+    }
+
+    private static let dispatchWrapperNames: Set<String> = [
+        "chrt", "doas", "env", "ionice", "nice", "nohup", "setsid", "stdbuf", "sudo", "taskset", "timeout",
+    ]
+
     private static var shellWrapperNames: Set<String> {
         posixShellWrapperNames.union(cmdWrapperNames).union(powershellWrapperNames)
     }
@@ -170,8 +180,14 @@ enum ExecDispatchWrapper {
         if expectsOptionValue {
             return nil
         }
-        let commandIndex = params.adjustCommandIndex?(idx, argv) ?? idx
-        guard commandIndex < argv.count else {
+        // An adjustment closure that returns nil rejects the command index (fail
+        // closed); only an absent closure falls back to the current index.
+        let commandIndex: Int? = if let adjustCommandIndex = params.adjustCommandIndex {
+            adjustCommandIndex(idx, argv)
+        } else {
+            idx
+        }
+        guard let commandIndex, commandIndex < argv.count else {
             return nil
         }
         return Array(argv[commandIndex...])
@@ -264,7 +280,9 @@ enum ExecDispatchWrapper {
 
     private static func unwrapNiceInvocation(_ argv: [String]) -> [String]? {
         self.unwrapDashOptionInvocation(argv, onFlag: { flag, lower in
-            if lower.range(of: #"^-\d+$"#, options: .regularExpression) != nil {
+            // JavaScript \d matches ASCII digits only; ICU \d would accept Unicode
+            // decimal digits (e.g. U+0661) and silently unwrap the wrapper.
+            if lower.range(of: #"^-[0-9]+$"#, options: .regularExpression) != nil {
                 return .continue
             }
             if self.niceOptionsWithValue.contains(flag) {
@@ -446,10 +464,12 @@ enum ExecDispatchWrapper {
                 of: #"^-[^-]*c[^-]*$"#,
                 options: [.regularExpression, .caseInsensitive]) != nil
             if allowCombinedC, matchesCombinedC {
-                // The lowercase and original token share character offsets for ASCII flags.
-                let inline = self.inlineCommandAfterC(token: token, lower: lower)
-                if let inline, !inline.isEmpty {
-                    return InlineCommandMatch(command: inline, valueTokenIndex: i)
+                // JavaScript computes the offset on the lowercased string's UTF-16
+                // code units and slices the ORIGINAL token's code units at that
+                // index (lowercasing can change code-unit length, e.g. "İ" →
+                // "i"+U+0307). Character offsets would diverge for those inputs.
+                if let command = inlineCommandAfterCombinedC(token: token, lower: lower) {
+                    return InlineCommandMatch(command: command, valueTokenIndex: i)
                 }
                 let valueTokenIndex = i + 1 < argv.count ? i + 1 : nil
                 let command = i + 1 < argv.count ? argv[i + 1].trimmingCharacters(in: .whitespacesAndNewlines) : ""
@@ -459,12 +479,14 @@ enum ExecDispatchWrapper {
         return InlineCommandMatch(command: nil, valueTokenIndex: nil)
     }
 
-    private static func inlineCommandAfterC(token: String, lower: String) -> String? {
-        guard let lowerIndex = lower.firstIndex(of: "c") else { return nil }
-        let offset = lower.distance(from: lower.startIndex, to: lowerIndex)
-        guard offset + 1 <= token.count else { return nil }
-        let tokenIndex = token.index(token.startIndex, offsetBy: offset + 1)
-        return String(token[tokenIndex...]).trimmingCharacters(in: .whitespacesAndNewlines)
+    private static func inlineCommandAfterCombinedC(token: String, lower: String) -> String? {
+        let lowerUnits = Array(lower.utf16)
+        guard let cIndex = lowerUnits.firstIndex(of: UInt16(0x0063)) else { return nil }
+        let originalUnits = Array(token.utf16)
+        guard cIndex + 1 <= originalUnits.count else { return nil }
+        let inline = String(decoding: originalUnits[(cIndex + 1)...], as: UTF16.self)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return inline.isEmpty ? nil : inline
     }
 
     private static func extractCmdInlineCommand(_ argv: [String]) -> String? {
@@ -601,76 +623,95 @@ enum ExecDispatchWrapper {
 
 /// Mirror of core `splitShellArgs` (src/utils/shell-argv.ts). Returns nil for
 /// unterminated quotes/escapes so callers can fail closed.
+///
+/// Tokenization operates on UTF-16 code units (JavaScript string semantics):
+/// extended grapheme clustering would fuse a backslash with a following
+/// combining scalar and miss the escape, and ECMAScript `\s` differs from
+/// Swift's `Character.isWhitespace` (e.g. U+0085 NEXT LINE, U+FEFF BOM).
 enum ExecShellArgvTokenizer {
+    /// The ECMAScript `\s` set, per code unit.
+    private static let jsWhitespace: Set<UInt16> = [
+        0x0009, 0x000A, 0x000B, 0x000C, 0x000D, 0x0020, 0x00A0, 0x1680,
+        0x2000, 0x2001, 0x2002, 0x2003, 0x2004, 0x2005, 0x2006, 0x2007,
+        0x2008, 0x2009, 0x200A, 0x2028, 0x2029, 0x202F, 0x205F, 0x3000, 0xFEFF,
+    ]
+
+    /// JS `DOUBLE_QUOTE_ESCAPES`: \ " $ ` and line terminators.
+    private static let doubleQuoteEscapes: Set<UInt16> = [0x005C, 0x0022, 0x0024, 0x0060, 0x000A, 0x000D]
+
+    private static let backslash: UInt16 = 0x005C
+    private static let singleQuote: UInt16 = 0x0027
+    private static let doubleQuote: UInt16 = 0x0022
+
     static func split(_ raw: String) -> [String]? {
         var tokens: [String] = []
-        var buf = ""
+        var buf: [UInt16] = []
         var inSingle = false
         var inDouble = false
         var escaped = false
 
         func pushToken() {
             if !buf.isEmpty {
-                tokens.append(buf)
-                buf = ""
+                tokens.append(String(decoding: buf, as: UTF16.self))
+                buf = []
             }
         }
 
-        let chars = Array(raw)
+        let units = Array(raw.utf16)
         var i = 0
-        while i < chars.count {
-            let ch = chars[i]
+        while i < units.count {
+            let unit = units[i]
             if escaped {
-                buf.append(ch)
+                buf.append(unit)
                 escaped = false
                 i += 1
                 continue
             }
-            if !inSingle, !inDouble, ch == "\\" {
+            if !inSingle, !inDouble, unit == self.backslash {
                 escaped = true
                 i += 1
                 continue
             }
             if inSingle {
-                if ch == "'" {
+                if unit == self.singleQuote {
                     inSingle = false
                 } else {
-                    buf.append(ch)
+                    buf.append(unit)
                 }
                 i += 1
                 continue
             }
             if inDouble {
-                let next: Character? = i + 1 < chars.count ? chars[i + 1] : nil
-                if ch == "\\", let next, "\\\r\n\"$`".contains(next) {
+                let next: UInt16? = i + 1 < units.count ? units[i + 1] : nil
+                if unit == self.backslash, let next, doubleQuoteEscapes.contains(next) {
                     buf.append(next)
                     i += 2
                     continue
                 }
-                if ch == "\"" {
+                if unit == self.doubleQuote {
                     inDouble = false
                 } else {
-                    buf.append(ch)
+                    buf.append(unit)
                 }
                 i += 1
                 continue
             }
-            if ch == "'" {
+            if unit == self.singleQuote {
                 inSingle = true
                 i += 1
                 continue
             }
-            if ch == "\"" {
+            if unit == self.doubleQuote {
                 inDouble = true
                 i += 1
                 continue
             }
-            if ch.isWhitespace {
+            if self.jsWhitespace.contains(unit) {
                 pushToken()
                 i += 1
                 continue
             }
-            buf.append(ch)
+            buf.append(unit)
             i += 1
         }
 
