@@ -9,7 +9,6 @@ import {
   MAX_CAPTURE_MS,
   PREROLL_MS,
   STT_RESULT_TIMEOUT_MS,
-  TRAILING_SILENCE_MS,
 } from "./gatewayStt"
 
 const CREATE_RESULT = {sessionId: "s1", audio: {inputEncoding: "pcm16", inputSampleRateHz: 16000, channels: 1}}
@@ -126,7 +125,6 @@ describe("GatewaySttCapture", () => {
     expect(AUDIO_FLUSH_MS).toBe(250)
     expect(STT_RESULT_TIMEOUT_MS).toBe(6000)
     expect(MAX_CAPTURE_MS).toBe(20000)
-    expect(TRAILING_SILENCE_MS).toBe(500)
   })
 
   it("creates a transcription session with the exact params", async () => {
@@ -204,12 +202,7 @@ describe("GatewaySttCapture", () => {
     await vi.advanceTimersByTimeAsync(0)
     expect(capture.state).toBe("closing")
     expect(capture.active).toBe(false)
-    // The finish drain: the real chunk, then the endpointing silence tail.
-    expect(requester.appends()).toHaveLength(2)
-    expect(decoded(requester.appends()[0]!.params.audioBase64)).toEqual(preRollBytes(1, 1))
-    const tail = decoded(requester.appends()[1]!.params.audioBase64)
-    expect(tail.length).toBe(TRAILING_SILENCE_MS * 32)
-    expect(tail.every((byte) => byte === 0)).toBe(true)
+    expect(requester.appends()).toHaveLength(1)
     expect(requester.callsOf("talk.session.close")).toEqual([
       {method: "talk.session.close", params: {sessionId: "s1"}},
     ])
@@ -888,12 +881,9 @@ describe("GatewaySttCapture", () => {
     capture.pushChunk(chunkAt(3))
     acks[1]!.resolve({})
     await vi.advanceTimersByTimeAsync(0)
-    // The final drain picked up the late chunk, then the silence tail frame.
-    expect(requester.appends()).toHaveLength(4)
+    // The final drain picked up the late chunk before closing.
+    expect(requester.appends()).toHaveLength(3)
     expect(decoded(requester.appends()[2]!.params.audioBase64)).toEqual(preRollBytes(3, 3))
-    const tail = decoded(requester.appends()[3]!.params.audioBase64)
-    expect(tail.length).toBe(TRAILING_SILENCE_MS * 32)
-    expect(tail.every((byte) => byte === 0)).toBe(true)
     expect(requester.callsOf("talk.session.close")).toEqual([
       {method: "talk.session.close", params: {sessionId: "s1"}},
     ])
@@ -901,7 +891,7 @@ describe("GatewaySttCapture", () => {
     await vi.advanceTimersByTimeAsync(AUDIO_FLUSH_MS * 4)
     capture.onTalkEvent({type: "transcript.done", sessionId: "s1", payload: {text: "answer"}})
     expect(await done).toBe("answer")
-    expect(requester.appends()).toHaveLength(4)
+    expect(requester.appends()).toHaveLength(3)
     expect(errors).toEqual([])
     capture.dispose()
   })
@@ -1236,64 +1226,5 @@ describe("GatewaySttCapture", () => {
       {method: "talk.session.close", params: {sessionId: "s1"}},
     ])
     expect(capture.state).toBe("idle")
-  })
-
-  // ── trailing silence: relay endpointing keeps the last word ──────────────
-
-  it("pads streamed audio with trailing silence before close", async () => {
-    const {requester, capture, setNow, open} = harness()
-    await open()
-    setNow(100)
-    capture.pushChunk(chunkAt(1))
-    await vi.advanceTimersByTimeAsync(250)
-    // The last real chunk went out in the periodic flush; the buffer is
-    // empty when finish runs — the live-E2E clip that ends on speech.
-    expect(requester.appends()).toHaveLength(1)
-    const done = capture.finish()
-    await vi.advanceTimersByTimeAsync(0)
-    const appends = requester.appends()
-    expect(appends).toHaveLength(2)
-    const tail = decoded(appends[1]!.params.audioBase64)
-    expect(tail.length).toBe(TRAILING_SILENCE_MS * 32)
-    expect(tail.every((byte) => byte === 0)).toBe(true)
-    // The tail is appended audio: close follows it, never precedes it.
-    const methods = requester.calls.map((call) => call.method)
-    expect(methods.indexOf("talk.session.close")).toBeGreaterThan(
-      methods.lastIndexOf("talk.session.appendAudio"),
-    )
-    capture.onTalkEvent({type: "transcript.done", sessionId: "s1", payload: {text: "kept"}})
-    expect(await done).toBe("kept")
-  })
-
-  it("appends no trailing silence when the utterance never had audio", async () => {
-    const {requester, capture, open} = harness()
-    await open()
-    const done = capture.finish()
-    await vi.advanceTimersByTimeAsync(0)
-    expect(requester.appends()).toHaveLength(0)
-    expect(requester.callsOf("talk.session.close")).toEqual([
-      {method: "talk.session.close", params: {sessionId: "s1"}},
-    ])
-    capture.onTalkEvent({type: "transcript.done", sessionId: "s1", payload: {text: "hi"}})
-    expect(await done).toBe("hi")
-  })
-
-  it("appends no trailing silence after an abort", async () => {
-    const {requester, capture, setNow, open} = harness()
-    const ack = deferred<unknown>()
-    requester.respond("talk.session.appendAudio", () => ack.promise)
-    await open()
-    setNow(100)
-    capture.pushChunk(chunkAt(1))
-    await vi.advanceTimersByTimeAsync(250)
-    capture.abort()
-    ack.resolve({})
-    await vi.advanceTimersByTimeAsync(AUDIO_FLUSH_MS * 4)
-    const appends = requester.appends()
-    expect(appends).toHaveLength(1)
-    expect(decoded(appends[0]!.params.audioBase64)).toEqual(preRollBytes(1, 1))
-    expect(requester.callsOf("talk.session.close")).toEqual([
-      {method: "talk.session.close", params: {sessionId: "s1"}},
-    ])
   })
 })
