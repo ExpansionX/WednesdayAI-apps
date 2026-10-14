@@ -24,15 +24,20 @@ export const NOTIFICATION_QUEUE_LIMIT = 20
 /** Maximum characters of body text per display page. */
 export const NOTIFICATION_PAGE_CHARS = 160
 
+/** The bridge may deliver null or non-string fields; only text fields are used. */
+function asText(value: unknown): string {
+  return typeof value === "string" ? value.trim() : ""
+}
+
 export function notificationFromEvent(data: PhoneNotificationData): QueuedNotification | null {
-  const packageName = data.packageName.trim()
+  const packageName = asText(data.packageName)
   if (!packageName) return null
-  const title = data.title.trim()
-  const content = data.content.trim()
+  const title = asText(data.title)
+  const content = asText(data.content)
   if (!title && !content) return null
   return {
-    id: data.notificationId.trim() || `${packageName}:${data.timestamp}`,
-    app: data.app.trim() || packageName,
+    id: asText(data.notificationId) || `${packageName}:${data.timestamp}`,
+    app: asText(data.app) || packageName,
     packageName,
     title,
     content,

@@ -43,6 +43,18 @@ describe("notificationFromEvent", () => {
     expect(notificationFromEvent(event({packageName: "  "}))).toBeNull()
   })
 
+  it("tolerates null or non-string fields from the bridge", () => {
+    const parsed = notificationFromEvent(event({title: null as unknown as string, content: "Lunch?"}))
+    expect(parsed).toEqual({
+      id: "n1",
+      app: "Messages",
+      packageName: "com.google.android.apps.messaging",
+      title: "",
+      content: "Lunch?",
+    })
+    expect(notificationFromEvent(event({packageName: null as unknown as string}))).toBeNull()
+  })
+
   it("falls back to packageName:timestamp for the id when notificationId is empty", () => {
     const parsed = notificationFromEvent(event({notificationId: "", timestamp: 1234}))
     expect(parsed?.id).toBe("com.google.android.apps.messaging:1234")
