@@ -26,7 +26,7 @@ authors: [agent]
 The user asked for an executable implementation plan for Phase A of the glasses-platform roadmap, scoped to code in `apps/mentra-glass`. Their decisions:
 
 - The tilt glance is **always on**.
-- Question transcription defaults to the **WednesdayAI gateway** and falls back to Mentra.
+- Question transcription defaults to the **WednesdayAI gateway** and falls back to Mentra when the gateway is unavailable, has no transcription provider, or returns no usable transcript.
 - Notifications use a phone-UI **app allowlist**.
 
 A4 (power measurement), A5 (dashboard spike) and device checks V1–V7 need the glasses. They stay with the operator: see **Operator device checks**. Phase B (MentraOS fork branches) is out of scope. Do not push, and do not open or merge a PR: the user runs the final steps.
