@@ -16,7 +16,7 @@
     "android:lint:android": "cd apps/android && ./gradlew :app:lintDebug",
     "android:run": "cd apps/android && ./gradlew :app:installDebug && adb shell am start -n ai.openclaw.android/.MainActivity",
     "android:test": "cd apps/android && ./gradlew :app:testDebugUnitTest",
-    "contracts:check": "npm run contracts:gen && git diff --exit-code -- apps/macos/Sources/OpenClawProtocol/GatewayModels.swift apps/shared/OpenClawKit/Sources/OpenClawProtocol/GatewayModels.swift apps/macos/Sources/OpenClaw/HostEnvSecurityPolicy.generated.swift",
+    "contracts:check": "npm run contracts:gen && git diff --exit-code -- apps/macos/Sources/OpenClawProtocol/GatewayModels.swift apps/shared/OpenClawKit/Sources/OpenClawProtocol/GatewayModels.swift apps/macos/Sources/OpenClaw/HostEnvSecurityPolicy.generated.swift && vitest run --config vitest.config.ts scripts/contracts.test.ts",
     "contracts:gen": "node --import tsx scripts/protocol-gen-swift.ts && node scripts/generate-host-env-security-policy-swift.mjs --write",
     "contracts:sync": "node --import tsx scripts/contracts-sync.ts",
     "format:swift": "swiftformat --lint --config .swiftformat apps/macos/Sources apps/ios/Sources apps/shared/OpenClawKit/Sources",

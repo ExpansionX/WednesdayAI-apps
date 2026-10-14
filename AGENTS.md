@@ -18,7 +18,7 @@ Guidelines for coding agents working in `WednesdayAI-apps`.
 Run from the repo root with npm (this repo has no pnpm):
 
 - `npm run contracts:sync -- --version <semver|latest>` — sync client contracts from a `wednesdayai` core release, regenerate Swift, stamp app versions.
-- `npm run contracts:gen` / `npm run contracts:check` — regenerate / verify generated Swift against synced contracts.
+- `npm run contracts:gen` / `npm run contracts:check` — regenerate / verify generated Swift against synced contracts; `contracts:check` also fails when app version files are not stamped exactly to the synced core version.
 - `npm run test:scripts` — vitest over `scripts/**` (contracts, app versions).
 - `npm run ios:build|ios:gen|ios:open|ios:run|ios:ci` — iOS app.
 - `npm run android:assemble|android:install|android:run|android:test|android:lint|android:lint:android|android:format` — Android app.

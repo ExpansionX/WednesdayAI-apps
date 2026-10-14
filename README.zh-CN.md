@@ -17,7 +17,7 @@ WednesdayAI 的原生、桌面与眼镜客户端应用。这些应用连接 Wedn
 
 - `apps/shared/contracts/CORE_VERSION` 固定本仓库同步到的 WednesdayAI-core 版本。
 - `npm run contracts:sync -- --version <semver|latest>` 从固定版本的 `wednesdayai` npm 发布包下载 `dist/contracts/*` 到 `apps/shared/contracts/`（含 `contracts/fixtures/` 下的原生 exec 测试夹具），重新生成 Swift 协议模型，并把应用版本号盖为同步的 core 版本。
-- `npm run contracts:check` 在已提交的 Swift 与同步契约不一致时失败。
+- `npm run contracts:check` 在已提交的 Swift 与同步契约不一致，或应用版本文件未精确盖为固定的 core 版本时失败。
 - 每周的机器人 PR（`contracts-sync.yml`）保持本仓库与 core 发布同步。
 
 构建与测试命令：
