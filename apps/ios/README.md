@@ -22,13 +22,13 @@ NO TEST FLIGHT AVAILABLE AT THIS POINT
 
 1. Prereqs:
    - Xcode 16+
-   - `pnpm`
+   - `npm` (repo root uses npm workspaces)
    - `xcodegen`
    - Apple Development signing set up in Xcode
 2. From repo root:
 
 ```bash
-pnpm install
+npm install
 ./scripts/ios-configure-signing.sh
 cd apps/ios
 xcodegen generate
@@ -47,7 +47,7 @@ open OpenClaw.xcodeproj
 Shortcut command (same flow + open project):
 
 ```bash
-pnpm ios:open
+npm run ios:open
 ```
 
 ## APNs Expectations For Local/Manual Builds

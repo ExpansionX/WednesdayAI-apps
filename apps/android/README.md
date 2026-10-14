@@ -35,14 +35,14 @@ cd apps/android
 ## Kotlin Lint + Format
 
 ```bash
-pnpm android:lint
-pnpm android:format
+npm run android:lint
+npm run android:format
 ```
 
 Android framework/resource lint (separate pass):
 
 ```bash
-pnpm android:lint:android
+npm run android:lint:android
 ```
 
 Direct Gradle tasks:
@@ -103,8 +103,8 @@ adb devices -l
 4) Install + launch debug build:
 
 ```bash
-pnpm android:install
-pnpm android:run
+npm run android:install
+npm run android:run
 ```
 
 If `adb devices -l` shows `unauthorized`, re-plug and accept the trust prompt again.
@@ -137,7 +137,7 @@ This app is native Kotlin + Jetpack Compose.
 
 - For Compose UI edits: use Android Studio **Live Edit** on a debug build (works on physical devices; project `minSdk=31` already meets API requirement).
 - For many non-structural code/resource changes: use Android Studio **Apply Changes**.
-- For structural/native/manifest/Gradle changes: do full reinstall (`pnpm android:run`).
+- For structural/native/manifest/Gradle changes: do full reinstall (`npm run android:run`).
 - Canvas web content already supports live reload when loaded from Gateway `__openclaw__/canvas/` (see `docs/platforms/android.md`).
 
 ## Connect / Pair
@@ -193,7 +193,7 @@ openclaw devices list
 openclaw devices approve --latest
 ```
 
-Run:
+Run from a WednesdayAI-core checkout (the live test drives the gateway side):
 
 ```bash
 pnpm android:test:integration
