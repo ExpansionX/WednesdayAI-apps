@@ -81,25 +81,31 @@ export function matchWake(text: string, triggers: string[]): {query: string} | n
   const tokens = tokenizeWithEndOffsets(text)
   if (tokens.length === 0) return null
 
-  // Same tokenizer as the transcript, so casing context matches exactly.
-  // Longest trigger first so "wednesday prime" wins over "wednesday".
-  const tokenized = triggers
-    .map((trigger) => tokenizeWithEndOffsets(trigger).map(({token}) => token))
-    .sort((a, b) => b.length - a.length)
-  for (const triggerTokens of tokenized) {
-    if (triggerTokens.length === 0) continue
-
-    let start = 0
-    let consumed = matchedLengthAt(tokens, triggerTokens, 0)
-    if (consumed < 0 && tokens.length > 1 && WAKE_GREETINGS.includes(tokens[0].token)) {
-      start = 1
-      consumed = matchedLengthAt(tokens, triggerTokens, 1)
-    }
-    if (consumed < 0) continue
-
-    return {query: queryAfterToken(tokens, text, start + consumed)}
+  const tokenized = tokenizeTriggers(triggers)
+  let start = 0
+  let consumed = longestMatchAt(tokens, tokenized, 0)
+  if (consumed < 0 && tokens.length > 1 && WAKE_GREETINGS.includes(tokens[0].token)) {
+    start = 1
+    consumed = longestMatchAt(tokens, tokenized, 1)
   }
-  return null
+  if (consumed < 0) return null
+  return {query: queryAfterToken(tokens, text, start + consumed)}
+}
+
+/** Triggers through the transcript tokenizer, so casing context matches exactly. */
+function tokenizeTriggers(triggers: string[]): string[][] {
+  return triggers
+    .map((trigger) => tokenizeWithEndOffsets(trigger).map(({token}) => token))
+    .filter((tokens) => tokens.length > 0)
+}
+
+/** The most transcript tokens any trigger consumes at `at`, or -1. The
+ * longest span wins, so "wednesday prime" beats "wednesday" however the
+ * transcript split them. */
+function longestMatchAt(tokens: SourceToken[], triggers: string[][], at: number): number {
+  let best = -1
+  for (const trigger of triggers) best = Math.max(best, matchedLengthAt(tokens, trigger, at))
+  return best
 }
 
 /** Cut the query from the original text right after the last matched token,
@@ -110,36 +116,24 @@ function queryAfterToken(tokens: SourceToken[], text: string, consumed: number):
 
 /**
  * Like `matchWake`, but the trigger may start at any token, not just the
- * first (or after one greeting). The earliest start position wins; at the
- * same position the longest trigger wins, so "wednesday prime" beats
- * "wednesday" when both are configured. A repeated wake phrase right after
- * the match ("computer? computer, what time is it" — the gateway transcript
- * spans a bare wake word and the retry) is dropped from the query too.
- * Returns null when no trigger matches anywhere.
+ * first (or after one greeting). The earliest start position wins; at that
+ * position the longest span wins. Returns null when no trigger matches.
  */
 export function findWake(text: string, triggers: string[]): {query: string} | null {
   const tokens = tokenizeWithEndOffsets(text)
-  if (tokens.length === 0) return null
-
-  // Same tokenizer as the transcript, so casing context matches exactly.
-  // Longest trigger first so "wednesday prime" wins over "wednesday".
-  const tokenized = triggers
-    .map((trigger) => tokenizeWithEndOffsets(trigger).map(({token}) => token))
-    .sort((a, b) => b.length - a.length)
+  const tokenized = tokenizeTriggers(triggers)
   for (let start = 0; start < tokens.length; start++) {
-    for (const triggerTokens of tokenized) {
-      if (triggerTokens.length === 0) continue
-      const consumed = matchedLengthAt(tokens, triggerTokens, start)
-      if (consumed < 0) continue
-      return {query: dropLeadingWakes(queryAfterToken(tokens, text, start + consumed), triggers)}
-    }
+    const consumed = longestMatchAt(tokens, tokenized, start)
+    if (consumed >= 0) return {query: queryAfterToken(tokens, text, start + consumed)}
   }
   return null
 }
 
-/** Strip wake phrases (with optional greeting) from the start of `query`.
- * Each match consumes at least one token, so the loop terminates. */
-function dropLeadingWakes(query: string, triggers: string[]): string {
+/** Strip wake phrases (with optional greeting) from the start of `query`:
+ * a transcript spanning a bare wake word and the retry ("computer?
+ * computer, what time is it") repeats it. Each match consumes at least one
+ * token, so the loop terminates. */
+export function dropLeadingWakes(query: string, triggers: string[]): string {
   let rest = query
   for (let again = matchWake(rest, triggers); again; again = matchWake(rest, triggers)) rest = again.query
   return rest

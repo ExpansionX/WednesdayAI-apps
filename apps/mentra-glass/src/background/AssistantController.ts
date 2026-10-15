@@ -34,7 +34,7 @@ import type {GlassesViewModel} from "./glassesView"
 import {GatewaySttCapture} from "./gatewayStt"
 import {TiltDetector} from "./tilt"
 import {trace} from "./trace"
-import {findWake, WakeTracker} from "./wake"
+import {dropLeadingWakes, findWake, matchWake, WakeTracker} from "./wake"
 import type {WakeAction} from "./wake"
 
 const CLIENT_VERSION = manifest.version
@@ -606,7 +606,11 @@ export class AssistantController {
     this.awaitingTranscript = false
     trace("gateway-stt", {transcript: text, mentra: mentraQuery})
     if (this.disposed || token !== this.sendToken || this.connection.state !== "connected") return
-    const query = (text && findWake(text, this.triggers)?.query.trim()) || mentraQuery
+    const gatewayQuery = text ? findWake(text, this.triggers)?.query : undefined
+    // A wake word repeated in the gateway transcript is a retry, unless
+    // Mentra's query starts with one too ("wednesday, computer science …").
+    const repeatedWake = gatewayQuery !== undefined && matchWake(mentraQuery, this.triggers) === null
+    const query = (repeatedWake ? dropLeadingWakes(gatewayQuery, this.triggers) : gatewayQuery)?.trim() || mentraQuery
     await this.sendQuery(query)
   }
 
@@ -645,8 +649,14 @@ export class AssistantController {
       }
       return
     }
-    trace("chat.send-ok", {runId: result.runId ?? null, aborted: result.aborted ?? false})
     if (this.disposed || this.currentRun !== run) return
+    trace("chat.send-ok", {runId: result?.runId ?? null, aborted: result?.aborted ?? false})
+    // Response payloads arrive unvalidated; an empty one must not leave Thinking up.
+    if (typeof result !== "object" || result === null) {
+      this.currentRun = null
+      this.showFrame({phase: "error", agentLabel: this.agentLabel(), body: "Gateway sent an empty reply"})
+      return
+    }
     if (typeof result.runId === "string" && result.runId) {
       bindServerRunId(run, result.runId)
       return

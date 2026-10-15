@@ -1,6 +1,6 @@
 import {describe, expect, it} from "vitest"
 
-import {findWake, matchWake, normalizeSpeech, WakeTracker} from "./wake"
+import {dropLeadingWakes, findWake, matchWake, normalizeSpeech, WakeTracker} from "./wake"
 
 const TRIGGERS = ["wednesday", "computer"]
 
@@ -75,6 +75,14 @@ describe("matchWake", () => {
     expect(matchWake("open claws now", ["openclaw"])).toBeNull()
   })
 
+  it("prefers the trigger that spans the most of the transcript, whatever the trigger order", () => {
+    const triggers = ["open claw", "openclaw prime"]
+    expect(matchWake("o pen claw prime status", triggers)).toEqual({query: "status"})
+    expect(matchWake("o pen claw prime status", [...triggers].reverse())).toEqual({query: "status"})
+    expect(matchWake("hey o pen claw prime status", triggers)).toEqual({query: "status"})
+    expect(findWake("so o pen claw prime status", triggers)).toEqual({query: "status"})
+  })
+
   it("slices the query at token end offsets, not whitespace words", () => {
     // "wednesday-prime" is one whitespace word but two matched tokens; the
     // query starts right after the token "prime".
@@ -139,9 +147,19 @@ describe("findWake", () => {
     expect(findWake("hey there", ["!!!", ""])).toBeNull()
   })
 
-  it("drops a repeated wake phrase from the query", () => {
-    expect(findWake("Computer? Computer, what time is it?", TRIGGERS)).toEqual({query: "what time is it?"})
-    expect(findWake("computer hey wednesday computer", TRIGGERS)).toEqual({query: ""})
+  it("keeps a wake phrase repeated after the match in the query", () => {
+    expect(findWake("Computer? Computer, what time is it?", TRIGGERS)).toEqual({query: "Computer, what time is it?"})
+  })
+})
+
+describe("dropLeadingWakes", () => {
+  it("strips every leading wake phrase", () => {
+    expect(dropLeadingWakes("Computer, what time is it?", TRIGGERS)).toBe("what time is it?")
+    expect(dropLeadingWakes("computer hey wednesday computer", TRIGGERS)).toBe("")
+  })
+
+  it("leaves a query with no leading wake phrase alone", () => {
+    expect(dropLeadingWakes("what day is wednesday", TRIGGERS)).toBe("what day is wednesday")
   })
 })
 
