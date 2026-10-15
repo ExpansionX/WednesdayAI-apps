@@ -16,6 +16,8 @@ transcripts, sends the spoken question to the user's WednesdayAI gateway with
 - `src/ui/`: phone settings menu (pairing, agent, wake STT mode, mic test).
 - `src/shared/channels.ts`: typed UI <-> background channels.
 - `scripts/smoke-gateway.ts`: device-free smoke test against a real gateway.
+- `scripts/build-flags.ts` (with `build-flags.test.ts`): build-time flags;
+  `build.ts` uses its trace gate to inline `MENTRA_PUBLIC_TRACE`.
 
 ## Rules
 
@@ -29,7 +31,8 @@ transcripts, sends the spoken question to the user's WednesdayAI gateway with
   Node built-ins, or `process` in `src/background/` or `src/gateway/`. Use
   `setTimeout`, `crypto.getRandomValues`, `btoa`/`atob`, `TextEncoder`. The one
   exception is `process.env.MENTRA_PUBLIC_*`, which `build.ts` inlines at build
-  time; give every key read there a default in `build.ts`.
+  time; give every key read there a default in `build.ts` /
+  `scripts/build-flags.ts`.
 - Ed25519/SHA come from `@noble/ed25519` + `@noble/hashes` because
   `crypto.subtle` throws in the MentraOS background runtime.
 - Tests are colocated as `src/**/*.test.ts` (vitest) and must cover behaviour
@@ -42,13 +45,13 @@ transcripts, sends the spoken question to the user's WednesdayAI gateway with
 
 ## Commands
 
-| Command                                                         | Purpose                                                                    |
-| --------------------------------------------------------------- | -------------------------------------------------------------------------- |
-| `npm run glass:test` (repo root) or `npm test`                  | vitest                                                                     |
-| `npm run glass:coverage` (repo root) or `npm run test:coverage` | vitest with v8 coverage (80% thresholds, `src/gateway` + `src/background`) |
-| `npm run glass:typecheck` (repo root) or `npm run typecheck`    | `tsc --noEmit`                                                             |
-| `bun run build`                                                 | bundles `dist/background/index.js` and `dist/ui/`                          |
-| `bun run dev`                                                   | dev server with sideload QR                                                |
-| `MENTRA_PUBLIC_TRACE=1 bun run dev`                             | dev server plus `[trace]` lines (`src/background/trace.ts`)                |
-| `bun run release`                                               | build, pack, serve a `miniapp://release` install QR                        |
-| `bun run smoke:gateway -- --setup-code <code>`                  | pair + chat against a gateway                                              |
+| Command                                                         | Purpose                                                                                                          |
+| --------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| `npm run glass:test` (repo root) or `npm test`                  | vitest                                                                                                           |
+| `npm run glass:coverage` (repo root) or `npm run test:coverage` | vitest with v8 coverage (80% thresholds, `src/gateway` + `src/background`)                                       |
+| `npm run glass:typecheck` (repo root) or `npm run typecheck`    | `tsc --noEmit`                                                                                                   |
+| `bun run build`                                                 | bundles `dist/background/index.js` and `dist/ui/`                                                                |
+| `bun run dev`                                                   | dev server with sideload QR                                                                                      |
+| `MENTRA_PUBLIC_TRACE=1 bun run dev`                             | dev server plus `[trace]` lines (`src/background/trace.ts`; exact value `1` only, `release`/`pack` force it off) |
+| `bun run release`                                               | build, pack, serve a `miniapp://release` install QR                                                              |
+| `bun run smoke:gateway -- --setup-code <code>`                  | pair + chat against a gateway                                                                                    |
