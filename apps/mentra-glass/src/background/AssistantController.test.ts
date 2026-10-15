@@ -455,11 +455,7 @@ function stubTalkSession(connection: FakeConnection, sessionId: string): void {
  * (which opens the gateway capture), then a final transcript carrying the
  * question. Returns with finish() in flight.
  */
-async function askViaGateway(
-  session: FakeSession,
-  connection: FakeConnection,
-  query: string,
-): Promise<void> {
+async function askViaGateway(session: FakeSession, connection: FakeConnection, query: string): Promise<void> {
   connection.respond("chat.send", () => ({runId: "srv-run-1"}))
   session.transcript("hey wednesday", false)
   await flush()
@@ -1637,10 +1633,7 @@ describe("AssistantController", () => {
     // must correct itself and the write must be re-requested.
     session.notify({notificationId: "n4", title: "A msg", packageName: "com.a", app: "AppA"})
     await flush()
-    expect(lastSnapshot(session).seenNotificationApps.map((seen) => seen.packageName)).toEqual([
-      "com.a",
-      "com.b",
-    ])
+    expect(lastSnapshot(session).seenNotificationApps.map((seen) => seen.packageName)).toEqual(["com.a", "com.b"])
 
     gate.resolve()
     await flush()
@@ -2443,16 +2436,7 @@ describe("AssistantController", () => {
 
       // The host holds the display lock: every attempt is dropped, so the
       // frame's 6 s window expires with the page unread.
-      session.renderStatuses = [
-        "blocked",
-        "blocked",
-        "blocked",
-        "blocked",
-        "blocked",
-        "blocked",
-        "blocked",
-        "blocked",
-      ]
+      session.renderStatuses = ["blocked", "blocked", "blocked", "blocked", "blocked", "blocked", "blocked", "blocked"]
       session.notify({notificationId: "n1", title: "Alice", content: "Lunch?"})
       await vi.advanceTimersByTimeAsync(6000)
       // The clear fires at the 6 s deadline and its re-show schedules a
