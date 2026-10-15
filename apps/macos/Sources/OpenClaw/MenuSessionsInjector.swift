@@ -1068,7 +1068,7 @@ extension MenuSessionsInjector {
         Task { @MainActor in
             guard SessionActions.confirmDestructiveAction(
                 title: "Delete session?",
-                message: "Deletes the “\(key)” entry and archives its transcript.",
+                message: "Deletes the “\(key)” entry; conversation history is kept.",
                 action: "Delete")
             else { return }
 
