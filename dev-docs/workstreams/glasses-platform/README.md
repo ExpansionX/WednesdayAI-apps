@@ -17,7 +17,7 @@ Intent: an "owned Even Hub" on Even G2 (iOS phone). WednesdayAI provides the AI,
 - Phase A code review: [reviews/2026-10-14-code-review.md](plans/2026-10-13-glasses-platform-phase-a/reviews/2026-10-14-code-review.md)
 - Phase A dev log: [dev-docs/logs/2026-10-14-glasses-phase-a.md](../../logs/2026-10-14-glasses-phase-a.md)
 - Trace mode and wake-word fix dev log: [dev-docs/logs/2026-10-15-glasses-trace-and-wake-fix.md](../../logs/2026-10-15-glasses-trace-and-wake-fix.md)
-- Device session key plan (core + miniapp, proposed): [plans/2026-10-15-device-session-key/plan.md](plans/2026-10-15-device-session-key/plan.md)
+- Device session key plan (core + miniapp, draft): [plans/2026-10-15-device-session-key/plan.md](plans/2026-10-15-device-session-key/plan.md)
 
 Findings (`ExpansionX/WednesdayAI-apps`):
 

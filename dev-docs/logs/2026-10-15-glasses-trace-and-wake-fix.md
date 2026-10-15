@@ -11,7 +11,7 @@ authors: [agent]
 
 ## Summary
 
-A build-time trace mode prints every assistant input and output to the `mentra-miniapp dev` terminal. The first live trace on Even G2 + iPhone found a bug: the gateway transcript of a bare wake word followed by a retry ("Computer? Computer, what time is it?") reached the agent with the second wake word still in the question. Repeated leading wake words are now dropped.
+A build-time trace mode prints the assistant's main inputs and outputs to the `mentra-miniapp dev` terminal. The first live trace on Even G2 + iPhone found two wake-word bugs. First, the gateway transcript of a bare wake word followed by a retry ("Computer? Computer, what time is it?") reached the agent with the second wake word still in the question. Second, "openclaw" was heard as "open claw" and never matched. Both are fixed. A code review then found and fixed three more defects in the same changes.
 
 ## Goal
 
@@ -20,20 +20,29 @@ See what the glasses hear and send, without a debugger on the phone, to diagnose
 ## Changes
 
 - `apps/mentra-glass/src/background/trace.ts`: `trace(event, data)` writes `[trace] <event> <json>` through `console.log`, which the dev sidecar forwards from the background JSContext. Off unless built with `MENTRA_PUBLIC_TRACE=1`.
-- `apps/mentra-glass/build.ts`: always inlines `process.env.MENTRA_PUBLIC_TRACE` (empty by default), so a normal build has no live `process` reference.
-- `apps/mentra-glass/src/background/wake.ts`: `findWake` drops wake phrases (with optional greeting) repeated at the start of the query. A trigger word heard split into two or three words ("open claw" for `openclaw`, observed 15:20:01) now matches.
+- `apps/mentra-glass/build.ts`: always inlines `process.env.MENTRA_PUBLIC_TRACE`, so a normal build has no live `process` reference. It is `"1"` only when the flag is set and `NODE_ENV` is not `production`.
+- `apps/mentra-glass/src/background/wake.ts`: a trigger word heard split into two or three words ("open claw" for `openclaw`, observed 15:20:01) now matches. Among the triggers that match at a position, the one spanning the most transcript wins, whatever the configured order. `dropLeadingWakes` strips repeated leading wake phrases.
+- `apps/mentra-glass/src/background/AssistantController.ts`: the gateway transcript's query has repeated wake phrases stripped only when Mentra's query does not itself start with a wake word, so "Wednesday, computer science …" keeps "computer". A superseded or disposed `chat.send` is dropped before its payload is read. An empty `chat.send` payload shows "Gateway sent an empty reply" instead of leaving Thinking on screen.
 - `apps/mentra-glass/AGENTS.md`, `README.md`, `README.zh-CN.md`: the `MENTRA_PUBLIC_TRACE=1 bun run dev` command; AGENTS.md records the `process.env.MENTRA_PUBLIC_*` exception to the no-`process` rule.
 
 ## Verification
 
-- `npm run test:coverage` in `apps/mentra-glass`: 393 tests pass; new cases `drops a repeated wake phrase from the query`, `matches a trigger word that speech-to-text split into parts`, `does not match split parts with a word between them or a longer join`.
+- `npm run test:coverage` in `apps/mentra-glass`: 400 tests pass, `wake.ts` 100%. New cases cover:
+  - the repeated wake word in the gateway transcript;
+  - a gateway question that starts with another wake word;
+  - split trigger words;
+  - longest span regardless of trigger order;
+  - `dropLeadingWakes`;
+  - a stale send with no payload;
+  - an empty-payload send.
 - Bundle check: `TRACE_ENABLED = false` by default, `true` with the flag; no `process.` in `dist/background/index.js`.
 - Live, Even G2 + iPhone, 2026-10-15: before the fix, `chat.send` carried "Computer, what time is it?"; after it, 15:19:33 `gateway-stt` "Computer, what's the weather?" sent `chat.send` "what's the weather?".
 
 ## Impact
 
 - Trace mode is off in normal builds. Trace builds log transcripts and answers to the dev terminal only.
-- A question that genuinely starts with a wake word ("computer, claude is …") loses that word. Accepted for wake-word UX.
+- The repeated-wake fix applies to the gateway transcript path. Without gateway transcription, a single Mentra transcript holding both wake words still sends the second one. Stripping it there would also strip "computer" from "Wednesday, computer science …".
+- `pack`/`release` build with `NODE_ENV=production`, and `build.ts` forces trace off there even if `MENTRA_PUBLIC_TRACE=1` is set in the shell or `.env`.
 
 ## Open items
 

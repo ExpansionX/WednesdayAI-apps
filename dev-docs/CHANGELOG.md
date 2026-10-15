@@ -4,11 +4,11 @@ Narrative index of feature work. Full history lives in the linked dev logs.
 
 ### [2026-10-15] Fix: wake word repeated or split; glasses trace mode
 
-When you said a wake word, paused, then repeated it with your question, your agent received the second wake word as part of the question. It now gets only the question. A wake word that speech-to-text splits ("open claw" for "openclaw") now wakes the assistant. Developers can also run `MENTRA_PUBLIC_TRACE=1 bun run dev` to see every transcript, wake decision, gateway request and glasses frame in the terminal.
+When you said a wake word, paused, then repeated it with your question, your agent received the second wake word as part of the question. With gateway transcription on, it now gets only the question. A wake word that speech-to-text splits ("open claw" for "openclaw") now wakes the assistant. The glasses no longer stay on Thinking when the gateway acknowledges a question with an empty reply. Developers can run `MENTRA_PUBLIC_TRACE=1 bun run dev` to see transcripts, wake decisions, the gateway transcript, `chat.send` requests and assistant frames in the terminal.
 
 **Benefits:** cleaner questions to the agent; on-device behaviour visible without a debugger.
 
-**Bug Fixes:** repeated wake word no longer reaches the agent; split wake words match.
+**Bug Fixes:** repeated wake word no longer reaches the agent (gateway transcription); split wake words match; an empty `chat.send` reply shows an error instead of hanging.
 
 **Breaking Changes:** None
 
