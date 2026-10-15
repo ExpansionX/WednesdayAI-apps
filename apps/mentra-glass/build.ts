@@ -29,6 +29,7 @@
  */
 
 import {rm} from "fs/promises"
+import {traceDefine} from "./scripts/build-flags"
 import {backgroundRuntimeGuardPlugin, reactSingletonPlugin} from "@mentra/miniapp-cli/build-helpers"
 
 const distDir = "./dist"
@@ -46,11 +47,8 @@ for (const [k, v] of Object.entries(process.env)) {
 }
 // The background reads MENTRA_PUBLIC_TRACE (src/background/trace.ts). Always
 // inline it: an unset key would leave a bare `process` reference, which
-// throws in the background JSContext. `pack`/`release` build with
-// NODE_ENV=production; a trace flag left in the shell or .env must not ship
-// transcripts to the console there.
-const traceOn = process.env.NODE_ENV !== "production" && process.env.MENTRA_PUBLIC_TRACE === "1"
-define["process.env.MENTRA_PUBLIC_TRACE"] = JSON.stringify(traceOn ? "1" : "")
+// throws in the background JSContext.
+define["process.env.MENTRA_PUBLIC_TRACE"] = traceDefine(process.env)
 // Pin NODE_ENV so an ambient-unset build (plain `npm run build`) does not
 // bake React's development build into the UI bundle. Bun defaults
 // process.env.NODE_ENV to "development" at build time; `pack`/`release`
