@@ -127,6 +127,11 @@ describe("findWake", () => {
   it("ignores triggers with no word characters", () => {
     expect(findWake("hey there", ["!!!", ""])).toBeNull()
   })
+
+  it("drops a repeated wake phrase from the query", () => {
+    expect(findWake("Computer? Computer, what time is it?", TRIGGERS)).toEqual({query: "what time is it?"})
+    expect(findWake("computer hey wednesday computer", TRIGGERS)).toEqual({query: ""})
+  })
 })
 
 describe("WakeTracker", () => {

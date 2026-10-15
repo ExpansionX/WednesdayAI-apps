@@ -115,8 +115,10 @@ function queryAfterToken(tokens: SourceToken[], text: string, consumed: number):
  * Like `matchWake`, but the trigger may start at any token, not just the
  * first (or after one greeting). The earliest start position wins; at the
  * same position the longest trigger wins, so "wednesday prime" beats
- * "wednesday" when both are configured. Returns null when no trigger
- * matches anywhere.
+ * "wednesday" when both are configured. A repeated wake phrase right after
+ * the match ("computer? computer, what time is it" — the gateway transcript
+ * spans a bare wake word and the retry) is dropped from the query too.
+ * Returns null when no trigger matches anywhere.
  */
 export function findWake(text: string, triggers: string[]): {query: string} | null {
   const tokens = tokenizeWithEndOffsets(text)
@@ -131,10 +133,18 @@ export function findWake(text: string, triggers: string[]): {query: string} | nu
     for (const triggerTokens of tokenized) {
       if (triggerTokens.length === 0) continue
       if (!startsWithAt(tokens, triggerTokens, start)) continue
-      return {query: queryAfterToken(tokens, text, start + triggerTokens.length)}
+      return {query: dropLeadingWakes(queryAfterToken(tokens, text, start + triggerTokens.length), triggers)}
     }
   }
   return null
+}
+
+/** Strip wake phrases (with optional greeting) from the start of `query`.
+ * Each match consumes at least one token, so the loop terminates. */
+function dropLeadingWakes(query: string, triggers: string[]): string {
+  let rest = query
+  for (let again = matchWake(rest, triggers); again; again = matchWake(rest, triggers)) rest = again.query
+  return rest
 }
 
 function startsWithAt(tokens: SourceToken[], prefix: string[], at: number): boolean {
