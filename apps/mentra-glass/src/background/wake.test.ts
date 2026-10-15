@@ -64,6 +64,17 @@ describe("matchWake", () => {
     })
   })
 
+  it("matches a trigger word that speech-to-text split into parts", () => {
+    expect(matchWake("open claw what's going on", ["openclaw"])).toEqual({query: "what's going on"})
+    expect(matchWake("Hey Open-Claw, status", ["openclaw"])).toEqual({query: "status"})
+    expect(findWake("so open claw status", ["openclaw"])).toEqual({query: "status"})
+  })
+
+  it("does not match split parts with a word between them or a longer join", () => {
+    expect(matchWake("open the claw now", ["openclaw"])).toBeNull()
+    expect(matchWake("open claws now", ["openclaw"])).toBeNull()
+  })
+
   it("slices the query at token end offsets, not whitespace words", () => {
     // "wednesday-prime" is one whitespace word but two matched tokens; the
     // query starts right after the token "prime".

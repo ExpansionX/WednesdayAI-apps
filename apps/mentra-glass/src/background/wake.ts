@@ -74,7 +74,8 @@ function tokenizeWithEndOffsets(text: string): SourceToken[] {
  * normalized tokens; the query is cut from the original text right after
  * the last matched token, so punctuation and spacing survive. Longer
  * triggers win, so "wednesday prime" beats "wednesday" when both are
- * configured. Returns null when no trigger matches.
+ * configured. A trigger word heard split in two or three ("open claw" for
+ * "openclaw") still matches. Returns null when no trigger matches.
  */
 export function matchWake(text: string, triggers: string[]): {query: string} | null {
   const tokens = tokenizeWithEndOffsets(text)
@@ -88,19 +89,15 @@ export function matchWake(text: string, triggers: string[]): {query: string} | n
   for (const triggerTokens of tokenized) {
     if (triggerTokens.length === 0) continue
 
-    let start = -1
-    if (startsWithAt(tokens, triggerTokens, 0)) {
-      start = 0
-    } else if (
-      tokens.length > 1 &&
-      WAKE_GREETINGS.includes(tokens[0].token) &&
-      startsWithAt(tokens, triggerTokens, 1)
-    ) {
+    let start = 0
+    let consumed = matchedLengthAt(tokens, triggerTokens, 0)
+    if (consumed < 0 && tokens.length > 1 && WAKE_GREETINGS.includes(tokens[0].token)) {
       start = 1
+      consumed = matchedLengthAt(tokens, triggerTokens, 1)
     }
-    if (start < 0) continue
+    if (consumed < 0) continue
 
-    return {query: queryAfterToken(tokens, text, start + triggerTokens.length)}
+    return {query: queryAfterToken(tokens, text, start + consumed)}
   }
   return null
 }
@@ -132,8 +129,9 @@ export function findWake(text: string, triggers: string[]): {query: string} | nu
   for (let start = 0; start < tokens.length; start++) {
     for (const triggerTokens of tokenized) {
       if (triggerTokens.length === 0) continue
-      if (!startsWithAt(tokens, triggerTokens, start)) continue
-      return {query: dropLeadingWakes(queryAfterToken(tokens, text, start + triggerTokens.length), triggers)}
+      const consumed = matchedLengthAt(tokens, triggerTokens, start)
+      if (consumed < 0) continue
+      return {query: dropLeadingWakes(queryAfterToken(tokens, text, start + consumed), triggers)}
     }
   }
   return null
@@ -147,12 +145,27 @@ function dropLeadingWakes(query: string, triggers: string[]): string {
   return rest
 }
 
-function startsWithAt(tokens: SourceToken[], prefix: string[], at: number): boolean {
-  if (tokens.length - at < prefix.length) return false
-  for (let i = 0; i < prefix.length; i++) {
-    if (tokens[at + i].token !== prefix[i]) return false
+/** Speech-to-text may split one trigger word ("openclaw" heard as "open claw"). */
+const MAX_SPLIT_PARTS = 3
+
+/**
+ * Match the trigger tokens at `at`, each one either as a single transcript
+ * token or as up to MAX_SPLIT_PARTS consecutive tokens that join to it.
+ * Returns the number of transcript tokens consumed, or -1.
+ */
+function matchedLengthAt(tokens: SourceToken[], trigger: string[], at: number): number {
+  let pos = at
+  for (const part of trigger) {
+    let joined = ""
+    let parts = 0
+    while (parts < MAX_SPLIT_PARTS && pos + parts < tokens.length && joined.length < part.length) {
+      joined += tokens[pos + parts].token
+      parts += 1
+    }
+    if (joined !== part) return -1
+    pos += parts
   }
-  return true
+  return pos - at
 }
 
 /**
