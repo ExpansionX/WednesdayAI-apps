@@ -214,15 +214,16 @@ unavailable"，然后使用 Mentra 的转写结果。
 
 ### 命令
 
-| 命令                                                             | 用途                                                                                                      |
-| ---------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------- |
-| `npm run glass:test`（仓库根目录）或 `npm test`                  | 单元测试（vitest）                                                                                        |
+| 命令                                                             | 用途                                                                                                                         |
+| ---------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| `npm run glass:test`（仓库根目录）或 `npm test`                  | 单元测试（vitest）                                                                                                           |
 | `npm run glass:coverage`（仓库根目录）或 `npm run test:coverage` | 带 v8 覆盖率的测试；`src/gateway`、`src/background` 和 `src/ui/App.tsx` 阈值 80%（排除测试文件和 `src/background/index.ts`） |
-| `npm run glass:typecheck`（仓库根目录）或 `npm run typecheck`    | 对 `src/` 和 `scripts/` 运行 `tsc --noEmit`                                                               |
-| `bun run build`                                                  | 在 `dist/` 生成生产包                                                                                     |
-| `bun run dev`                                                    | 开发模式，打印侧载二维码                                                                                  |
-| `bun run release`                                                | 构建、打包并提供 `miniapp://release` 安装二维码                                                           |
-| `bun run smoke:gateway -- --setup-code <code>`                   | 免设备检查：配对、读取唤醒词和 agents、发送 `chat.send`、用存储的设备令牌重连                             |
+| `npm run glass:typecheck`（仓库根目录）或 `npm run typecheck`    | 对 `src/` 和 `scripts/` 运行 `tsc --noEmit`                                                                                  |
+| `bun run build`                                                  | 在 `dist/` 生成生产包                                                                                                        |
+| `bun run dev`                                                    | 开发模式，打印侧载二维码                                                                                                     |
+| `MENTRA_PUBLIC_TRACE=1 bun run dev`                              | 开发模式，每个转写、唤醒判定、网关转写、`chat.send` 和眼镜画面各打印一行 `[trace]`                                           |
+| `bun run release`                                                | 构建、打包并提供 `miniapp://release` 安装二维码                                                                              |
+| `bun run smoke:gateway -- --setup-code <code>`                   | 免设备检查：配对、读取唤醒词和 agents、发送 `chat.send`、用存储的设备令牌重连                                                |
 
 冒烟测试的 setup code 用
 `wednesdayai qr --client openclaw-mentra-node --setup-code-only` 获取。

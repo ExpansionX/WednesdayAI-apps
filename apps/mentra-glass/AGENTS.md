@@ -27,7 +27,9 @@ transcripts, sends the spoken question to the user's WednesdayAI gateway with
 - The background is a bare JavaScript engine, not a browser or Node. Do not use
   `window`, `document`, `performance`, `crypto.subtle`, `crypto.randomUUID`,
   Node built-ins, or `process` in `src/background/` or `src/gateway/`. Use
-  `setTimeout`, `crypto.getRandomValues`, `btoa`/`atob`, `TextEncoder`.
+  `setTimeout`, `crypto.getRandomValues`, `btoa`/`atob`, `TextEncoder`. The one
+  exception is `process.env.MENTRA_PUBLIC_*`, which `build.ts` inlines at build
+  time; give every key read there a default in `build.ts`.
 - Ed25519/SHA come from `@noble/ed25519` + `@noble/hashes` because
   `crypto.subtle` throws in the MentraOS background runtime.
 - Tests are colocated as `src/**/*.test.ts` (vitest) and must cover behaviour
@@ -47,5 +49,6 @@ transcripts, sends the spoken question to the user's WednesdayAI gateway with
 | `npm run glass:typecheck` (repo root) or `npm run typecheck`    | `tsc --noEmit`                                                             |
 | `bun run build`                                                 | bundles `dist/background/index.js` and `dist/ui/`                          |
 | `bun run dev`                                                   | dev server with sideload QR                                                |
+| `MENTRA_PUBLIC_TRACE=1 bun run dev`                             | dev server plus `[trace]` lines (`src/background/trace.ts`)                |
 | `bun run release`                                               | build, pack, serve a `miniapp://release` install QR                        |
 | `bun run smoke:gateway -- --setup-code <code>`                  | pair + chat against a gateway                                              |
