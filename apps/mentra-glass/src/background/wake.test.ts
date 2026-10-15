@@ -75,6 +75,11 @@ describe("matchWake", () => {
     expect(matchWake("open claws now", ["openclaw"])).toBeNull()
   })
 
+  it("matches a trigger split into exactly three parts but not four", () => {
+    expect(matchWake("o pen claw status", ["openclaw"])).toEqual({query: "status"})
+    expect(matchWake("op en cl aw status", ["openclaw"])).toBeNull()
+  })
+
   it("prefers the trigger that spans the most of the transcript, whatever the trigger order", () => {
     const triggers = ["open claw", "openclaw prime"]
     expect(matchWake("o pen claw prime status", triggers)).toEqual({query: "status"})
@@ -138,6 +143,10 @@ describe("findWake", () => {
     expect(findWake("ok wednesday prime go", ["wednesday", "wednesday prime"])).toEqual({query: "go"})
   })
 
+  it("prefers the longest trigger when it is listed first", () => {
+    expect(findWake("ok wednesday prime go", ["wednesday prime", "wednesday"])).toEqual({query: "go"})
+  })
+
   it("returns null for an empty or punctuation-only transcript", () => {
     expect(findWake("", TRIGGERS)).toBeNull()
     expect(findWake("?! ... ?", TRIGGERS)).toBeNull()
@@ -160,6 +169,10 @@ describe("dropLeadingWakes", () => {
 
   it("leaves a query with no leading wake phrase alone", () => {
     expect(dropLeadingWakes("what day is wednesday", TRIGGERS)).toBe("what day is wednesday")
+  })
+
+  it("returns an empty query unchanged", () => {
+    expect(dropLeadingWakes("", TRIGGERS)).toBe("")
   })
 })
 

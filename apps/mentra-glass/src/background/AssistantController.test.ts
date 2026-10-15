@@ -687,6 +687,41 @@ describe("AssistantController", () => {
     expect(bodyTexts(session).at(-1)).toBe("Gateway sent an empty reply")
   })
 
+  it("treats any non-object chat.send payload as an empty reply", async () => {
+    for (const payload of ["ack", 42]) {
+      const session = new FakeSession()
+      const connection = new FakeConnection()
+      await startAssistant(session, connection)
+
+      await ask(session, connection, "what time is it", () => payload)
+      await vi.advanceTimersByTimeAsync(400)
+      expect(bodyTexts(session).at(-1)).toBe("Gateway sent an empty reply")
+    }
+  })
+
+  it("drops a superseded send's ack without reading its payload", async () => {
+    const session = new FakeSession()
+    const connection = new FakeConnection()
+    const first = deferred<unknown>()
+    let sendCount = 0
+    connection.respond("chat.send", () => ((sendCount += 1) === 1 ? first.promise : {runId: `srv-run-${sendCount}`}))
+    await startAssistant(session, connection)
+
+    await ask(session, connection, "what is one plus one")
+    await flush()
+    // The second question retires the first send while its ack is pending.
+    await ask(session, connection, "what is two plus two")
+    await vi.advanceTimersByTimeAsync(400)
+
+    // The stale ack must be dropped before its shape is read: no empty-reply
+    // error may repaint over the newer question's frame.
+    first.resolve(null)
+    await flush()
+    await vi.advanceTimersByTimeAsync(400)
+    expect(bodyTexts(session).at(-1)).toBe("what is two plus two")
+    expect(bodyTexts(session)).not.toContain("Gateway sent an empty reply")
+  })
+
   it("retries a blocked final frame and still auto-hides at its deadline", async () => {
     const session = new FakeSession()
     const connection = new FakeConnection()
@@ -2035,6 +2070,24 @@ describe("AssistantController", () => {
 
       const send = connection.requests.find((request) => request.method === "chat.send")
       expect(recordParams(send?.params).message).toBe("what time is it?")
+    })
+
+    it("falls back to the Mentra query when the gateway transcript is only repeated wake words", async () => {
+      const session = new FakeSession()
+      const connection = new FakeConnection()
+      stubTalkSession(connection, "s1")
+      await startAssistant(session, connection, {querySttMode: "gateway"})
+
+      await askViaGateway(session, connection, "what time is it")
+      connection.emitEvent("talk.event", {
+        type: "transcript.done",
+        sessionId: "s1",
+        payload: {text: "Wednesday? Wednesday?"},
+      })
+      await flush()
+
+      const send = connection.requests.find((request) => request.method === "chat.send")
+      expect(recordParams(send?.params).message).toBe("what time is it")
     })
 
     it("keeps a gateway question that starts with another wake word", async () => {
