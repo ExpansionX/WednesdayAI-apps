@@ -1216,6 +1216,7 @@ public struct SessionsListParams: Codable, Sendable {
     public let label: String?
     public let spawnedby: String?
     public let agentid: String?
+    public let storeagentid: String?
     public let search: String?
 
     public init(
@@ -1234,6 +1235,7 @@ public struct SessionsListParams: Codable, Sendable {
         label: String? = nil,
         spawnedby: String? = nil,
         agentid: String? = nil,
+        storeagentid: String? = nil,
         search: String? = nil)
     {
         self.limit = limit
@@ -1251,6 +1253,7 @@ public struct SessionsListParams: Codable, Sendable {
         self.label = label
         self.spawnedby = spawnedby
         self.agentid = agentid
+        self.storeagentid = storeagentid
         self.search = search
     }
 
@@ -1270,6 +1273,7 @@ public struct SessionsListParams: Codable, Sendable {
         case label
         case spawnedby = "spawnedBy"
         case agentid = "agentId"
+        case storeagentid = "storeAgentId"
         case search
     }
 }
@@ -1714,6 +1718,32 @@ public struct SessionsDeleteParams: Codable, Sendable {
     }
 }
 
+public struct SessionsDeleteResult: Codable, Sendable {
+    public let ok: Bool
+    public let key: String
+    public let deleted: Bool
+    public let archived: [String]
+
+    public init(
+        ok: Bool,
+        key: String,
+        deleted: Bool,
+        archived: [String])
+    {
+        self.ok = ok
+        self.key = key
+        self.deleted = deleted
+        self.archived = archived
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case ok
+        case key
+        case deleted
+        case archived
+    }
+}
+
 public struct SessionsCompactParams: Codable, Sendable {
     public let key: String
     public let maxlines: Int?
@@ -1729,6 +1759,80 @@ public struct SessionsCompactParams: Codable, Sendable {
     private enum CodingKeys: String, CodingKey {
         case key
         case maxlines = "maxLines"
+    }
+}
+
+public struct SessionsCompactResult: Codable, Sendable {
+    public let ok: Bool
+    public let key: String
+    public let compacted: Bool
+    public let reason: String?
+    public let warnings: [String]?
+
+    public init(
+        ok: Bool,
+        key: String,
+        compacted: Bool,
+        reason: String? = nil,
+        warnings: [String]? = nil)
+    {
+        self.ok = ok
+        self.key = key
+        self.compacted = compacted
+        self.reason = reason
+        self.warnings = warnings
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case ok
+        case key
+        case compacted
+        case reason
+        case warnings
+    }
+}
+
+public struct SessionsExportParams: Codable, Sendable {
+    public let key: String
+    public let cursor: String?
+
+    public init(
+        key: String,
+        cursor: String? = nil)
+    {
+        self.key = key
+        self.cursor = cursor
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case key
+        case cursor
+    }
+}
+
+public struct SessionsExportResult: Codable, Sendable {
+    public let sessionid: String
+    public let lines: [String]
+    public let nextcursor: String?
+    public let warnings: [String]?
+
+    public init(
+        sessionid: String,
+        lines: [String],
+        nextcursor: String? = nil,
+        warnings: [String]? = nil)
+    {
+        self.sessionid = sessionid
+        self.lines = lines
+        self.nextcursor = nextcursor
+        self.warnings = warnings
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case sessionid = "sessionId"
+        case lines
+        case nextcursor = "nextCursor"
+        case warnings
     }
 }
 
@@ -1831,6 +1935,298 @@ public struct SessionsRunsEventsParams: Codable, Sendable {
 
     private enum CodingKeys: String, CodingKey {
         case sessionrunid = "sessionRunId"
+    }
+}
+
+public struct SessionsMaintenanceRunParams: Codable, Sendable {
+    public let task: String
+    public let agent: String?
+    public let allagents: Bool?
+    public let dryrun: Bool?
+    public let enforce: Bool?
+    public let activekey: String?
+    public let batchsize: Int?
+
+    public init(
+        task: String,
+        agent: String? = nil,
+        allagents: Bool? = nil,
+        dryrun: Bool? = nil,
+        enforce: Bool? = nil,
+        activekey: String? = nil,
+        batchsize: Int? = nil)
+    {
+        self.task = task
+        self.agent = agent
+        self.allagents = allagents
+        self.dryrun = dryrun
+        self.enforce = enforce
+        self.activekey = activekey
+        self.batchsize = batchsize
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case task
+        case agent
+        case allagents = "allAgents"
+        case dryrun = "dryRun"
+        case enforce
+        case activekey = "activeKey"
+        case batchsize = "batchSize"
+    }
+}
+
+public struct SessionsMaintenanceRunResult: Codable, Sendable {
+    public let task: String
+    public let dryrun: Bool
+    public let summaries: [[String: AnyCodable]]?
+    public let counts: [String: AnyCodable]?
+
+    public init(
+        task: String,
+        dryrun: Bool,
+        summaries: [[String: AnyCodable]]? = nil,
+        counts: [String: AnyCodable]? = nil)
+    {
+        self.task = task
+        self.dryrun = dryrun
+        self.summaries = summaries
+        self.counts = counts
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case task
+        case dryrun = "dryRun"
+        case summaries
+        case counts
+    }
+}
+
+public struct SessionsStorageValidateCheck: Codable, Sendable {
+    public let name: String
+    public let ok: Bool
+    public let detail: String?
+
+    public init(
+        name: String,
+        ok: Bool,
+        detail: String? = nil)
+    {
+        self.name = name
+        self.ok = ok
+        self.detail = detail
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case name
+        case ok
+        case detail
+    }
+}
+
+public struct SessionsStorageValidateParams: Codable, Sendable {}
+
+public struct SessionsStorageValidateResult: Codable, Sendable {
+    public let ok: Bool
+    public let backend: String
+    public let checks: [SessionsStorageValidateCheck]
+
+    public init(
+        ok: Bool,
+        backend: String,
+        checks: [SessionsStorageValidateCheck])
+    {
+        self.ok = ok
+        self.backend = backend
+        self.checks = checks
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case ok
+        case backend
+        case checks
+    }
+}
+
+public struct SessionsStorageBackupParams: Codable, Sendable {
+    public let path: String?
+
+    public init(
+        path: String? = nil)
+    {
+        self.path = path
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case path
+    }
+}
+
+public struct SessionsStorageBackupResult: Codable, Sendable {
+    public let ok: Bool
+    public let path: String
+    public let bytes: Int
+
+    public init(
+        ok: Bool,
+        path: String,
+        bytes: Int)
+    {
+        self.ok = ok
+        self.path = path
+        self.bytes = bytes
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case ok
+        case path
+        case bytes
+    }
+}
+
+public struct SessionsStorageLegacyImportStatus: Codable, Sendable {
+    public let state: String
+    public let total: Int
+    public let done: Int
+    public let failed: Int
+    public let pending: Int
+    public let imported: Int
+    public let capped: Int
+    public let vanished: Int
+    public let rejectedentries: Int
+    public let archiveroot: String?
+    public let backuppath: String?
+    public let lasterror: String?
+
+    public init(
+        state: String,
+        total: Int,
+        done: Int,
+        failed: Int,
+        pending: Int,
+        imported: Int,
+        capped: Int,
+        vanished: Int,
+        rejectedentries: Int,
+        archiveroot: String? = nil,
+        backuppath: String? = nil,
+        lasterror: String? = nil)
+    {
+        self.state = state
+        self.total = total
+        self.done = done
+        self.failed = failed
+        self.pending = pending
+        self.imported = imported
+        self.capped = capped
+        self.vanished = vanished
+        self.rejectedentries = rejectedentries
+        self.archiveroot = archiveroot
+        self.backuppath = backuppath
+        self.lasterror = lasterror
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case state
+        case total
+        case done
+        case failed
+        case pending
+        case imported
+        case capped
+        case vanished
+        case rejectedentries = "rejectedEntries"
+        case archiveroot = "archiveRoot"
+        case backuppath = "backupPath"
+        case lasterror = "lastError"
+    }
+}
+
+public struct SessionsStorageStatusParams: Codable, Sendable {}
+
+public struct SessionsStorageStatusResult: Codable, Sendable {
+    public let backend: String
+    public let ready: Bool
+    public let legacyimport: SessionsStorageLegacyImportStatus
+
+    public init(
+        backend: String,
+        ready: Bool,
+        legacyimport: SessionsStorageLegacyImportStatus)
+    {
+        self.backend = backend
+        self.ready = ready
+        self.legacyimport = legacyimport
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case backend
+        case ready
+        case legacyimport = "legacyImport"
+    }
+}
+
+public struct SessionsStorageImportParams: Codable, Sendable {
+    public let retryfailed: Bool?
+
+    public init(
+        retryfailed: Bool? = nil)
+    {
+        self.retryfailed = retryfailed
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case retryfailed = "retryFailed"
+    }
+}
+
+public struct SessionsStorageImportResult: Codable, Sendable {
+    public let ok: Bool
+    public let status: SessionsStorageLegacyImportStatus
+
+    public init(
+        ok: Bool,
+        status: SessionsStorageLegacyImportStatus)
+    {
+        self.ok = ok
+        self.status = status
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case ok
+        case status
+    }
+}
+
+public struct MemoryIndexParams: Codable, Sendable {
+    public let agentid: String?
+    public let force: Bool?
+
+    public init(
+        agentid: String? = nil,
+        force: Bool? = nil)
+    {
+        self.agentid = agentid
+        self.force = force
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case agentid = "agentId"
+        case force
+    }
+}
+
+public struct MemoryIndexResult: Codable, Sendable {
+    public let agents: [[String: AnyCodable]]
+
+    public init(
+        agents: [[String: AnyCodable]])
+    {
+        self.agents = agents
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case agents
     }
 }
 

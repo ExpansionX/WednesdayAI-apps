@@ -2193,6 +2193,10 @@
           "minLength": 1,
           "type": "string"
         },
+        "storeAgentId": {
+          "minLength": 1,
+          "type": "string"
+        },
         "search": {
           "type": "string"
         }
@@ -2793,10 +2797,43 @@
           "type": "string"
         },
         "deleteTranscript": {
+          "deprecated": true,
+          "description": "Accepted but ignored: deletion tombstones the SQL index and retains conversation history and legacy import sources. Removed in the next release.",
           "type": "boolean"
         },
         "emitLifecycleHooks": {
           "type": "boolean"
+        }
+      }
+    },
+    "SessionsDeleteResult": {
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "ok",
+        "key",
+        "deleted",
+        "archived"
+      ],
+      "properties": {
+        "ok": {
+          "const": true,
+          "type": "boolean"
+        },
+        "key": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "deleted": {
+          "type": "boolean"
+        },
+        "archived": {
+          "deprecated": true,
+          "description": "Always empty: session deletion does not archive transcript files; only the legacy importer moves source files. Removed in the next release.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
         }
       }
     },
@@ -2814,6 +2851,84 @@
         "maxLines": {
           "minimum": 1,
           "type": "integer"
+        }
+      }
+    },
+    "SessionsCompactResult": {
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "ok",
+        "key",
+        "compacted"
+      ],
+      "properties": {
+        "ok": {
+          "type": "boolean"
+        },
+        "key": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "compacted": {
+          "type": "boolean"
+        },
+        "reason": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "warnings": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "SessionsExportParams": {
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "key"
+      ],
+      "properties": {
+        "key": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "cursor": {
+          "minLength": 1,
+          "type": "string"
+        }
+      }
+    },
+    "SessionsExportResult": {
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "sessionId",
+        "lines"
+      ],
+      "properties": {
+        "sessionId": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "lines": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "nextCursor": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "warnings": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
         }
       }
     },
@@ -2921,6 +3036,532 @@
         "sessionRunId": {
           "minLength": 1,
           "type": "string"
+        }
+      }
+    },
+    "SessionsMaintenanceRunParams": {
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "task"
+      ],
+      "properties": {
+        "task": {
+          "type": "string",
+          "enum": [
+            "cleanup",
+            "backfill",
+            "drop-legacy-archive"
+          ]
+        },
+        "agent": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "allAgents": {
+          "type": "boolean"
+        },
+        "dryRun": {
+          "type": "boolean"
+        },
+        "enforce": {
+          "type": "boolean"
+        },
+        "activeKey": {
+          "type": "string"
+        },
+        "batchSize": {
+          "minimum": 1,
+          "type": "integer"
+        }
+      }
+    },
+    "SessionsMaintenanceRunResult": {
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "task",
+        "dryRun"
+      ],
+      "properties": {
+        "task": {
+          "type": "string"
+        },
+        "dryRun": {
+          "type": "boolean"
+        },
+        "summaries": {
+          "type": "array",
+          "items": {
+            "additionalProperties": false,
+            "type": "object",
+            "required": [
+              "agentId",
+              "storePath",
+              "mode",
+              "dryRun",
+              "beforeCount",
+              "afterCount",
+              "missing",
+              "pruned",
+              "capped",
+              "wouldMutate"
+            ],
+            "properties": {
+              "agentId": {
+                "type": "string"
+              },
+              "storePath": {
+                "type": "string"
+              },
+              "mode": {
+                "type": "string",
+                "enum": [
+                  "warn",
+                  "enforce"
+                ]
+              },
+              "dryRun": {
+                "type": "boolean"
+              },
+              "beforeCount": {
+                "minimum": 0,
+                "type": "integer"
+              },
+              "afterCount": {
+                "minimum": 0,
+                "type": "integer"
+              },
+              "missing": {
+                "minimum": 0,
+                "type": "integer"
+              },
+              "pruned": {
+                "minimum": 0,
+                "type": "integer"
+              },
+              "capped": {
+                "minimum": 0,
+                "type": "integer"
+              },
+              "wouldMutate": {
+                "type": "boolean"
+              },
+              "applied": {
+                "type": "boolean"
+              },
+              "appliedCount": {
+                "minimum": 0,
+                "type": "integer"
+              }
+            }
+          }
+        },
+        "counts": {
+          "type": "object",
+          "patternProperties": {
+            "^(.*)$": {
+              "type": "number"
+            }
+          }
+        }
+      }
+    },
+    "SessionsStorageValidateCheck": {
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "name",
+        "ok"
+      ],
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "ok": {
+          "type": "boolean"
+        },
+        "detail": {
+          "type": "string"
+        }
+      }
+    },
+    "SessionsStorageValidateParams": {
+      "additionalProperties": false,
+      "type": "object",
+      "properties": {}
+    },
+    "SessionsStorageValidateResult": {
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "ok",
+        "backend",
+        "checks"
+      ],
+      "properties": {
+        "ok": {
+          "type": "boolean"
+        },
+        "backend": {
+          "type": "string",
+          "enum": [
+            "sqlite",
+            "postgres"
+          ]
+        },
+        "checks": {
+          "type": "array",
+          "items": {
+            "additionalProperties": false,
+            "type": "object",
+            "required": [
+              "name",
+              "ok"
+            ],
+            "properties": {
+              "name": {
+                "type": "string"
+              },
+              "ok": {
+                "type": "boolean"
+              },
+              "detail": {
+                "type": "string"
+              }
+            },
+            "x-schema-name": "SessionsStorageValidateCheck"
+          }
+        }
+      }
+    },
+    "SessionsStorageBackupParams": {
+      "additionalProperties": false,
+      "type": "object",
+      "properties": {
+        "path": {
+          "minLength": 1,
+          "type": "string"
+        }
+      }
+    },
+    "SessionsStorageBackupResult": {
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "ok",
+        "path",
+        "bytes"
+      ],
+      "properties": {
+        "ok": {
+          "type": "boolean"
+        },
+        "path": {
+          "type": "string"
+        },
+        "bytes": {
+          "minimum": 0,
+          "type": "integer"
+        }
+      }
+    },
+    "SessionsStorageLegacyImportStatus": {
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "state",
+        "total",
+        "done",
+        "failed",
+        "pending",
+        "imported",
+        "capped",
+        "vanished",
+        "rejectedEntries"
+      ],
+      "properties": {
+        "state": {
+          "type": "string",
+          "enum": [
+            "none",
+            "pending",
+            "running",
+            "completed",
+            "error"
+          ]
+        },
+        "total": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "done": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "failed": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "pending": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "imported": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "capped": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "vanished": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "rejectedEntries": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "archiveRoot": {
+          "type": "string"
+        },
+        "backupPath": {
+          "type": "string"
+        },
+        "lastError": {
+          "type": "string"
+        }
+      }
+    },
+    "SessionsStorageStatusParams": {
+      "additionalProperties": false,
+      "type": "object",
+      "properties": {}
+    },
+    "SessionsStorageStatusResult": {
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "backend",
+        "ready",
+        "legacyImport"
+      ],
+      "properties": {
+        "backend": {
+          "type": "string",
+          "enum": [
+            "sqlite",
+            "postgres"
+          ]
+        },
+        "ready": {
+          "type": "boolean"
+        },
+        "legacyImport": {
+          "additionalProperties": false,
+          "type": "object",
+          "required": [
+            "state",
+            "total",
+            "done",
+            "failed",
+            "pending",
+            "imported",
+            "capped",
+            "vanished",
+            "rejectedEntries"
+          ],
+          "properties": {
+            "state": {
+              "type": "string",
+              "enum": [
+                "none",
+                "pending",
+                "running",
+                "completed",
+                "error"
+              ]
+            },
+            "total": {
+              "minimum": 0,
+              "type": "integer"
+            },
+            "done": {
+              "minimum": 0,
+              "type": "integer"
+            },
+            "failed": {
+              "minimum": 0,
+              "type": "integer"
+            },
+            "pending": {
+              "minimum": 0,
+              "type": "integer"
+            },
+            "imported": {
+              "minimum": 0,
+              "type": "integer"
+            },
+            "capped": {
+              "minimum": 0,
+              "type": "integer"
+            },
+            "vanished": {
+              "minimum": 0,
+              "type": "integer"
+            },
+            "rejectedEntries": {
+              "minimum": 0,
+              "type": "integer"
+            },
+            "archiveRoot": {
+              "type": "string"
+            },
+            "backupPath": {
+              "type": "string"
+            },
+            "lastError": {
+              "type": "string"
+            }
+          },
+          "x-schema-name": "SessionsStorageLegacyImportStatus"
+        }
+      }
+    },
+    "SessionsStorageImportParams": {
+      "additionalProperties": false,
+      "type": "object",
+      "properties": {
+        "retryFailed": {
+          "type": "boolean"
+        }
+      }
+    },
+    "SessionsStorageImportResult": {
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "ok",
+        "status"
+      ],
+      "properties": {
+        "ok": {
+          "type": "boolean"
+        },
+        "status": {
+          "additionalProperties": false,
+          "type": "object",
+          "required": [
+            "state",
+            "total",
+            "done",
+            "failed",
+            "pending",
+            "imported",
+            "capped",
+            "vanished",
+            "rejectedEntries"
+          ],
+          "properties": {
+            "state": {
+              "type": "string",
+              "enum": [
+                "none",
+                "pending",
+                "running",
+                "completed",
+                "error"
+              ]
+            },
+            "total": {
+              "minimum": 0,
+              "type": "integer"
+            },
+            "done": {
+              "minimum": 0,
+              "type": "integer"
+            },
+            "failed": {
+              "minimum": 0,
+              "type": "integer"
+            },
+            "pending": {
+              "minimum": 0,
+              "type": "integer"
+            },
+            "imported": {
+              "minimum": 0,
+              "type": "integer"
+            },
+            "capped": {
+              "minimum": 0,
+              "type": "integer"
+            },
+            "vanished": {
+              "minimum": 0,
+              "type": "integer"
+            },
+            "rejectedEntries": {
+              "minimum": 0,
+              "type": "integer"
+            },
+            "archiveRoot": {
+              "type": "string"
+            },
+            "backupPath": {
+              "type": "string"
+            },
+            "lastError": {
+              "type": "string"
+            }
+          },
+          "x-schema-name": "SessionsStorageLegacyImportStatus"
+        }
+      }
+    },
+    "MemoryIndexParams": {
+      "additionalProperties": false,
+      "type": "object",
+      "properties": {
+        "agentId": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "force": {
+          "type": "boolean"
+        }
+      }
+    },
+    "MemoryIndexResult": {
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "agents"
+      ],
+      "properties": {
+        "agents": {
+          "type": "array",
+          "items": {
+            "additionalProperties": false,
+            "type": "object",
+            "required": [
+              "agentId",
+              "ok"
+            ],
+            "properties": {
+              "agentId": {
+                "minLength": 1,
+                "type": "string"
+              },
+              "ok": {
+                "type": "boolean"
+              },
+              "error": {
+                "type": "string"
+              }
+            }
+          }
         }
       }
     },

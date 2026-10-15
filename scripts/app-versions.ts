@@ -111,7 +111,7 @@ type Stamper = (content: string, version: string, build: number) => string;
 // independently and are intentionally excluded. The meta-test in contracts.test.ts asserts this
 // set covers every version-bearing iOS file (ADR 0004). App versions equal the synced
 // CORE_VERSION — the macOS app derives its expected gateway version from the bundle version —
-// and core no longer stamps these files (ADR 0097).
+// and core no longer stamps these files (ADR 0101).
 // Exported for the exact-content meta-test in contracts.test.ts.
 export const APP_STAMPERS: Record<string, Stamper> = {
   "apps/android/app/build.gradle.kts": stampAndroid,

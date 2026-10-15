@@ -52,7 +52,7 @@ The macOS app is built and packaged in the [WednesdayAI-apps](https://github.com
 
 - Sync client contracts and stamp app versions before packaging: `npm run contracts:sync -- --version "$(cat apps/shared/contracts/CORE_VERSION)"` (re-syncs the pinned release; use `-- --version <other-version>` to move to a different core release). This pins `apps/shared/contracts/CORE_VERSION`, regenerates Swift and stamps app versions.
 - Package the app: `npm run mac:package` (wraps `scripts/package-mac-app.sh`; outputs `dist/OpenClaw.app`). The app no longer bundles the gateway.
-- Do not run core-only steps here (`pnpm` scripts, npm publish, `version:sync`); core versioning is owned by the WednesdayAI-core release, and app versions follow the synced `CORE_VERSION` (ADR 0097).
+- Do not run core-only steps here (`pnpm` scripts, npm publish, `version:sync`); core versioning is owned by the WednesdayAI-core release, and app versions follow the synced `CORE_VERSION` (ADR 0101).
 
 ## Notarization
 

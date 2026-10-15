@@ -801,6 +801,7 @@ extension MenuSessionsInjector {
             openLog.target = self
             openLog.representedObject = [
                 "sessionId": sessionId,
+                "key": row.key,
                 "storePath": storePath,
             ]
             menu.addItem(openLog)
@@ -1018,9 +1019,9 @@ extension MenuSessionsInjector {
     private func openSessionLog(_ sender: NSMenuItem) {
         guard let dict = sender.representedObject as? [String: String],
               let sessionId = dict["sessionId"],
-              let storePath = dict["storePath"]
+              let sessionKey = dict["key"]
         else { return }
-        SessionActions.openSessionLogInCode(sessionId: sessionId, storePath: storePath)
+        SessionActions.openSessionLogInCode(sessionKey: sessionKey, sessionId: sessionId)
     }
 
     @objc
@@ -1048,7 +1049,7 @@ extension MenuSessionsInjector {
         Task { @MainActor in
             guard SessionActions.confirmDestructiveAction(
                 title: "Compact session log?",
-                message: "Keeps the last 400 lines; archives the old file.",
+                message: "Summarizes older messages with the model; full history is kept.",
                 action: "Compact")
             else { return }
 
@@ -1067,7 +1068,7 @@ extension MenuSessionsInjector {
         Task { @MainActor in
             guard SessionActions.confirmDestructiveAction(
                 title: "Delete session?",
-                message: "Deletes the “\(key)” entry and archives its transcript.",
+                message: "Deletes the “\(key)” entry; conversation history is kept.",
                 action: "Delete")
             else { return }
 

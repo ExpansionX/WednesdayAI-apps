@@ -17,7 +17,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, "..");
 const outPaths = SWIFT_MODEL_OUTPUT_PATHS.map((relPath) => path.join(repoRoot, relPath));
 
-// The synced contract snapshot (ADR 0097); refreshed by `npm run contracts:sync` from a
+// The synced contract snapshot (ADR 0101); refreshed by `npm run contracts:sync` from a
 // WednesdayAI-core release tarball. `definitions` carries the same schemas the TypeBox
 // `ProtocolSchemas` record used to provide directly from core source.
 const schemaJson = JSON.parse(

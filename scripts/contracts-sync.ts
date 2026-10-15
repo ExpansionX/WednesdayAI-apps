@@ -1,4 +1,4 @@
-// Sync client contracts from a WednesdayAI-core release into this repo (ADR 0097).
+// Sync client contracts from a WednesdayAI-core release into this repo (ADR 0101).
 //
 // Two source modes:
 //   npm run contracts:sync -- --version <semver|latest>          (packs the `wednesdayai` npm tarball)
@@ -82,7 +82,7 @@ function fail(message: string): never {
 function missingMessage(versionLabel: string, file: string): string {
   return (
     `wednesdayai@${versionLabel} does not ship dist/contracts/${file}; ` +
-    "sync needs a core release that includes client contracts (ADR 0097)"
+    "sync needs a core release that includes client contracts (ADR 0101)"
   );
 }
 
