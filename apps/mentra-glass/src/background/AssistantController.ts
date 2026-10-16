@@ -34,7 +34,7 @@ import type {GlassesViewModel} from "./glassesView"
 import {GatewaySttCapture} from "./gatewayStt"
 import {TiltDetector} from "./tilt"
 import {trace} from "./trace"
-import {dropLeadingWakes, findWake, matchWake, WakeTracker} from "./wake"
+import {dropLeadingWakes, findWake, leadsWithPunctuatedWake, matchWake, WakeTracker} from "./wake"
 import type {WakeAction} from "./wake"
 
 const CLIENT_VERSION = manifest.version
@@ -609,7 +609,11 @@ export class AssistantController {
     const gatewayQuery = text ? findWake(text, this.triggers)?.query : undefined
     // A wake word repeated in the gateway transcript is a retry, unless
     // Mentra's query starts with one too ("wednesday, computer science …").
-    const repeatedWake = gatewayQuery !== undefined && matchWake(mentraQuery, this.triggers) === null
+    // A repeat set off by punctuation ("Wednesday, what time") is a retry
+    // either way.
+    const repeatedWake =
+      gatewayQuery !== undefined &&
+      (matchWake(mentraQuery, this.triggers) === null || leadsWithPunctuatedWake(gatewayQuery, this.triggers))
     const query = (repeatedWake ? dropLeadingWakes(gatewayQuery, this.triggers) : gatewayQuery)?.trim() || mentraQuery
     await this.sendQuery(query)
   }

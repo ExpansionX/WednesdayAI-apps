@@ -2072,6 +2072,24 @@ describe("AssistantController", () => {
       expect(recordParams(send?.params).message).toBe("what time is it?")
     })
 
+    it("drops a repeated wake word that both transcripts kept", async () => {
+      const session = new FakeSession()
+      const connection = new FakeConnection()
+      stubTalkSession(connection, "s1")
+      await startAssistant(session, connection, {querySttMode: "gateway"})
+
+      await askViaGateway(session, connection, "wednesday what time is it")
+      connection.emitEvent("talk.event", {
+        type: "transcript.done",
+        sessionId: "s1",
+        payload: {text: "Wednesday? Wednesday, what time is it?"},
+      })
+      await flush()
+
+      const send = connection.requests.find((request) => request.method === "chat.send")
+      expect(recordParams(send?.params).message).toBe("what time is it?")
+    })
+
     it("falls back to the Mentra query when the gateway transcript is only repeated wake words", async () => {
       const session = new FakeSession()
       const connection = new FakeConnection()

@@ -79,17 +79,29 @@ function tokenizeWithEndOffsets(text: string): SourceToken[] {
  */
 export function matchWake(text: string, triggers: string[]): {query: string} | null {
   const tokens = tokenizeWithEndOffsets(text)
-  if (tokens.length === 0) return null
+  const end = leadingWakeEnd(tokens, triggers)
+  return end < 0 ? null : {query: queryAfterToken(tokens, text, end)}
+}
 
+/** Token index just past a trigger at the start of `tokens` (optionally
+ * after one greeting word), or -1. */
+function leadingWakeEnd(tokens: SourceToken[], triggers: string[]): number {
+  if (tokens.length === 0) return -1
   const tokenized = tokenizeTriggers(triggers)
-  let start = 0
-  let consumed = longestMatchAt(tokens, tokenized, 0)
-  if (consumed < 0 && tokens.length > 1 && WAKE_GREETINGS.includes(tokens[0].token)) {
-    start = 1
-    consumed = longestMatchAt(tokens, tokenized, 1)
-  }
-  if (consumed < 0) return null
-  return {query: queryAfterToken(tokens, text, start + consumed)}
+  const consumed = longestMatchAt(tokens, tokenized, 0)
+  if (consumed >= 0) return consumed
+  if (tokens.length < 2 || !WAKE_GREETINGS.includes(tokens[0].token)) return -1
+  const afterGreeting = longestMatchAt(tokens, tokenized, 1)
+  return afterGreeting < 0 ? -1 : 1 + afterGreeting
+}
+
+/** True when `text` starts with a wake phrase set off by punctuation
+ * ("Wednesday, what time"): a spoken address, not the start of a phrase
+ * such as "computer science". */
+export function leadsWithPunctuatedWake(text: string, triggers: string[]): boolean {
+  const tokens = tokenizeWithEndOffsets(text)
+  const end = leadingWakeEnd(tokens, triggers)
+  return end >= 0 && /^\s*\p{P}/u.test(text.slice(tokens[end - 1].end))
 }
 
 /** Triggers through the transcript tokenizer, so casing context matches exactly. */

@@ -1,6 +1,6 @@
 import {describe, expect, it} from "vitest"
 
-import {dropLeadingWakes, findWake, matchWake, normalizeSpeech, WakeTracker} from "./wake"
+import {dropLeadingWakes, findWake, leadsWithPunctuatedWake, matchWake, normalizeSpeech, WakeTracker} from "./wake"
 
 const TRIGGERS = ["wednesday", "computer"]
 
@@ -158,6 +158,22 @@ describe("findWake", () => {
 
   it("keeps a wake phrase repeated after the match in the query", () => {
     expect(findWake("Computer? Computer, what time is it?", TRIGGERS)).toEqual({query: "Computer, what time is it?"})
+  })
+})
+
+describe("leadsWithPunctuatedWake", () => {
+  it("is true for a wake phrase set off by punctuation, after an optional greeting", () => {
+    expect(leadsWithPunctuatedWake("Computer, what time is it?", TRIGGERS)).toBe(true)
+    expect(leadsWithPunctuatedWake("Hey Wednesday? hello", TRIGGERS)).toBe(true)
+  })
+
+  it("is false when the wake word runs into the phrase", () => {
+    expect(leadsWithPunctuatedWake("computer science is about what?", TRIGGERS)).toBe(false)
+  })
+
+  it("is false without a leading wake word", () => {
+    expect(leadsWithPunctuatedWake("what time is it, computer?", TRIGGERS)).toBe(false)
+    expect(leadsWithPunctuatedWake("", TRIGGERS)).toBe(false)
   })
 })
 
