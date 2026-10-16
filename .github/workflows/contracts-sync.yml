@@ -14,6 +14,7 @@ on:
 permissions:
   contents: write
   pull-requests: write
+  actions: write
 
 concurrency:
   group: contracts-sync-${{ github.ref }}
@@ -38,7 +39,9 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          npm ci
+          # No lifecycle scripts: this job holds a token with contents and actions write
+          # (also persisted by checkout), and contracts:sync needs no install hooks.
+          npm ci --ignore-scripts
           npm run contracts:sync -- --version "$VERSION"
           if [ -z "$(git status --porcelain)" ]; then
             echo "Contracts already match wednesdayai@$VERSION; nothing to do."
@@ -76,3 +79,9 @@ jobs:
           else
             gh pr create --fill --base main
           fi
+          # Pushes and PRs made with GITHUB_TOKEN start no workflow runs, so the bot PR would
+          # have no checks. workflow_dispatch is exempt. Dispatch on every pass that reaches
+          # here, so a rerun after a failed dispatch still gets the gates on a clean branch.
+          for wf in contracts.yml apple.yml android.yml; do
+            gh workflow run "$wf" --ref "$BRANCH"
+          done
