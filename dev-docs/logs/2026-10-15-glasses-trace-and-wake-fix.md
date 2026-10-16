@@ -39,6 +39,8 @@ See what the glasses hear and send, without a debugger on the phone, to diagnose
   - the three-part split boundary (four parts do not match).
 - Bundle check: `TRACE_ENABLED = false` by default, `true` with the flag; no `process.` in `dist/background/index.js`.
 - Live, Even G2 + iPhone, 2026-10-15: before the fix, `chat.send` carried "Computer, what time is it?"; after it, 15:19:33 `gateway-stt` "Computer, what's the weather?" sent `chat.send` "what's the weather?".
+- Production package: `npx mentra-miniapp pack` (also with `MENTRA_PUBLIC_TRACE=1` set) gives `build/com.expansionx.wednesdayai.glass-0.1.0.zip` (8 files) with `TRACE_ENABLED = false`, no `process.` reference, and a production React UI. The background bundle evaluates in an empty `node:vm` context with no stubs.
+- Gateway smoke against the Tailscale Serve gateway: the first run fails at `pair` ([WednesdayAI-core#1022](https://github.com/ExpansionX/WednesdayAI-core/issues/1022)), and the in-memory identity made the documented approve-and-rescan impossible. `scripts/smoke-gateway.ts` now takes `--state-file <file>`. With it, approve then rerun prints `pong=yes` and `reconnected via deviceToken`. The smoke device was removed afterwards.
 
 ## Impact
 

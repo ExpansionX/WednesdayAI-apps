@@ -1,13 +1,15 @@
 /**
  * Device-free smoke test against a real WednesdayAI gateway.
  *
- *   bun run smoke:gateway -- --setup-code <code> [--stt-pcm <file>]
+ *   bun run smoke:gateway -- --setup-code <code> [--stt-pcm <file>] [--state-file <file>]
  *
  * Get a code with `wednesdayai qr --client openclaw-mentra-node --setup-code-only`.
  * Pairs with the bootstrap token, reads wake words and agents, sends one chat
  * turn, optionally transcribes a raw PCM file over a gateway talk session
  * (--stt-pcm: PCM16 LE, 16 kHz, mono), then reconnects with the stored device
- * token. Exits 1 on the first failing step.
+ * token. Exits 1 on the first failing step. --state-file keeps the device
+ * identity between runs, so a pairing approved with `wednesdayai devices
+ * approve` after a failed first run is reused (WednesdayAI-core#1022).
  */
 
 import manifest from "../miniapp.json"
@@ -29,7 +31,7 @@ const STT_TIMEOUT_MS = 60_000
 const codeIndex = process.argv.indexOf("--setup-code")
 const setupCode = codeIndex === -1 ? undefined : process.argv[codeIndex + 1]
 if (!setupCode) {
-  console.error("usage: bun run smoke:gateway -- --setup-code <code> [--stt-pcm <file>]")
+  console.error("usage: bun run smoke:gateway -- --setup-code <code> [--stt-pcm <file>] [--state-file <file>]")
   process.exit(2)
 }
 
@@ -40,11 +42,29 @@ if (sttPcmIndex !== -1 && !sttPcmPath) {
   process.exit(2)
 }
 
-const memory = new Map<string, string>()
+const stateIndex = process.argv.indexOf("--state-file")
+const statePath = stateIndex === -1 ? undefined : process.argv[stateIndex + 1]
+if (stateIndex !== -1 && !statePath) {
+  console.error("usage: --state-file requires a path")
+  process.exit(2)
+}
+const stateFile = statePath ? Bun.file(statePath) : undefined
+const memory = new Map<string, string>(
+  stateFile && (await stateFile.exists()) ? Object.entries(await stateFile.json()) : [],
+)
+const persist = async () => {
+  if (stateFile) await Bun.write(stateFile, JSON.stringify(Object.fromEntries(memory)))
+}
 const store: KeyValueStore = {
   get: async (key) => memory.get(key) ?? null,
-  set: async (key, value) => void memory.set(key, value),
-  delete: async (key) => void memory.delete(key),
+  set: async (key, value) => {
+    memory.set(key, value)
+    await persist()
+  },
+  delete: async (key) => {
+    memory.delete(key)
+    await persist()
+  },
 }
 
 let step = "parse setup code"

@@ -272,6 +272,14 @@ chat terminal-event routing and device-token reconnect — **not** a
 successful model reply: a chat error or a reply without "pong" still exits 0. Confirm the answer check by reading `final:` and `pong=yes` in the
 output.
 
+On a gateway behind Tailscale Serve the first pairing of a new device
+needs approval ([WednesdayAI-core#1022](https://github.com/ExpansionX/WednesdayAI-core/issues/1022)),
+so the first run fails at `pair`. Run with `--state-file <file>` to keep the
+smoke device identity, approve the pending request
+(`wednesdayai devices list`, then `wednesdayai devices approve <requestId>`),
+and rerun with a new setup code and the same `--state-file`. Remove the
+smoke device afterwards with `wednesdayai devices remove <deviceId>`.
+
 ### Architecture
 
 `AssistantController` subscribes to session transcription (on-device sherpa

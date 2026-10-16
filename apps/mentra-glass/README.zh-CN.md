@@ -247,6 +247,14 @@ unavailable"，然后使用 Mentra 的转写结果。
 不含 "pong" 时仍会退出 0。请通过输出中的 `final:` 和 `pong=yes` 确认
 回答检查。
 
+网关通过 Tailscale Serve 提供时，新设备首次配对需要审批
+（[WednesdayAI-core#1022](https://github.com/ExpansionX/WednesdayAI-core/issues/1022)），
+因此第一次运行会在 `pair` 步骤失败。加上 `--state-file <文件>` 保留冒烟
+设备身份，审批待处理请求（`wednesdayai devices list`，然后
+`wednesdayai devices approve <requestId>`），再用新的 setup code 和同一个
+`--state-file` 重新运行。结束后用 `wednesdayai devices remove <deviceId>`
+删除冒烟设备。
+
 ### 架构
 
 `AssistantController` 订阅 session 转写（按唤醒监听设置选择带
