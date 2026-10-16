@@ -57,7 +57,7 @@ All core paths are relative to the WednesdayAI-core root.
    3. There, `shouldRouteToOriginating` is true (`src/auto-reply/reply/dispatch-from-config.ts:352-360`).
    4. The final reply goes out through `routeReply` → `deliverOutboundPayloads` (`dispatch-from-config.ts:615-646`, `src/auto-reply/reply/route-reply.ts:134-166`).
 
-   So a glasses question in `agent:main:direct:davidrudduck` also posts its reply to Telegram. The `chat.send` `deliver` param does not disable this. **Decision needed:** mirror, because it is one conversation, or keep device replies on the device. Keeping them would be a change at route/context construction in `chat-turn.ts`, not in the collecting `deliver` callback. Pinned in Task 2's e2e at the `routeReply` seam.
+   So a glasses question in `agent:main:direct:davidrudduck` also posts its reply to Telegram. The `chat.send` `deliver` param does not disable this. **Decided (user, 2026-10-16):** keep core's existing behaviour. By default, a reply mirrors to the person's linked channels (Telegram, `/v2/client` chat, …); any policy change belongs to WednesdayAI-core configuration, not to this plan or this repository. Pinned in Task 2's e2e at the `routeReply` seam.
 3. **The user picked a non-default agent in the miniapp.** Expected: `agent:<picked>:direct:davidrudduck`, not the default agent's bucket and not `agent:<picked>:main`. Pinned in Task 4.
 4. **Connections without a paired device**: shared token, password, Control UI, trusted-proxy or backend self-connections that skip pairing, and devices that are not linked. Expected: no field. Pinned in Task 2.
 5. **Older gateway.** The miniapp connects to a gateway without the field. Expected: today's behaviour, `mainSessionKey`. Pinned in Task 4.
@@ -108,7 +108,7 @@ All core paths are relative to the WednesdayAI-core root.
   - Connect unlinked, write config adding the link, wait for the reload, reconnect: the second hello-ok has the key (Review Focus 1).
 - [ ] **Step 2: Write the failing e2e test** in `server.chat-send-workspace-lane.e2e.test.ts`:
   - `chat.send` with the returned key succeeds, and the run's `canonicalIdentity` is `"Alice"`.
-  - With the bucket pre-seeded with a Telegram `deliveryContext`, assert the decided Review Focus 2 policy at the outbound seam (`routeReply` / `deliverOutboundPayloads` called or not).
+  - With the bucket pre-seeded with a Telegram `deliveryContext`, assert that the glasses reply is delivered to Telegram (`routeReply` → `deliverOutboundPayloads` called once with the Telegram route), per Review Focus 2.
 - [ ] **Step 3:** Both test files fail.
 - [ ] **Step 4: Implement** the schema field, the `buildGatewaySnapshot` option and the call site. Then run `pnpm protocol:gen`.
 - [ ] **Step 5:** Both test files pass, and `pnpm protocol:check` is clean.
