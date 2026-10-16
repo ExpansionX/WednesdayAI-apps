@@ -44,14 +44,22 @@ if (sttPcmIndex !== -1 && !sttPcmPath) {
 
 const stateIndex = process.argv.indexOf("--state-file")
 const statePath = stateIndex === -1 ? undefined : process.argv[stateIndex + 1]
-if (stateIndex !== -1 && !statePath) {
+if (stateIndex !== -1 && (!statePath || statePath.startsWith("-"))) {
   console.error("usage: --state-file requires a path")
   process.exit(2)
 }
 const stateFile = statePath ? Bun.file(statePath) : undefined
-const memory = new Map<string, string>(
-  stateFile && (await stateFile.exists()) ? Object.entries(await stateFile.json()) : [],
-)
+async function loadState(): Promise<[string, string][]> {
+  if (!stateFile || !(await stateFile.exists())) return []
+  try {
+    return Object.entries(await stateFile.json())
+  } catch {
+    // Keep the file: it may hold the identity of an approved pairing.
+    console.error(`--state-file ${statePath} is not valid JSON; fix it or pass a new path`)
+    process.exit(2)
+  }
+}
+const memory = new Map<string, string>(await loadState())
 const persist = async () => {
   if (stateFile) await Bun.write(stateFile, JSON.stringify(Object.fromEntries(memory)))
 }
