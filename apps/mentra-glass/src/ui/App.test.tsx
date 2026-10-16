@@ -112,9 +112,9 @@ describe("App", () => {
     const {emit} = renderApp()
     pushState(emit, snapshot())
 
-    expect((screen.getByRole("radio", {name: "On-device (private; needs offline model)"}) as HTMLInputElement).checked).toBe(
-      true,
-    )
+    expect(
+      (screen.getByRole("radio", {name: "On-device (private; needs offline model)"}) as HTMLInputElement).checked,
+    ).toBe(true)
     expect((screen.getByRole("radio", {name: "Mentra cloud (more accurate)"}) as HTMLInputElement).checked).toBe(false)
     expect(
       (
@@ -123,7 +123,9 @@ describe("App", () => {
         }) as HTMLInputElement
       ).checked,
     ).toBe(true)
-    expect((screen.getByRole("radio", {name: "Mentra (same as wake listening)"}) as HTMLInputElement).checked).toBe(false)
+    expect((screen.getByRole("radio", {name: "Mentra (same as wake listening)"}) as HTMLInputElement).checked).toBe(
+      false,
+    )
   })
 
   it("lists seen notification apps with their allowlist state and queue depth", () => {
@@ -286,7 +288,15 @@ describe("App", () => {
 
   it("sends the picked agent id when the agent changes", () => {
     const {emit, sent} = renderApp()
-    pushState(emit, snapshot({agents: [{id: "a1", label: "One"}, {id: "a2", label: "Two"}]}))
+    pushState(
+      emit,
+      snapshot({
+        agents: [
+          {id: "a1", label: "One"},
+          {id: "a2", label: "Two"},
+        ],
+      }),
+    )
 
     fireEvent.change(screen.getByRole("combobox"), {target: {value: "a2"}})
 
@@ -295,10 +305,7 @@ describe("App", () => {
 
   it("sends a null agent id when reverting to the gateway default", () => {
     const {emit, sent} = renderApp()
-    pushState(
-      emit,
-      snapshot({agents: [{id: "a1", label: "One"}], settings: {...snapshot().settings, agentId: "a1"}}),
-    )
+    pushState(emit, snapshot({agents: [{id: "a1", label: "One"}], settings: {...snapshot().settings, agentId: "a1"}}))
 
     fireEvent.change(screen.getByRole("combobox"), {target: {value: ""}})
 
@@ -336,7 +343,9 @@ describe("App", () => {
     )
 
     fireEvent.click(
-      screen.getByRole("radio", {name: "WednesdayAI gateway (more accurate; needs a transcription provider on the gateway)"}),
+      screen.getByRole("radio", {
+        name: "WednesdayAI gateway (more accurate; needs a transcription provider on the gateway)",
+      }),
     )
     expect(sent.filter((call) => call.channel === "settings:set")).toEqual([
       {channel: "settings:set", payload: {querySttMode: "gateway"}},

@@ -93,10 +93,7 @@ describe("paginate", () => {
     const exact = `${"a".repeat(79)} ${"b".repeat(80)}`
     expect(paginate(exact, 160)).toEqual([exact])
     expect(paginate("c".repeat(160), 160)).toEqual(["c".repeat(160)])
-    expect(paginate(`${"a".repeat(79)} ${"b".repeat(81)}`, 160)).toEqual([
-      "a".repeat(79),
-      "b".repeat(81),
-    ])
+    expect(paginate(`${"a".repeat(79)} ${"b".repeat(81)}`, 160)).toEqual(["a".repeat(79), "b".repeat(81)])
   })
 
   it("hard-splits a word longer than maxChars", () => {
@@ -108,8 +105,7 @@ describe("paginate", () => {
     const text = "a".repeat(159) + "😀b"
     const pages = paginate(text, 160)
     // The lone-surrogate shape neither page may contain.
-    const lone =
-      /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/
+    const lone = /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/
     for (const page of pages) {
       expect(page).not.toMatch(lone)
       expect(page.length).toBeLessThanOrEqual(160)

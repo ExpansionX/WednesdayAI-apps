@@ -74,35 +74,50 @@ function tokenizeWithEndOffsets(text: string): SourceToken[] {
  * normalized tokens; the query is cut from the original text right after
  * the last matched token, so punctuation and spacing survive. Longer
  * triggers win, so "wednesday prime" beats "wednesday" when both are
- * configured. Returns null when no trigger matches.
+ * configured. A trigger word heard split in two or three ("open claw" for
+ * "openclaw") still matches. Returns null when no trigger matches.
  */
 export function matchWake(text: string, triggers: string[]): {query: string} | null {
   const tokens = tokenizeWithEndOffsets(text)
-  if (tokens.length === 0) return null
+  const end = leadingWakeEnd(tokens, triggers)
+  return end < 0 ? null : {query: queryAfterToken(tokens, text, end)}
+}
 
-  // Same tokenizer as the transcript, so casing context matches exactly.
-  // Longest trigger first so "wednesday prime" wins over "wednesday".
-  const tokenized = triggers
+/** Token index just past a trigger at the start of `tokens` (optionally
+ * after one greeting word), or -1. */
+function leadingWakeEnd(tokens: SourceToken[], triggers: string[]): number {
+  if (tokens.length === 0) return -1
+  const tokenized = tokenizeTriggers(triggers)
+  const consumed = longestMatchAt(tokens, tokenized, 0)
+  if (consumed >= 0) return consumed
+  if (tokens.length < 2 || !WAKE_GREETINGS.includes(tokens[0].token)) return -1
+  const afterGreeting = longestMatchAt(tokens, tokenized, 1)
+  return afterGreeting < 0 ? -1 : 1 + afterGreeting
+}
+
+/** True when `text` starts with a wake phrase set off by punctuation
+ * ("Wednesday, what time"): a spoken address, not the start of a phrase
+ * such as "computer science". */
+export function leadsWithPunctuatedWake(text: string, triggers: string[]): boolean {
+  const tokens = tokenizeWithEndOffsets(text)
+  const end = leadingWakeEnd(tokens, triggers)
+  return end >= 0 && /^\s*\p{P}/u.test(text.slice(tokens[end - 1].end))
+}
+
+/** Triggers through the transcript tokenizer, so casing context matches exactly. */
+function tokenizeTriggers(triggers: string[]): string[][] {
+  return triggers
     .map((trigger) => tokenizeWithEndOffsets(trigger).map(({token}) => token))
-    .sort((a, b) => b.length - a.length)
-  for (const triggerTokens of tokenized) {
-    if (triggerTokens.length === 0) continue
+    .filter((tokens) => tokens.length > 0)
+}
 
-    let start = -1
-    if (startsWithAt(tokens, triggerTokens, 0)) {
-      start = 0
-    } else if (
-      tokens.length > 1 &&
-      WAKE_GREETINGS.includes(tokens[0].token) &&
-      startsWithAt(tokens, triggerTokens, 1)
-    ) {
-      start = 1
-    }
-    if (start < 0) continue
-
-    return {query: queryAfterToken(tokens, text, start + triggerTokens.length)}
-  }
-  return null
+/** The most transcript tokens any trigger consumes at `at`, or -1. The
+ * longest span wins, so "wednesday prime" beats "wednesday" however the
+ * transcript split them. */
+function longestMatchAt(tokens: SourceToken[], triggers: string[][], at: number): number {
+  let best = -1
+  for (const trigger of triggers) best = Math.max(best, matchedLengthAt(tokens, trigger, at))
+  return best
 }
 
 /** Cut the query from the original text right after the last matched token,
@@ -113,36 +128,40 @@ function queryAfterToken(tokens: SourceToken[], text: string, consumed: number):
 
 /**
  * Like `matchWake`, but the trigger may start at any token, not just the
- * first (or after one greeting). The earliest start position wins; at the
- * same position the longest trigger wins, so "wednesday prime" beats
- * "wednesday" when both are configured. Returns null when no trigger
- * matches anywhere.
+ * first (or after one greeting). The earliest start position wins; at that
+ * position the longest span wins. Returns null when no trigger matches.
  */
 export function findWake(text: string, triggers: string[]): {query: string} | null {
   const tokens = tokenizeWithEndOffsets(text)
-  if (tokens.length === 0) return null
-
-  // Same tokenizer as the transcript, so casing context matches exactly.
-  // Longest trigger first so "wednesday prime" wins over "wednesday".
-  const tokenized = triggers
-    .map((trigger) => tokenizeWithEndOffsets(trigger).map(({token}) => token))
-    .sort((a, b) => b.length - a.length)
+  const tokenized = tokenizeTriggers(triggers)
   for (let start = 0; start < tokens.length; start++) {
-    for (const triggerTokens of tokenized) {
-      if (triggerTokens.length === 0) continue
-      if (!startsWithAt(tokens, triggerTokens, start)) continue
-      return {query: queryAfterToken(tokens, text, start + triggerTokens.length)}
-    }
+    const consumed = longestMatchAt(tokens, tokenized, start)
+    if (consumed >= 0) return {query: queryAfterToken(tokens, text, start + consumed)}
   }
   return null
 }
 
-function startsWithAt(tokens: SourceToken[], prefix: string[], at: number): boolean {
-  if (tokens.length - at < prefix.length) return false
-  for (let i = 0; i < prefix.length; i++) {
-    if (tokens[at + i].token !== prefix[i]) return false
+/** Speech-to-text may split one trigger word ("openclaw" heard as "open claw"). */
+const MAX_SPLIT_PARTS = 3
+
+/**
+ * Match the trigger tokens at `at`, each one either as a single transcript
+ * token or as up to MAX_SPLIT_PARTS consecutive tokens that join to it.
+ * Returns the number of transcript tokens consumed, or -1.
+ */
+function matchedLengthAt(tokens: SourceToken[], trigger: string[], at: number): number {
+  let pos = at
+  for (const part of trigger) {
+    let joined = ""
+    let parts = 0
+    while (parts < MAX_SPLIT_PARTS && pos + parts < tokens.length && joined.length < part.length) {
+      joined += tokens[pos + parts].token
+      parts += 1
+    }
+    if (joined !== part) return -1
+    pos += parts
   }
-  return true
+  return pos - at
 }
 
 /**
