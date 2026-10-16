@@ -51,13 +51,16 @@ if (stateIndex !== -1 && (!statePath || statePath.startsWith("-"))) {
 const stateFile = statePath ? Bun.file(statePath) : undefined
 async function loadState(): Promise<[string, string][]> {
   if (!stateFile || !(await stateFile.exists())) return []
-  try {
-    return Object.entries(await stateFile.json())
-  } catch {
-    // Keep the file: it may hold the identity of an approved pairing.
-    console.error(`--state-file ${statePath} is not valid JSON; fix it or pass a new path`)
+  // Keep a bad file: it may hold the identity of an approved pairing.
+  const invalid = (): never => {
+    console.error(`--state-file ${statePath} is not a JSON object of strings; fix it or pass a new path`)
     process.exit(2)
   }
+  const state: unknown = await stateFile.json().catch(invalid)
+  if (typeof state !== "object" || state === null || Array.isArray(state)) return invalid()
+  const entries = Object.entries(state)
+  if (!entries.every((entry): entry is [string, string] => typeof entry[1] === "string")) return invalid()
+  return entries
 }
 const memory = new Map<string, string>(await loadState())
 const persist = async () => {
