@@ -141,16 +141,6 @@ export function findWake(text: string, triggers: string[]): {query: string} | nu
   return null
 }
 
-/** Strip wake phrases (with optional greeting) from the start of `query`:
- * a transcript spanning a bare wake word and the retry ("computer?
- * computer, what time is it") repeats it. Each match consumes at least one
- * token, so the loop terminates. */
-export function dropLeadingWakes(query: string, triggers: string[]): string {
-  let rest = query
-  for (let again = matchWake(rest, triggers); again; again = matchWake(rest, triggers)) rest = again.query
-  return rest
-}
-
 /** Speech-to-text may split one trigger word ("openclaw" heard as "open claw"). */
 const MAX_SPLIT_PARTS = 3
 

@@ -1,6 +1,6 @@
 import {describe, expect, it} from "vitest"
 
-import {dropLeadingWakes, findWake, leadsWithPunctuatedWake, matchWake, normalizeSpeech, WakeTracker} from "./wake"
+import {findWake, leadsWithPunctuatedWake, matchWake, normalizeSpeech, WakeTracker} from "./wake"
 
 const TRIGGERS = ["wednesday", "computer"]
 
@@ -174,21 +174,6 @@ describe("leadsWithPunctuatedWake", () => {
   it("is false without a leading wake word", () => {
     expect(leadsWithPunctuatedWake("what time is it, computer?", TRIGGERS)).toBe(false)
     expect(leadsWithPunctuatedWake("", TRIGGERS)).toBe(false)
-  })
-})
-
-describe("dropLeadingWakes", () => {
-  it("strips every leading wake phrase", () => {
-    expect(dropLeadingWakes("Computer, what time is it?", TRIGGERS)).toBe("what time is it?")
-    expect(dropLeadingWakes("computer hey wednesday computer", TRIGGERS)).toBe("")
-  })
-
-  it("leaves a query with no leading wake phrase alone", () => {
-    expect(dropLeadingWakes("what day is wednesday", TRIGGERS)).toBe("what day is wednesday")
-  })
-
-  it("returns an empty query unchanged", () => {
-    expect(dropLeadingWakes("", TRIGGERS)).toBe("")
   })
 })
 

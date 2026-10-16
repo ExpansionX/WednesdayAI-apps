@@ -34,7 +34,7 @@ import type {GlassesViewModel} from "./glassesView"
 import {GatewaySttCapture} from "./gatewayStt"
 import {TiltDetector} from "./tilt"
 import {trace} from "./trace"
-import {dropLeadingWakes, findWake, leadsWithPunctuatedWake, matchWake, WakeTracker} from "./wake"
+import {findWake, leadsWithPunctuatedWake, matchWake, WakeTracker} from "./wake"
 import type {WakeAction} from "./wake"
 
 const CLIENT_VERSION = manifest.version
@@ -607,15 +607,20 @@ export class AssistantController {
     trace("gateway-stt", {transcript: text, mentra: mentraQuery})
     if (this.disposed || token !== this.sendToken || this.connection.state !== "connected") return
     const gatewayQuery = text ? findWake(text, this.triggers)?.query : undefined
-    // A wake word repeated in the gateway transcript is a retry, unless
-    // Mentra's query starts with one too ("wednesday, computer science …").
-    // A repeat set off by punctuation ("Wednesday, what time") is a retry
-    // either way.
-    const repeatedWake =
-      gatewayQuery !== undefined &&
-      (matchWake(mentraQuery, this.triggers) === null || leadsWithPunctuatedWake(gatewayQuery, this.triggers))
-    const query = (repeatedWake ? dropLeadingWakes(gatewayQuery, this.triggers) : gatewayQuery)?.trim() || mentraQuery
-    await this.sendQuery(query)
+    // Leading wake words in the gateway transcript are retries and are
+    // dropped. When Mentra's query starts with a wake word too ("computer
+    // science …"), only a repeat set off by punctuation ("Wednesday, …") is a
+    // retry; the first unpunctuated one starts the question.
+    const mentraLeadsWithWake = matchWake(mentraQuery, this.triggers) !== null
+    let query = gatewayQuery ?? ""
+    for (
+      let next = matchWake(query, this.triggers);
+      next && (!mentraLeadsWithWake || leadsWithPunctuatedWake(query, this.triggers));
+      next = matchWake(query, this.triggers)
+    ) {
+      query = next.query
+    }
+    await this.sendQuery(query.trim() || mentraQuery)
   }
 
   private async sendQuery(query: string): Promise<void> {

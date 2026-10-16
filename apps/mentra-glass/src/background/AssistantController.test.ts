@@ -2128,6 +2128,26 @@ describe("AssistantController", () => {
       expect(recordParams(send?.params).message).toBe("computer science is about what?")
     })
 
+    it("keeps a wake-led question after dropping a punctuated retry", async () => {
+      const session = new FakeSession()
+      const connection = new FakeConnection()
+      stubTalkSession(connection, "s1")
+      await startAssistant(session, connection, {querySttMode: "gateway"})
+      connection.emitEvent("voicewake.changed", {triggers: ["wednesday", "computer"]})
+      await flush()
+
+      await askViaGateway(session, connection, "computer science is about what")
+      connection.emitEvent("talk.event", {
+        type: "transcript.done",
+        sessionId: "s1",
+        payload: {text: "Hey Wednesday, Wednesday, computer science is about what?"},
+      })
+      await flush()
+
+      const send = connection.requests.find((request) => request.method === "chat.send")
+      expect(recordParams(send?.params).message).toBe("computer science is about what?")
+    })
+
     it("Mentra mode never subscribes to audio or opens talk sessions", async () => {
       const session = new FakeSession()
       const connection = new FakeConnection()
