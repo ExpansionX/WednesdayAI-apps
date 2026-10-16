@@ -2,7 +2,7 @@ name: Apple
 
 on:
   push:
-    branches: ["**"]
+    branches: [main]
     paths:
       # GitHub Actions paths filters do not support {} brace expansion.
       - "apps/ios/**"

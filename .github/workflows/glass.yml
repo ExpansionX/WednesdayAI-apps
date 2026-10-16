@@ -2,7 +2,7 @@ name: Glass
 
 on:
   push:
-    branches: ["**"]
+    branches: [main]
     paths:
       - "apps/mentra-glass/**"
       - "package.json"
