@@ -455,11 +455,7 @@ function stubTalkSession(connection: FakeConnection, sessionId: string): void {
  * (which opens the gateway capture), then a final transcript carrying the
  * question. Returns with finish() in flight.
  */
-async function askViaGateway(
-  session: FakeSession,
-  connection: FakeConnection,
-  query: string,
-): Promise<void> {
+async function askViaGateway(session: FakeSession, connection: FakeConnection, query: string): Promise<void> {
   connection.respond("chat.send", () => ({runId: "srv-run-1"}))
   session.transcript("hey wednesday", false)
   await flush()
@@ -611,6 +607,26 @@ describe("AssistantController", () => {
     expect(session.uiSends.length).toBe(sendsAtDispose)
   })
 
+  it("ignores a send that settles with no payload after disposal", async () => {
+    const session = new FakeSession()
+    const connection = new FakeConnection()
+    const send = deferred<unknown>()
+    connection.respond("chat.send", () => send.promise)
+    await startAssistant(session, connection)
+    await ask(session, connection, "hello there")
+    await vi.advanceTimersByTimeAsync(0)
+
+    for (const handler of session.disconnectHandlers.slice()) handler()
+    await flush()
+    const rendersAtDispose = session.renders.length
+
+    // The gateway forwards response payloads unvalidated: a stale send must
+    // be dropped before anything reads its shape.
+    send.resolve(null)
+    await flush()
+    expect(session.renders.length).toBe(rendersAtDispose)
+  })
+
   it("does not paint an error frame when a send rejects after disposal", async () => {
     const session = new FakeSession()
     const connection = new FakeConnection()
@@ -659,6 +675,51 @@ describe("AssistantController", () => {
     await ask(session2, connection2, "stop", () => ({ok: true, aborted: false, runIds: []}))
     await vi.advanceTimersByTimeAsync(400)
     expect(bodyTexts(session2).at(-1)).toBe("Nothing to stop")
+  })
+
+  it("shows an error instead of hanging on Thinking when chat.send returns no payload", async () => {
+    const session = new FakeSession()
+    const connection = new FakeConnection()
+    await startAssistant(session, connection)
+
+    await ask(session, connection, "what time is it", () => null)
+    await vi.advanceTimersByTimeAsync(400)
+    expect(bodyTexts(session).at(-1)).toBe("Gateway sent an empty reply")
+  })
+
+  it("treats any non-object chat.send payload as an empty reply", async () => {
+    for (const payload of ["ack", 42]) {
+      const session = new FakeSession()
+      const connection = new FakeConnection()
+      await startAssistant(session, connection)
+
+      await ask(session, connection, "what time is it", () => payload)
+      await vi.advanceTimersByTimeAsync(400)
+      expect(bodyTexts(session).at(-1)).toBe("Gateway sent an empty reply")
+    }
+  })
+
+  it("drops a superseded send's ack without reading its payload", async () => {
+    const session = new FakeSession()
+    const connection = new FakeConnection()
+    const first = deferred<unknown>()
+    let sendCount = 0
+    connection.respond("chat.send", () => ((sendCount += 1) === 1 ? first.promise : {runId: `srv-run-${sendCount}`}))
+    await startAssistant(session, connection)
+
+    await ask(session, connection, "what is one plus one")
+    await flush()
+    // The second question retires the first send while its ack is pending.
+    await ask(session, connection, "what is two plus two")
+    await vi.advanceTimersByTimeAsync(400)
+
+    // The stale ack must be dropped before its shape is read: no empty-reply
+    // error may repaint over the newer question's frame.
+    first.resolve(null)
+    await flush()
+    await vi.advanceTimersByTimeAsync(400)
+    expect(bodyTexts(session).at(-1)).toBe("what is two plus two")
+    expect(bodyTexts(session)).not.toContain("Gateway sent an empty reply")
   })
 
   it("retries a blocked final frame and still auto-hides at its deadline", async () => {
@@ -1637,10 +1698,7 @@ describe("AssistantController", () => {
     // must correct itself and the write must be re-requested.
     session.notify({notificationId: "n4", title: "A msg", packageName: "com.a", app: "AppA"})
     await flush()
-    expect(lastSnapshot(session).seenNotificationApps.map((seen) => seen.packageName)).toEqual([
-      "com.a",
-      "com.b",
-    ])
+    expect(lastSnapshot(session).seenNotificationApps.map((seen) => seen.packageName)).toEqual(["com.a", "com.b"])
 
     gate.resolve()
     await flush()
@@ -1994,6 +2052,100 @@ describe("AssistantController", () => {
 
       const send = connection.requests.find((request) => request.method === "chat.send")
       expect(recordParams(send?.params).message).toBe("what is the weather in paris")
+    })
+
+    it("drops a wake word repeated in the gateway transcript", async () => {
+      const session = new FakeSession()
+      const connection = new FakeConnection()
+      stubTalkSession(connection, "s1")
+      await startAssistant(session, connection, {querySttMode: "gateway"})
+
+      await askViaGateway(session, connection, "what time is it")
+      connection.emitEvent("talk.event", {
+        type: "transcript.done",
+        sessionId: "s1",
+        payload: {text: "Wednesday? Wednesday, what time is it?"},
+      })
+      await flush()
+
+      const send = connection.requests.find((request) => request.method === "chat.send")
+      expect(recordParams(send?.params).message).toBe("what time is it?")
+    })
+
+    it("drops a repeated wake word that both transcripts kept", async () => {
+      const session = new FakeSession()
+      const connection = new FakeConnection()
+      stubTalkSession(connection, "s1")
+      await startAssistant(session, connection, {querySttMode: "gateway"})
+
+      await askViaGateway(session, connection, "wednesday what time is it")
+      connection.emitEvent("talk.event", {
+        type: "transcript.done",
+        sessionId: "s1",
+        payload: {text: "Wednesday? Wednesday, what time is it?"},
+      })
+      await flush()
+
+      const send = connection.requests.find((request) => request.method === "chat.send")
+      expect(recordParams(send?.params).message).toBe("what time is it?")
+    })
+
+    it("falls back to the Mentra query when the gateway transcript is only repeated wake words", async () => {
+      const session = new FakeSession()
+      const connection = new FakeConnection()
+      stubTalkSession(connection, "s1")
+      await startAssistant(session, connection, {querySttMode: "gateway"})
+
+      await askViaGateway(session, connection, "what time is it")
+      connection.emitEvent("talk.event", {
+        type: "transcript.done",
+        sessionId: "s1",
+        payload: {text: "Wednesday? Wednesday?"},
+      })
+      await flush()
+
+      const send = connection.requests.find((request) => request.method === "chat.send")
+      expect(recordParams(send?.params).message).toBe("what time is it")
+    })
+
+    it("keeps a gateway question that starts with another wake word", async () => {
+      const session = new FakeSession()
+      const connection = new FakeConnection()
+      stubTalkSession(connection, "s1")
+      await startAssistant(session, connection, {querySttMode: "gateway"})
+      connection.emitEvent("voicewake.changed", {triggers: ["wednesday", "computer"]})
+      await flush()
+
+      await askViaGateway(session, connection, "computer science is about what")
+      connection.emitEvent("talk.event", {
+        type: "transcript.done",
+        sessionId: "s1",
+        payload: {text: "Hey Wednesday, computer science is about what?"},
+      })
+      await flush()
+
+      const send = connection.requests.find((request) => request.method === "chat.send")
+      expect(recordParams(send?.params).message).toBe("computer science is about what?")
+    })
+
+    it("keeps a wake-led question after dropping a punctuated retry", async () => {
+      const session = new FakeSession()
+      const connection = new FakeConnection()
+      stubTalkSession(connection, "s1")
+      await startAssistant(session, connection, {querySttMode: "gateway"})
+      connection.emitEvent("voicewake.changed", {triggers: ["wednesday", "computer"]})
+      await flush()
+
+      await askViaGateway(session, connection, "computer science is about what")
+      connection.emitEvent("talk.event", {
+        type: "transcript.done",
+        sessionId: "s1",
+        payload: {text: "Hey Wednesday, Wednesday, computer science is about what?"},
+      })
+      await flush()
+
+      const send = connection.requests.find((request) => request.method === "chat.send")
+      expect(recordParams(send?.params).message).toBe("computer science is about what?")
     })
 
     it("Mentra mode never subscribes to audio or opens talk sessions", async () => {
@@ -2443,16 +2595,7 @@ describe("AssistantController", () => {
 
       // The host holds the display lock: every attempt is dropped, so the
       // frame's 6 s window expires with the page unread.
-      session.renderStatuses = [
-        "blocked",
-        "blocked",
-        "blocked",
-        "blocked",
-        "blocked",
-        "blocked",
-        "blocked",
-        "blocked",
-      ]
+      session.renderStatuses = ["blocked", "blocked", "blocked", "blocked", "blocked", "blocked", "blocked", "blocked"]
       session.notify({notificationId: "n1", title: "Alice", content: "Lunch?"})
       await vi.advanceTimersByTimeAsync(6000)
       // The clear fires at the 6 s deadline and its re-show schedules a

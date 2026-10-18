@@ -73,8 +73,13 @@ miniapp shows **Offline**). If you say just the wake word, the miniapp
 listens for 8 seconds for the question to follow.
 
 Wake words come from the gateway and update live when your administrator
-changes them. After the wake word, the question is transcribed by your
-WednesdayAI gateway; if it cannot, Mentra's transcript is used.
+changes them. A wake word heard split into two or three words ("open claw"
+for "openclaw") still matches, and when one wake word starts another
+("wednesday" and "wednesday prime") the longer one wins. After the wake
+word, the question is transcribed by your WednesdayAI gateway; if it
+cannot, Mentra's transcript is used. When the gateway transcript starts
+with the wake word again, the miniapp strips it before sending — unless
+Mentra's own transcript already kept it.
 
 ### Head-tilt glance
 
@@ -128,6 +133,13 @@ WednesdayAI gateway; if it cannot, Mentra's transcript is used.
 - **Offline** — the miniapp reconnects with backoff (up to 15 s between
   tries). If it stays offline, check that the gateway is running and
   reachable from the phone.
+- **"Gateway sent an empty reply"** — the gateway's `chat.send` reply
+  carried no payload. Retry the question; if it repeats, check the
+  gateway logs.
+- **On iOS the assistant hears the wrong microphone** — pinning the
+  microphone from the miniapp has no effect on iOS; the Mentra App
+  decides: Mentra App → Microphone → Preferred microphone (Automatic
+  ranks the glasses first).
 
 ### Privacy note
 
@@ -232,18 +244,21 @@ existing connection.
   transcription mode, notification apps, mic test).
 - `src/shared/channels.ts`: typed UI <-> background channels.
 - `scripts/smoke-gateway.ts`: device-free smoke test against a real gateway.
+- `scripts/build-flags.ts` (with `build-flags.test.ts`): build-time flags;
+  `build.ts` uses its trace gate to inline `MENTRA_PUBLIC_TRACE`.
 
 ### Commands
 
-| Command                                                         | Purpose                                                                                                                    |
-| --------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
-| `npm run glass:test` (repo root) or `npm test`                  | unit tests (vitest)                                                                                                        |
-| `npm run glass:coverage` (repo root) or `npm run test:coverage` | tests with v8 coverage; 80% thresholds on `src/gateway`, `src/background` and `src/ui/App.tsx` (excluding tests and `src/background/index.ts`) |
-| `npm run glass:typecheck` (repo root) or `npm run typecheck`    | `tsc --noEmit` for `src/` and `scripts/`                                                                                   |
-| `bun run build`                                                 | production bundles in `dist/`                                                                                              |
-| `bun run dev`                                                   | live development with sideload QR                                                                                          |
-| `bun run release`                                               | build, pack, serve a `miniapp://release` install QR                                                                        |
-| `bun run smoke:gateway -- --setup-code <code>`                  | device-free check: pairs, reads wake words and agents, sends `chat.send`, reconnects with the stored device token          |
+| Command                                                         | Purpose                                                                                                                                                                                                                                                                                                 |
+| --------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `npm run glass:test` (repo root) or `npm test`                  | unit tests (vitest)                                                                                                                                                                                                                                                                                     |
+| `npm run glass:coverage` (repo root) or `npm run test:coverage` | tests with v8 coverage; 80% thresholds on `src/gateway`, `src/background` and `src/ui/App.tsx` (excluding tests and `src/background/index.ts`)                                                                                                                                                          |
+| `npm run glass:typecheck` (repo root) or `npm run typecheck`    | `tsc --noEmit` for `src/` and `scripts/`                                                                                                                                                                                                                                                                |
+| `bun run build`                                                 | production bundles in `dist/`                                                                                                                                                                                                                                                                           |
+| `bun run dev`                                                   | live development with sideload QR                                                                                                                                                                                                                                                                       |
+| `MENTRA_PUBLIC_TRACE=1 bun run dev`                             | dev mode that prints a `[trace]` line per connection state change, wake-word list, transcript, wake decision, gateway transcript, `chat.send` request and result, glasses frame and error; only the exact value `1` enables it, and `release`/`pack` builds force trace off even if the variable is set |
+| `bun run release`                                               | build, pack, serve a `miniapp://release` install QR                                                                                                                                                                                                                                                     |
+| `bun run smoke:gateway -- --setup-code <code>`                  | device-free check: pairs, reads wake words and agents, sends `chat.send`, reconnects with the stored device token                                                                                                                                                                                       |
 
 Get a setup code for the smoke test with
 `wednesdayai qr --client openclaw-mentra-node --setup-code-only`. With
@@ -257,11 +272,23 @@ chat terminal-event routing and device-token reconnect — **not** a
 successful model reply: a chat error or a reply without "pong" still exits 0. Confirm the answer check by reading `final:` and `pong=yes` in the
 output.
 
+On a gateway behind Tailscale Serve the first pairing of a new device
+needs approval ([WednesdayAI-core#1022](https://github.com/ExpansionX/WednesdayAI-core/issues/1022)),
+so the first run fails at `pair`. Run with `--state-file <file>` to keep the
+smoke device identity, approve the pending request
+(`wednesdayai devices list`, then `wednesdayai devices approve <requestId>`),
+and rerun with a new setup code and the same `--state-file`. Remove the
+smoke device afterwards with `wednesdayai devices remove <deviceId>`.
+
 ### Architecture
 
 `AssistantController` subscribes to session transcription (on-device sherpa
 STT with `forceLocal`, or the Mentra cloud, per the wake-listening setting).
-Wake matching runs on the transcript (`src/background/wake.ts`); a match
+Wake matching runs on the transcript (`src/background/wake.ts`): a
+trigger heard split into up to three transcript words ("open claw" for
+"openclaw") still matches, the longest trigger span at a position wins,
+and `resolveAndSend` strips repeated leading wake words from the gateway
+transcript only when Mentra's query has no wake word. A match
 sends `chat.send` through `GatewayConnection` (`src/gateway/connection.ts`)
 to the session resolved by `src/gateway/sessions.ts`, and chat events update
 a `ChatRun` (`src/gateway/chat.ts`) rendered on the glasses via

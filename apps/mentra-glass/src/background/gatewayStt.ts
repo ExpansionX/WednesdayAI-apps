@@ -297,8 +297,10 @@ export class GatewaySttCapture {
             ? {ok: true, sessionId}
             : {ok: false, message: "transcription session create returned no session id"}
         },
-        (error: unknown): CreateOutcome =>
-          ({ok: false, message: error instanceof Error ? error.message : String(error)}),
+        (error: unknown): CreateOutcome => ({
+          ok: false,
+          message: error instanceof Error ? error.message : String(error),
+        }),
       )
   }
 

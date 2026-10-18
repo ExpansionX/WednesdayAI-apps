@@ -33,7 +33,8 @@ import {GlassesView} from "./glassesView"
 import type {GlassesViewModel} from "./glassesView"
 import {GatewaySttCapture} from "./gatewayStt"
 import {TiltDetector} from "./tilt"
-import {findWake, WakeTracker} from "./wake"
+import {trace} from "./trace"
+import {findWake, leadsWithPunctuatedWake, matchWake, WakeTracker} from "./wake"
 import type {WakeAction} from "./wake"
 
 const CLIENT_VERSION = manifest.version
@@ -261,6 +262,7 @@ export class AssistantController {
    */
   private onConnectionState(state: ConnectionState): void {
     if (this.disposed) return
+    trace("connection", {state})
     this.syncAudioSubscription()
     this.pushState()
     if (state === "connected" || state === "connecting") return
@@ -296,8 +298,7 @@ export class AssistantController {
    * capture in flight, so a dropped gateway can never hold a talk session.
    */
   private syncAudioSubscription(): void {
-    const wanted =
-      !this.disposed && this.settings.querySttMode === "gateway" && this.connection.state === "connected"
+    const wanted = !this.disposed && this.settings.querySttMode === "gateway" && this.connection.state === "connected"
     if (wanted && this.audioUnsub === null) {
       this.audioUnsub = this.session.mic.onAudioChunk((chunk) => this.stt.pushChunk(chunk))
       return
@@ -337,8 +338,7 @@ export class AssistantController {
     const modeChanged = patch.wakeSttMode !== undefined && patch.wakeSttMode !== this.settings.wakeSttMode
     const agentChanged = patch.agentId !== undefined
     const appsChanged = patch.notificationApps !== undefined
-    const sttModeChanged =
-      patch.querySttMode !== undefined && patch.querySttMode !== this.settings.querySttMode
+    const sttModeChanged = patch.querySttMode !== undefined && patch.querySttMode !== this.settings.querySttMode
     this.settings = {
       wakeSttMode: patch.wakeSttMode ?? this.settings.wakeSttMode,
       agentId: patch.agentId !== undefined ? patch.agentId : this.settings.agentId,
@@ -377,6 +377,7 @@ export class AssistantController {
   }
 
   private onTranscript(data: {text: string; isFinal: boolean}): void {
+    trace("heard", {final: data.isFinal, text: data.text})
     if (this.micTestEnabled) {
       this.session.ui.send("mictest:transcript", {text: data.text, isFinal: data.isFinal})
       this.armMicTestTimer()
@@ -385,6 +386,7 @@ export class AssistantController {
   }
 
   private handleWakeAction(action: WakeAction): void {
+    if (action.type !== "none") trace("wake", action)
     switch (action.type) {
       case "listening": {
         this.showFrame({phase: "listening", agentLabel: this.agentLabel(), body: ""})
@@ -419,6 +421,8 @@ export class AssistantController {
    * display.
    */
   private showFrame(vm: GlassesViewModel): void {
+    // Streaming repaints every delta; the final frame carries the whole answer.
+    if (vm.phase !== "streaming") trace("display", {phase: vm.phase, body: vm.body})
     if (this.displayOwner === "notification") this.notifications.interrupt()
     this.listeningFrameUp = vm.phase === "listening"
     this.displayOwner = "assistant"
@@ -600,9 +604,23 @@ export class AssistantController {
     this.awaitingTranscript = true
     const text = await this.stt.finish()
     this.awaitingTranscript = false
+    trace("gateway-stt", {transcript: text, mentra: mentraQuery})
     if (this.disposed || token !== this.sendToken || this.connection.state !== "connected") return
-    const query = (text && findWake(text, this.triggers)?.query.trim()) || mentraQuery
-    await this.sendQuery(query)
+    const gatewayQuery = text ? findWake(text, this.triggers)?.query : undefined
+    // Leading wake words in the gateway transcript are retries and are
+    // dropped. When Mentra's query starts with a wake word too ("computer
+    // science …"), only a repeat set off by punctuation ("Wednesday, …") is a
+    // retry; the first unpunctuated one starts the question.
+    const mentraLeadsWithWake = matchWake(mentraQuery, this.triggers) !== null
+    let query = gatewayQuery ?? ""
+    for (
+      let next = matchWake(query, this.triggers);
+      next && (!mentraLeadsWithWake || leadsWithPunctuatedWake(query, this.triggers));
+      next = matchWake(query, this.triggers)
+    ) {
+      query = next.query
+    }
+    await this.sendQuery(query.trim() || mentraQuery)
   }
 
   private async sendQuery(query: string): Promise<void> {
@@ -616,6 +634,7 @@ export class AssistantController {
       return
     }
     const idempotencyKey = uuidV4()
+    trace("chat.send", {sessionKey: this.sessionKey(), message: query})
     const run = startRun(idempotencyKey)
     this.currentRun = run
     this.showFrame({phase: "thinking", agentLabel: this.agentLabel(), body: query})
@@ -627,6 +646,7 @@ export class AssistantController {
         idempotencyKey,
       })
     } catch (err) {
+      trace("chat.send-failed", {error: errorMessage(err, "Request failed")})
       // A newer send owns the glasses (or the controller is disposing); don't
       // overwrite it with a stale error.
       if (!this.disposed && this.currentRun === run) {
@@ -639,6 +659,13 @@ export class AssistantController {
       return
     }
     if (this.disposed || this.currentRun !== run) return
+    trace("chat.send-ok", {runId: result?.runId ?? null, aborted: result?.aborted ?? false})
+    // Response payloads arrive unvalidated; an empty one must not leave Thinking up.
+    if (typeof result !== "object" || result === null) {
+      this.currentRun = null
+      this.showFrame({phase: "error", agentLabel: this.agentLabel(), body: "Gateway sent an empty reply"})
+      return
+    }
     if (typeof result.runId === "string" && result.runId) {
       bindServerRunId(run, result.runId)
       return
@@ -744,6 +771,7 @@ export class AssistantController {
   }
 
   private setTriggers(triggers: string[]): void {
+    trace("triggers", {triggers})
     this.triggers = triggers
     this.tracker.setTriggers(triggers)
   }
@@ -947,6 +975,7 @@ export class AssistantController {
   }
 
   private pushError(message: string): void {
+    trace("error", {message})
     if (this.disposed) return
     this.session.ui.send("error", {message})
   }

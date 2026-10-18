@@ -71,8 +71,12 @@ bun run release        # 独立安装：打印 miniapp://release 二维码
 自动清除（显示 **Offline** 时为 4 秒）。如果只说唤醒词，小应用会监听
 8 秒等待后续问题。
 
-唤醒词来自网关，管理员修改后会实时更新。唤醒词之后的问题由你的
-WednesdayAI 网关转写；如果网关无法转写，则使用 Mentra 的转写结果。
+唤醒词来自网关，管理员修改后会实时更新。语音识别把一个唤醒词拆成两三个
+词（例如把 "openclaw" 听成 "open claw"）也能匹配；当一个唤醒词是另一个
+的前缀（"wednesday" 与 "wednesday prime"）时，更长的那个获胜。唤醒词之后
+的问题由你的 WednesdayAI 网关转写；如果网关无法转写，则使用 Mentra 的
+转写结果。当网关转写结果又以唤醒词开头时，小应用会在发送前把它去掉——
+除非 Mentra 自己的转写结果已经保留了它。
 
 ### 抬头速览
 
@@ -120,6 +124,11 @@ WednesdayAI 网关转写；如果网关无法转写，则使用 Mentra 的转写
   存储的设备令牌。重新扫描新的 setup code。
 - **Offline** — 小应用会以退避策略自动重连（最长 15 秒一次）。若持续
   离线，检查网关是否在运行、手机能否访问。
+- **"Gateway sent an empty reply"** — 网关对 `chat.send` 的应答没有携带
+  负载。重试该问题；若反复出现，请检查网关日志。
+- **iOS 上助手听到的是错误的麦克风** — 在 iOS 上，从小应用固定麦克风
+  无效；由 Mentra App 决定：Mentra App → Microphone → Preferred
+  microphone（Automatic 会优先选择眼镜）。
 
 ### 隐私说明
 
@@ -211,18 +220,21 @@ unavailable"，然后使用 Mentra 的转写结果。
   模式、通知应用、麦克风测试）。
 - `src/shared/channels.ts`：类型化的 UI <-> 后台通道。
 - `scripts/smoke-gateway.ts`：针对真实网关的免设备冒烟测试。
+- `scripts/build-flags.ts`（含 `build-flags.test.ts`）：构建期开关；
+  `build.ts` 用它的 trace 门控来内联 `MENTRA_PUBLIC_TRACE`。
 
 ### 命令
 
-| 命令                                                             | 用途                                                                                                      |
-| ---------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------- |
-| `npm run glass:test`（仓库根目录）或 `npm test`                  | 单元测试（vitest）                                                                                        |
-| `npm run glass:coverage`（仓库根目录）或 `npm run test:coverage` | 带 v8 覆盖率的测试；`src/gateway`、`src/background` 和 `src/ui/App.tsx` 阈值 80%（排除测试文件和 `src/background/index.ts`） |
-| `npm run glass:typecheck`（仓库根目录）或 `npm run typecheck`    | 对 `src/` 和 `scripts/` 运行 `tsc --noEmit`                                                               |
-| `bun run build`                                                  | 在 `dist/` 生成生产包                                                                                     |
-| `bun run dev`                                                    | 开发模式，打印侧载二维码                                                                                  |
-| `bun run release`                                                | 构建、打包并提供 `miniapp://release` 安装二维码                                                           |
-| `bun run smoke:gateway -- --setup-code <code>`                   | 免设备检查：配对、读取唤醒词和 agents、发送 `chat.send`、用存储的设备令牌重连                             |
+| 命令                                                             | 用途                                                                                                                                                                                                         |
+| ---------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `npm run glass:test`（仓库根目录）或 `npm test`                  | 单元测试（vitest）                                                                                                                                                                                           |
+| `npm run glass:coverage`（仓库根目录）或 `npm run test:coverage` | 带 v8 覆盖率的测试；`src/gateway`、`src/background` 和 `src/ui/App.tsx` 阈值 80%（排除测试文件和 `src/background/index.ts`）                                                                                 |
+| `npm run glass:typecheck`（仓库根目录）或 `npm run typecheck`    | 对 `src/` 和 `scripts/` 运行 `tsc --noEmit`                                                                                                                                                                  |
+| `bun run build`                                                  | 在 `dist/` 生成生产包                                                                                                                                                                                        |
+| `bun run dev`                                                    | 开发模式，打印侧载二维码                                                                                                                                                                                     |
+| `MENTRA_PUBLIC_TRACE=1 bun run dev`                              | 开发模式，每次连接状态变化、唤醒词列表、转写、唤醒判定、网关转写、`chat.send` 请求与结果、眼镜画面和错误各打印一行 `[trace]`；仅当值恰为 `1` 时生效，`release`/`pack` 构建会强制关闭 trace，即使设置了该变量 |
+| `bun run release`                                                | 构建、打包并提供 `miniapp://release` 安装二维码                                                                                                                                                              |
+| `bun run smoke:gateway -- --setup-code <code>`                   | 免设备检查：配对、读取唤醒词和 agents、发送 `chat.send`、用存储的设备令牌重连                                                                                                                                |
 
 冒烟测试的 setup code 用
 `wednesdayai qr --client openclaw-mentra-node --setup-code-only` 获取。
@@ -235,12 +247,23 @@ unavailable"，然后使用 Mentra 的转写结果。
 不含 "pong" 时仍会退出 0。请通过输出中的 `final:` 和 `pong=yes` 确认
 回答检查。
 
+网关通过 Tailscale Serve 提供时，新设备首次配对需要审批
+（[WednesdayAI-core#1022](https://github.com/ExpansionX/WednesdayAI-core/issues/1022)），
+因此第一次运行会在 `pair` 步骤失败。加上 `--state-file <文件>` 保留冒烟
+设备身份，审批待处理请求（`wednesdayai devices list`，然后
+`wednesdayai devices approve <requestId>`），再用新的 setup code 和同一个
+`--state-file` 重新运行。结束后用 `wednesdayai devices remove <deviceId>`
+删除冒烟设备。
+
 ### 架构
 
 `AssistantController` 订阅 session 转写（按唤醒监听设置选择带
-`forceLocal` 的本机 sherpa STT 或 Mentra 云）。唤醒匹配在转写文本上
-进行（`src/background/wake.ts`）；匹配后通过 `GatewayConnection`
-（`src/gateway/connection.ts`）向 `src/gateway/sessions.ts` 解析出的会话
+`forceLocal` 的本机 sherpa STT 或 Mentra 云）。唤醒匹配在转写文本上进行（`src/background/wake.ts`）：被拆成最多三个
+转写词的触发词（"open claw" 对应 "openclaw"）仍可匹配，同一位置的
+最长触发词跨度获胜；`resolveAndSend` 只有在 Mentra 的问句不含唤醒词时
+才会把网关转写结果开头重复的唤醒词去掉。匹配后通过
+`GatewayConnection`（`src/gateway/connection.ts`）向 `src/gateway/sessions.ts`
+解析出的会话
 发送 `chat.send`，聊天事件更新 `ChatRun`（`src/gateway/chat.ts`），并由
 `GlassesView`（`src/background/glassesView.ts`）渲染到眼镜。
 

@@ -1,6 +1,6 @@
 import {describe, expect, it} from "vitest"
 
-import {findWake, matchWake, normalizeSpeech, WakeTracker} from "./wake"
+import {findWake, leadsWithPunctuatedWake, matchWake, normalizeSpeech, WakeTracker} from "./wake"
 
 const TRIGGERS = ["wednesday", "computer"]
 
@@ -64,6 +64,30 @@ describe("matchWake", () => {
     })
   })
 
+  it("matches a trigger word that speech-to-text split into parts", () => {
+    expect(matchWake("open claw what's going on", ["openclaw"])).toEqual({query: "what's going on"})
+    expect(matchWake("Hey Open-Claw, status", ["openclaw"])).toEqual({query: "status"})
+    expect(findWake("so open claw status", ["openclaw"])).toEqual({query: "status"})
+  })
+
+  it("does not match split parts with a word between them or a longer join", () => {
+    expect(matchWake("open the claw now", ["openclaw"])).toBeNull()
+    expect(matchWake("open claws now", ["openclaw"])).toBeNull()
+  })
+
+  it("matches a trigger split into exactly three parts but not four", () => {
+    expect(matchWake("o pen claw status", ["openclaw"])).toEqual({query: "status"})
+    expect(matchWake("op en cl aw status", ["openclaw"])).toBeNull()
+  })
+
+  it("prefers the trigger that spans the most of the transcript, whatever the trigger order", () => {
+    const triggers = ["open claw", "openclaw prime"]
+    expect(matchWake("o pen claw prime status", triggers)).toEqual({query: "status"})
+    expect(matchWake("o pen claw prime status", [...triggers].reverse())).toEqual({query: "status"})
+    expect(matchWake("hey o pen claw prime status", triggers)).toEqual({query: "status"})
+    expect(findWake("so o pen claw prime status", triggers)).toEqual({query: "status"})
+  })
+
   it("slices the query at token end offsets, not whitespace words", () => {
     // "wednesday-prime" is one whitespace word but two matched tokens; the
     // query starts right after the token "prime".
@@ -119,6 +143,10 @@ describe("findWake", () => {
     expect(findWake("ok wednesday prime go", ["wednesday", "wednesday prime"])).toEqual({query: "go"})
   })
 
+  it("prefers the longest trigger when it is listed first", () => {
+    expect(findWake("ok wednesday prime go", ["wednesday prime", "wednesday"])).toEqual({query: "go"})
+  })
+
   it("returns null for an empty or punctuation-only transcript", () => {
     expect(findWake("", TRIGGERS)).toBeNull()
     expect(findWake("?! ... ?", TRIGGERS)).toBeNull()
@@ -126,6 +154,26 @@ describe("findWake", () => {
 
   it("ignores triggers with no word characters", () => {
     expect(findWake("hey there", ["!!!", ""])).toBeNull()
+  })
+
+  it("keeps a wake phrase repeated after the match in the query", () => {
+    expect(findWake("Computer? Computer, what time is it?", TRIGGERS)).toEqual({query: "Computer, what time is it?"})
+  })
+})
+
+describe("leadsWithPunctuatedWake", () => {
+  it("is true for a wake phrase set off by punctuation, after an optional greeting", () => {
+    expect(leadsWithPunctuatedWake("Computer, what time is it?", TRIGGERS)).toBe(true)
+    expect(leadsWithPunctuatedWake("Hey Wednesday? hello", TRIGGERS)).toBe(true)
+  })
+
+  it("is false when the wake word runs into the phrase", () => {
+    expect(leadsWithPunctuatedWake("computer science is about what?", TRIGGERS)).toBe(false)
+  })
+
+  it("is false without a leading wake word", () => {
+    expect(leadsWithPunctuatedWake("what time is it, computer?", TRIGGERS)).toBe(false)
+    expect(leadsWithPunctuatedWake("", TRIGGERS)).toBe(false)
   })
 })
 

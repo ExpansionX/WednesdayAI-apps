@@ -19,14 +19,7 @@
 import type {MiniappSession, RenderElement} from "@mentra/miniapp/background"
 
 export type GlassesPhase =
-  | "listening"
-  | "thinking"
-  | "streaming"
-  | "final"
-  | "error"
-  | "offline"
-  | "glance"
-  | "notification"
+  "listening" | "thinking" | "streaming" | "final" | "error" | "offline" | "glance" | "notification"
 
 export interface GlassesViewModel {
   phase: GlassesPhase
@@ -224,8 +217,7 @@ export class GlassesView {
     const width = display?.width ?? FALLBACK_WIDTH
     const height = display?.height ?? FALLBACK_HEIGHT
     const status = STATUS_BY_PHASE[vm.phase]
-    const header =
-      vm.header ?? `WednesdayAI · ${vm.agentLabel}${status ? " — " + status : ""}`
+    const header = vm.header ?? `WednesdayAI · ${vm.agentLabel}${status ? " — " + status : ""}`
     const elements: RenderElement[] = [
       {
         type: "text",

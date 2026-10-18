@@ -203,9 +203,7 @@ describe("GatewaySttCapture", () => {
     expect(capture.state).toBe("closing")
     expect(capture.active).toBe(false)
     expect(requester.appends()).toHaveLength(1)
-    expect(requester.callsOf("talk.session.close")).toEqual([
-      {method: "talk.session.close", params: {sessionId: "s1"}},
-    ])
+    expect(requester.callsOf("talk.session.close")).toEqual([{method: "talk.session.close", params: {sessionId: "s1"}}])
     capture.onTalkEvent({type: "transcript.done", sessionId: "s1", payload: {text: "  hello world "}})
     expect(await done).toBe("hello world")
     expect(capture.state).toBe("idle")
@@ -299,9 +297,7 @@ describe("GatewaySttCapture", () => {
     expect(await done).toBeNull()
     create.resolve(CREATE_RESULT)
     await vi.advanceTimersByTimeAsync(0)
-    expect(requester.callsOf("talk.session.close")).toEqual([
-      {method: "talk.session.close", params: {sessionId: "s1"}},
-    ])
+    expect(requester.callsOf("talk.session.close")).toEqual([{method: "talk.session.close", params: {sessionId: "s1"}}])
     expect(requester.appends()).toHaveLength(0)
     expect(capture.state).toBe("idle")
     expect(capture.active).toBe(false)
@@ -313,9 +309,7 @@ describe("GatewaySttCapture", () => {
     const done = capture.finish()
     capture.abort()
     expect(await done).toBeNull()
-    expect(requester.callsOf("talk.session.close")).toEqual([
-      {method: "talk.session.close", params: {sessionId: "s1"}},
-    ])
+    expect(requester.callsOf("talk.session.close")).toEqual([{method: "talk.session.close", params: {sessionId: "s1"}}])
     expect(capture.state).toBe("idle")
   })
 
@@ -323,9 +317,7 @@ describe("GatewaySttCapture", () => {
     const {requester, capture, open} = harness()
     await open()
     capture.dispose()
-    expect(requester.callsOf("talk.session.close")).toEqual([
-      {method: "talk.session.close", params: {sessionId: "s1"}},
-    ])
+    expect(requester.callsOf("talk.session.close")).toEqual([{method: "talk.session.close", params: {sessionId: "s1"}}])
     expect(capture.state).toBe("idle")
     capture.begin("sk-2")
     capture.pushChunk(chunkAt(1))
@@ -342,9 +334,7 @@ describe("GatewaySttCapture", () => {
     capture.dispose()
     create.resolve(CREATE_RESULT)
     await vi.advanceTimersByTimeAsync(0)
-    expect(requester.callsOf("talk.session.close")).toEqual([
-      {method: "talk.session.close", params: {sessionId: "s1"}},
-    ])
+    expect(requester.callsOf("talk.session.close")).toEqual([{method: "talk.session.close", params: {sessionId: "s1"}}])
     expect(requester.appends()).toHaveLength(0)
     expect(capture.state).toBe("idle")
   })
@@ -359,9 +349,7 @@ describe("GatewaySttCapture", () => {
     expect(requester.callsOf("talk.session.close")).toHaveLength(0)
     create.resolve(CREATE_RESULT)
     await vi.advanceTimersByTimeAsync(0)
-    expect(requester.callsOf("talk.session.close")).toEqual([
-      {method: "talk.session.close", params: {sessionId: "s1"}},
-    ])
+    expect(requester.callsOf("talk.session.close")).toEqual([{method: "talk.session.close", params: {sessionId: "s1"}}])
     expect(capture.state).toBe("idle")
     // The close still goes out, but no fence timer may outlive dispose.
     expect(vi.getTimerCount()).toBe(0)
@@ -399,9 +387,7 @@ describe("GatewaySttCapture", () => {
     const {requester, capture, open} = harness()
     await open()
     await vi.advanceTimersByTimeAsync(MAX_CAPTURE_MS)
-    expect(requester.callsOf("talk.session.close")).toEqual([
-      {method: "talk.session.close", params: {sessionId: "s1"}},
-    ])
+    expect(requester.callsOf("talk.session.close")).toEqual([{method: "talk.session.close", params: {sessionId: "s1"}}])
     expect(capture.state).toBe("idle")
     expect(capture.active).toBe(false)
   })
@@ -439,9 +425,7 @@ describe("GatewaySttCapture", () => {
     createA.resolve(CREATE_RESULT)
     await vi.advanceTimersByTimeAsync(0)
     expect(capture.state).toBe("idle")
-    expect(requester.callsOf("talk.session.close")).toEqual([
-      {method: "talk.session.close", params: {sessionId: "s1"}},
-    ])
+    expect(requester.callsOf("talk.session.close")).toEqual([{method: "talk.session.close", params: {sessionId: "s1"}}])
     // The fence holds until the server retires s1.
     capture.begin("sk-2")
     await vi.advanceTimersByTimeAsync(0)
@@ -510,9 +494,7 @@ describe("GatewaySttCapture", () => {
     expect(capture.state).toBe("idle")
     expect(await done).toBeNull()
     expect(errors).toEqual(["append rejected"])
-    expect(requester.callsOf("talk.session.close")).toEqual([
-      {method: "talk.session.close", params: {sessionId: "s1"}},
-    ])
+    expect(requester.callsOf("talk.session.close")).toEqual([{method: "talk.session.close", params: {sessionId: "s1"}}])
   })
 
   it("prunes expired pre-roll when begin starts the capture", async () => {
@@ -573,9 +555,7 @@ describe("GatewaySttCapture", () => {
     await vi.advanceTimersByTimeAsync(0)
     expect(requester.appends()).toHaveLength(1)
     expect(decoded(requester.appends()[0]!.params.audioBase64)).toEqual(preRollBytes(0, 0))
-    expect(requester.callsOf("talk.session.close")).toEqual([
-      {method: "talk.session.close", params: {sessionId: "s1"}},
-    ])
+    expect(requester.callsOf("talk.session.close")).toEqual([{method: "talk.session.close", params: {sessionId: "s1"}}])
     capture.onTalkEvent({type: "transcript.done", sessionId: "s1", payload: {text: " ready now "}})
     expect(await done).toBe("ready now")
   })
@@ -589,9 +569,7 @@ describe("GatewaySttCapture", () => {
     await vi.advanceTimersByTimeAsync(STT_RESULT_TIMEOUT_MS)
     expect(await done).toBeNull()
     expect(errors).toEqual([])
-    expect(requester.callsOf("talk.session.close")).toEqual([
-      {method: "talk.session.close", params: {sessionId: "s1"}},
-    ])
+    expect(requester.callsOf("talk.session.close")).toEqual([{method: "talk.session.close", params: {sessionId: "s1"}}])
     expect(capture.state).toBe("idle")
   })
 
@@ -711,9 +689,7 @@ describe("GatewaySttCapture", () => {
     await vi.advanceTimersByTimeAsync(0)
     expect(capture.state).toBe("idle")
     expect(capture.active).toBe(false)
-    expect(requester.callsOf("talk.session.close")).toEqual([
-      {method: "talk.session.close", params: {sessionId: "s1"}},
-    ])
+    expect(requester.callsOf("talk.session.close")).toEqual([{method: "talk.session.close", params: {sessionId: "s1"}}])
     expect(requester.appends()).toHaveLength(0)
     capture.pushChunk(chunkAt(1))
     await vi.advanceTimersByTimeAsync(250)
@@ -746,9 +722,7 @@ describe("GatewaySttCapture", () => {
     expect(capture.state).toBe("idle")
     expect(await done).toBe("early")
     // The session still gets closed exactly once.
-    expect(requester.callsOf("talk.session.close")).toEqual([
-      {method: "talk.session.close", params: {sessionId: "s1"}},
-    ])
+    expect(requester.callsOf("talk.session.close")).toEqual([{method: "talk.session.close", params: {sessionId: "s1"}}])
   })
 
   it("an aborted pending create fences begin until the create retires", async () => {
@@ -767,9 +741,7 @@ describe("GatewaySttCapture", () => {
     // The create lands: its session is closed and the fence keeps holding.
     create.resolve(CREATE_RESULT)
     await vi.advanceTimersByTimeAsync(0)
-    expect(requester.callsOf("talk.session.close")).toEqual([
-      {method: "talk.session.close", params: {sessionId: "s1"}},
-    ])
+    expect(requester.callsOf("talk.session.close")).toEqual([{method: "talk.session.close", params: {sessionId: "s1"}}])
     capture.begin("sk-2")
     await vi.advanceTimersByTimeAsync(0)
     expect(requester.callsOf("talk.session.create")).toHaveLength(1)
@@ -814,9 +786,7 @@ describe("GatewaySttCapture", () => {
     // A's late create lands: closed once, and its drain fences the capture.
     createA.resolve(CREATE_RESULT)
     await vi.advanceTimersByTimeAsync(0)
-    expect(requester.callsOf("talk.session.close")).toEqual([
-      {method: "talk.session.close", params: {sessionId: "s1"}},
-    ])
+    expect(requester.callsOf("talk.session.close")).toEqual([{method: "talk.session.close", params: {sessionId: "s1"}}])
     // B fails: that must lift only B's own pending fence, never A's.
     createB.reject(new Error("no active transcription provider"))
     await vi.advanceTimersByTimeAsync(0)
@@ -884,9 +854,7 @@ describe("GatewaySttCapture", () => {
     // The final drain picked up the late chunk before closing.
     expect(requester.appends()).toHaveLength(3)
     expect(decoded(requester.appends()[2]!.params.audioBase64)).toEqual(preRollBytes(3, 3))
-    expect(requester.callsOf("talk.session.close")).toEqual([
-      {method: "talk.session.close", params: {sessionId: "s1"}},
-    ])
+    expect(requester.callsOf("talk.session.close")).toEqual([{method: "talk.session.close", params: {sessionId: "s1"}}])
     // The transcript lands long after any stray periodic timer would fire.
     await vi.advanceTimersByTimeAsync(AUDIO_FLUSH_MS * 4)
     capture.onTalkEvent({type: "transcript.done", sessionId: "s1", payload: {text: "answer"}})
@@ -1035,9 +1003,7 @@ describe("GatewaySttCapture", () => {
     expect(await done).toBeNull()
     // finish pending + session.error settles at once; settle() closes unless
     // the server already did (session.closed lands a moment later).
-    expect(requester.callsOf("talk.session.close")).toEqual([
-      {method: "talk.session.close", params: {sessionId: "s1"}},
-    ])
+    expect(requester.callsOf("talk.session.close")).toEqual([{method: "talk.session.close", params: {sessionId: "s1"}}])
     // A replacement utterance opens s2 and buffers a chunk pre-ready.
     setNow(2000)
     requester.respond("talk.session.create", () => ({sessionId: "s2", audio: CREATE_RESULT.audio}))
@@ -1103,9 +1069,7 @@ describe("GatewaySttCapture", () => {
     await vi.advanceTimersByTimeAsync(0)
     capture.onTalkEvent({type: "transcript.done", sessionId: "s2", payload: {text: "ok"}})
     expect(await done).toBe("ok")
-    expect(requester.callsOf("talk.session.close")).toEqual([
-      {method: "talk.session.close", params: {sessionId: "s2"}},
-    ])
+    expect(requester.callsOf("talk.session.close")).toEqual([{method: "talk.session.close", params: {sessionId: "s2"}}])
   })
 
   // ── residual branch and boundary coverage ────────────────────────────────
@@ -1117,9 +1081,7 @@ describe("GatewaySttCapture", () => {
     expect(capture.finish()).toBe(first)
     capture.onTalkEvent({type: "transcript.done", sessionId: "s1", payload: {text: "answer"}})
     expect(await first).toBe("answer")
-    expect(requester.callsOf("talk.session.close")).toEqual([
-      {method: "talk.session.close", params: {sessionId: "s1"}},
-    ])
+    expect(requester.callsOf("talk.session.close")).toEqual([{method: "talk.session.close", params: {sessionId: "s1"}}])
   })
 
   it("keeps chunks that land exactly on MAX_APPEND_BYTES in one frame", async () => {
@@ -1239,9 +1201,7 @@ describe("GatewaySttCapture", () => {
     await vi.advanceTimersByTimeAsync(0)
     expect(errors).toEqual(["relay reset"])
     expect(await done).toBeNull()
-    expect(requester.callsOf("talk.session.close")).toEqual([
-      {method: "talk.session.close", params: {sessionId: "s1"}},
-    ])
+    expect(requester.callsOf("talk.session.close")).toEqual([{method: "talk.session.close", params: {sessionId: "s1"}}])
     expect(capture.state).toBe("idle")
   })
 })
