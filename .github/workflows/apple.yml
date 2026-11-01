@@ -15,6 +15,7 @@ on:
       - ".swiftformat"
       - ".github/workflows/apple.yml"
   pull_request:
+    types: [opened, synchronize, reopened, converted_to_draft, ready_for_review]
     paths:
       - "apps/ios/**"
       - "apps/macos/**"
@@ -37,6 +38,7 @@ concurrency:
 jobs:
   shared:
     name: Shared packages (OpenClawKit, Swabble)
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     runs-on: macos-26
     timeout-minutes: 120
     steps:
@@ -62,6 +64,7 @@ jobs:
 
   macos:
     name: macOS app
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     runs-on: macos-26
     timeout-minutes: 120
     steps:
@@ -83,6 +86,7 @@ jobs:
 
   swift-style:
     name: Swift lint and format
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     runs-on: macos-26
     timeout-minutes: 120
     steps:
@@ -107,6 +111,7 @@ jobs:
 
   ios:
     name: iOS (simulator, no signing)
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     runs-on: macos-26
     timeout-minutes: 120
     steps:
@@ -138,6 +143,7 @@ jobs:
 
   mac-package:
     name: macOS package (ad-hoc signing)
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     runs-on: macos-26
     timeout-minutes: 120
     steps:

@@ -1,0 +1,15 @@
+# yaml-language-server: $schema=https://coderabbit.ai/integrations/schema.v2.json
+language: "en-US"
+reviews:
+  profile: "chill"
+  auto_review:
+    enabled: true
+    drafts: false
+    auto_incremental_review: false
+  path_filters:
+    - "!dev-docs/logs/**"
+    - "!**/CHANGELOG.md"
+    - "!**/package-lock.json"
+    - "!**/Package.resolved"
+    - "!**/*.generated.*"
+    - "!**/fixtures/**"
