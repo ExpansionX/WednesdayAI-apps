@@ -8,7 +8,7 @@ on:
       - "apps/shared/OpenClawKit/Sources/OpenClawKit/Resources/**"
       - ".github/workflows/android.yml"
   pull_request:
-    types: [opened, synchronize, reopened, ready_for_review]
+    types: [opened, synchronize, reopened, converted_to_draft, ready_for_review]
     paths:
       - "apps/android/**"
       - "apps/shared/OpenClawKit/Sources/OpenClawKit/Resources/**"
