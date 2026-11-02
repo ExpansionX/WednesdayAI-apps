@@ -103,6 +103,10 @@
                   "type": "string"
                 },
                 {
+                  "const": "wednesdayai-glass-node",
+                  "type": "string"
+                },
+                {
                   "const": "openclaw-mentra-node",
                   "type": "string"
                 },
@@ -1967,6 +1971,114 @@
         }
       }
     },
+    "GlanceWidgetEntry": {
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "key",
+        "pluginId",
+        "id",
+        "title",
+        "lines",
+        "updatedAtMs"
+      ],
+      "properties": {
+        "key": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "pluginId": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "id": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "title": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "lines": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "updatedAtMs": {
+          "type": "number"
+        },
+        "error": {
+          "enum": [
+            "unavailable"
+          ],
+          "type": "string"
+        }
+      }
+    },
+    "GlanceWidgetsListParams": {
+      "additionalProperties": false,
+      "type": "object",
+      "properties": {}
+    },
+    "GlanceWidgetsListResult": {
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "widgets"
+      ],
+      "properties": {
+        "widgets": {
+          "type": "array",
+          "items": {
+            "additionalProperties": false,
+            "type": "object",
+            "required": [
+              "key",
+              "pluginId",
+              "id",
+              "title",
+              "lines",
+              "updatedAtMs"
+            ],
+            "properties": {
+              "key": {
+                "minLength": 1,
+                "type": "string"
+              },
+              "pluginId": {
+                "minLength": 1,
+                "type": "string"
+              },
+              "id": {
+                "minLength": 1,
+                "type": "string"
+              },
+              "title": {
+                "minLength": 1,
+                "type": "string"
+              },
+              "lines": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "updatedAtMs": {
+                "type": "number"
+              },
+              "error": {
+                "enum": [
+                  "unavailable"
+                ],
+                "type": "string"
+              }
+            },
+            "x-schema-name": "GlanceWidgetEntry"
+          }
+        }
+      }
+    },
     "PushTestParams": {
       "additionalProperties": false,
       "type": "object",
@@ -2384,6 +2496,39 @@
           "type": "array",
           "items": {}
         },
+        "dictated": {
+          "type": "boolean"
+        },
+        "location": {
+          "additionalProperties": false,
+          "type": "object",
+          "required": [
+            "latitude",
+            "longitude",
+            "capturedAtMs"
+          ],
+          "properties": {
+            "latitude": {
+              "minimum": -90,
+              "maximum": 90,
+              "type": "number"
+            },
+            "longitude": {
+              "minimum": -180,
+              "maximum": 180,
+              "type": "number"
+            },
+            "accuracyMeters": {
+              "minimum": 0,
+              "type": "number"
+            },
+            "capturedAtMs": {
+              "minimum": 0,
+              "maximum": 8640000000000000,
+              "type": "integer"
+            }
+          }
+        },
         "idempotencyKey": {
           "minLength": 1,
           "type": "string"
@@ -2452,6 +2597,29 @@
         "maxChars": {
           "minimum": 20,
           "type": "integer"
+        }
+      }
+    },
+    "SessionsDirectParams": {
+      "additionalProperties": false,
+      "type": "object",
+      "properties": {
+        "agentId": {
+          "minLength": 1,
+          "type": "string"
+        }
+      }
+    },
+    "SessionsDirectResult": {
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "key"
+      ],
+      "properties": {
+        "key": {
+          "minLength": 1,
+          "type": "string"
         }
       }
     },
@@ -5329,6 +5497,13 @@
         },
         "conversationEnabled": {
           "type": "boolean"
+        },
+        "conversationEngine": {
+          "type": "string",
+          "enum": [
+            "stt-tts",
+            "realtime"
+          ]
         }
       }
     },
@@ -5350,7 +5525,8 @@
           "type": "string",
           "enum": [
             "transcription",
-            "stt-tts"
+            "stt-tts",
+            "realtime"
           ]
         },
         "transport": {
@@ -5391,8 +5567,11 @@
               "type": "string"
             },
             "inputSampleRateHz": {
-              "const": 16000,
-              "type": "number"
+              "type": "number",
+              "enum": [
+                16000,
+                24000
+              ]
             },
             "channels": {
               "const": 1,
@@ -6092,6 +6271,43 @@
           "minLength": 1,
           "type": "string"
         },
+        "description": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "userFacing": {
+          "type": "boolean"
+        },
+        "team": {
+          "additionalProperties": false,
+          "type": "object",
+          "required": [
+            "id",
+            "role"
+          ],
+          "properties": {
+            "id": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "name": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "role": {
+              "anyOf": [
+                {
+                  "const": "lead",
+                  "type": "string"
+                },
+                {
+                  "const": "member",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        },
         "identity": {
           "additionalProperties": false,
           "type": "object",
@@ -6597,6 +6813,43 @@
               "name": {
                 "minLength": 1,
                 "type": "string"
+              },
+              "description": {
+                "minLength": 1,
+                "type": "string"
+              },
+              "userFacing": {
+                "type": "boolean"
+              },
+              "team": {
+                "additionalProperties": false,
+                "type": "object",
+                "required": [
+                  "id",
+                  "role"
+                ],
+                "properties": {
+                  "id": {
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "name": {
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "role": {
+                    "anyOf": [
+                      {
+                        "const": "lead",
+                        "type": "string"
+                      },
+                      {
+                        "const": "member",
+                        "type": "string"
+                      }
+                    ]
+                  }
+                }
               },
               "identity": {
                 "additionalProperties": false,
@@ -10784,6 +11037,37 @@
       "type": "object",
       "properties": {}
     },
+    "DeviceIdentityLinkParams": {
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "deviceId",
+        "identity"
+      ],
+      "properties": {
+        "deviceId": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "identity": {
+          "minLength": 1,
+          "type": "string"
+        }
+      }
+    },
+    "DeviceIdentityUnlinkParams": {
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "deviceId"
+      ],
+      "properties": {
+        "deviceId": {
+          "minLength": 1,
+          "type": "string"
+        }
+      }
+    },
     "DevicePairApproveParams": {
       "additionalProperties": false,
       "type": "object",
@@ -10970,6 +11254,244 @@
         }
       }
     },
+    "IdentityListParams": {
+      "additionalProperties": false,
+      "type": "object",
+      "properties": {}
+    },
+    "IdentityListResult": {
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "persons"
+      ],
+      "properties": {
+        "persons": {
+          "type": "array",
+          "items": {
+            "additionalProperties": false,
+            "type": "object",
+            "required": [
+              "person",
+              "links"
+            ],
+            "properties": {
+              "person": {
+                "minLength": 1,
+                "type": "string"
+              },
+              "links": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "IdentityAddParams": {
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "person"
+      ],
+      "properties": {
+        "person": {
+          "minLength": 1,
+          "maxLength": 64,
+          "type": "string"
+        }
+      }
+    },
+    "IdentityAddResult": {
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "person",
+        "changed"
+      ],
+      "properties": {
+        "person": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "changed": {
+          "type": "boolean"
+        }
+      }
+    },
+    "IdentityLinkParams": {
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "person",
+        "value"
+      ],
+      "properties": {
+        "person": {
+          "minLength": 1,
+          "maxLength": 64,
+          "type": "string"
+        },
+        "value": {
+          "minLength": 3,
+          "maxLength": 256,
+          "type": "string"
+        }
+      }
+    },
+    "IdentityLinkResult": {
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "person",
+        "value",
+        "changed"
+      ],
+      "properties": {
+        "person": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "value": {
+          "minLength": 3,
+          "type": "string"
+        },
+        "changed": {
+          "type": "boolean"
+        }
+      }
+    },
+    "IdentityUnlinkParams": {
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "value"
+      ],
+      "properties": {
+        "value": {
+          "minLength": 3,
+          "maxLength": 256,
+          "type": "string"
+        }
+      }
+    },
+    "IdentityUnlinkResult": {
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "value",
+        "unlinkedFrom"
+      ],
+      "properties": {
+        "value": {
+          "minLength": 3,
+          "type": "string"
+        },
+        "unlinkedFrom": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "IdentitySelfParams": {
+      "additionalProperties": false,
+      "type": "object",
+      "properties": {}
+    },
+    "IdentitySelfResult": {
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "deviceId",
+        "links"
+      ],
+      "properties": {
+        "person": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "deviceId": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "links": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "IdentityLinkClaimParams": {
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "code"
+      ],
+      "properties": {
+        "code": {
+          "minLength": 4,
+          "maxLength": 16,
+          "type": "string"
+        }
+      }
+    },
+    "IdentityLinkClaimResult": {
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "person",
+        "linked",
+        "alreadyLinked"
+      ],
+      "properties": {
+        "person": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "linked": {
+          "minLength": 3,
+          "type": "string"
+        },
+        "alreadyLinked": {
+          "type": "boolean"
+        }
+      }
+    },
+    "IdentityLogoutParams": {
+      "additionalProperties": false,
+      "type": "object",
+      "properties": {}
+    },
+    "IdentityLogoutResult": {
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "deviceId",
+        "removed",
+        "unlinkedFrom"
+      ],
+      "properties": {
+        "deviceId": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "removed": {
+          "type": "boolean"
+        },
+        "unlinkedFrom": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
     "ChatHistoryParams": {
       "additionalProperties": false,
       "type": "object",
@@ -11045,6 +11567,70 @@
               "type": "null"
             }
           ]
+        },
+        "uiAction": {
+          "additionalProperties": false,
+          "type": "object",
+          "required": [
+            "surfaceId",
+            "revision",
+            "actionId",
+            "data"
+          ],
+          "properties": {
+            "surfaceId": {
+              "minLength": 1,
+              "maxLength": 64,
+              "type": "string"
+            },
+            "revision": {
+              "minimum": 1,
+              "type": "integer"
+            },
+            "actionId": {
+              "minLength": 1,
+              "maxLength": 64,
+              "type": "string"
+            },
+            "data": {
+              "additionalProperties": true,
+              "type": "object",
+              "properties": {}
+            }
+          }
+        },
+        "dictated": {
+          "type": "boolean"
+        },
+        "location": {
+          "additionalProperties": false,
+          "type": "object",
+          "required": [
+            "latitude",
+            "longitude",
+            "capturedAtMs"
+          ],
+          "properties": {
+            "latitude": {
+              "minimum": -90,
+              "maximum": 90,
+              "type": "number"
+            },
+            "longitude": {
+              "minimum": -180,
+              "maximum": 180,
+              "type": "number"
+            },
+            "accuracyMeters": {
+              "minimum": 0,
+              "type": "number"
+            },
+            "capturedAtMs": {
+              "minimum": 0,
+              "maximum": 8640000000000000,
+              "type": "integer"
+            }
+          }
         }
       }
     },
@@ -11139,6 +11725,342 @@
         }
       }
     },
+    "ChatSendUiAction": {
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "surfaceId",
+        "revision",
+        "actionId",
+        "data"
+      ],
+      "properties": {
+        "surfaceId": {
+          "minLength": 1,
+          "maxLength": 64,
+          "type": "string"
+        },
+        "revision": {
+          "minimum": 1,
+          "type": "integer"
+        },
+        "actionId": {
+          "minLength": 1,
+          "maxLength": 64,
+          "type": "string"
+        },
+        "data": {
+          "additionalProperties": true,
+          "type": "object",
+          "properties": {}
+        }
+      }
+    },
+    "ChatSendLocation": {
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "latitude",
+        "longitude",
+        "capturedAtMs"
+      ],
+      "properties": {
+        "latitude": {
+          "minimum": -90,
+          "maximum": 90,
+          "type": "number"
+        },
+        "longitude": {
+          "minimum": -180,
+          "maximum": 180,
+          "type": "number"
+        },
+        "accuracyMeters": {
+          "minimum": 0,
+          "type": "number"
+        },
+        "capturedAtMs": {
+          "minimum": 0,
+          "maximum": 8640000000000000,
+          "type": "integer"
+        }
+      }
+    },
+    "ChatSurfaceSummary": {
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "surfaceId",
+        "title",
+        "revision",
+        "pinned",
+        "updatedAt"
+      ],
+      "properties": {
+        "surfaceId": {
+          "minLength": 1,
+          "maxLength": 64,
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        },
+        "revision": {
+          "minimum": 1,
+          "type": "integer"
+        },
+        "pinned": {
+          "type": "boolean"
+        },
+        "updatedAt": {
+          "minimum": 0,
+          "type": "integer"
+        }
+      }
+    },
+    "ChatSurfacesListParams": {
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "sessionKey"
+      ],
+      "properties": {
+        "sessionKey": {
+          "minLength": 1,
+          "type": "string"
+        }
+      }
+    },
+    "ChatSurfacesListResult": {
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "enabled",
+        "surfaces"
+      ],
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "surfaces": {
+          "type": "array",
+          "items": {
+            "additionalProperties": false,
+            "type": "object",
+            "required": [
+              "surfaceId",
+              "title",
+              "revision",
+              "pinned",
+              "updatedAt"
+            ],
+            "properties": {
+              "surfaceId": {
+                "minLength": 1,
+                "maxLength": 64,
+                "type": "string"
+              },
+              "title": {
+                "type": "string"
+              },
+              "revision": {
+                "minimum": 1,
+                "type": "integer"
+              },
+              "pinned": {
+                "type": "boolean"
+              },
+              "updatedAt": {
+                "minimum": 0,
+                "type": "integer"
+              }
+            },
+            "x-schema-name": "ChatSurfaceSummary"
+          }
+        }
+      }
+    },
+    "ChatSurfacesGetParams": {
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "sessionKey",
+        "surfaceId"
+      ],
+      "properties": {
+        "sessionKey": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "surfaceId": {
+          "minLength": 1,
+          "maxLength": 64,
+          "type": "string"
+        },
+        "revision": {
+          "minimum": 1,
+          "type": "integer"
+        }
+      }
+    },
+    "ChatSurfacesGetResult": {
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "surfaceId",
+        "revision",
+        "latestRevision",
+        "pinned",
+        "title",
+        "protocol",
+        "catalogId",
+        "components"
+      ],
+      "properties": {
+        "surfaceId": {
+          "minLength": 1,
+          "maxLength": 64,
+          "type": "string"
+        },
+        "revision": {
+          "minimum": 1,
+          "type": "integer"
+        },
+        "latestRevision": {
+          "minimum": 1,
+          "type": "integer"
+        },
+        "pinned": {
+          "type": "boolean"
+        },
+        "title": {
+          "type": "string"
+        },
+        "protocol": {
+          "type": "string"
+        },
+        "catalogId": {
+          "type": "string"
+        },
+        "components": {
+          "type": "array",
+          "items": {
+            "additionalProperties": true,
+            "type": "object",
+            "properties": {}
+          }
+        },
+        "consumedActionId": {
+          "type": "string"
+        }
+      }
+    },
+    "ChatSurfacesPinParams": {
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "sessionKey",
+        "surfaceId",
+        "pinned"
+      ],
+      "properties": {
+        "sessionKey": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "surfaceId": {
+          "minLength": 1,
+          "maxLength": 64,
+          "type": "string"
+        },
+        "pinned": {
+          "type": "boolean"
+        }
+      }
+    },
+    "ChatSurfacesPinResult": {
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "surfaceId",
+        "pinned"
+      ],
+      "properties": {
+        "surfaceId": {
+          "minLength": 1,
+          "maxLength": 64,
+          "type": "string"
+        },
+        "pinned": {
+          "type": "boolean"
+        }
+      }
+    },
+    "ChatActivityEvent": {
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "runId",
+        "sessionKey",
+        "toolCallId",
+        "name",
+        "status",
+        "startedAt"
+      ],
+      "properties": {
+        "runId": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "sessionKey": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "toolCallId": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "running",
+            "done",
+            "error",
+            "waiting-approval"
+          ]
+        },
+        "startedAt": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "durationMs": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "ui": {
+          "additionalProperties": false,
+          "type": "object",
+          "required": [
+            "surfaceId",
+            "revision"
+          ],
+          "properties": {
+            "surfaceId": {
+              "minLength": 1,
+              "maxLength": 64,
+              "type": "string"
+            },
+            "revision": {
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        }
+      }
+    },
     "UpdateRunParams": {
       "additionalProperties": false,
       "type": "object",
@@ -11164,6 +12086,74 @@
             "cancel",
             "force"
           ]
+        }
+      }
+    },
+    "TtsSpeakParams": {
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "text"
+      ],
+      "properties": {
+        "text": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "agentId": {
+          "minLength": 1,
+          "type": "string"
+        }
+      }
+    },
+    "TtsSpeakResult": {
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "audioBase64",
+        "mimeType",
+        "provider",
+        "outputFormat"
+      ],
+      "properties": {
+        "audioBase64": {
+          "type": "string"
+        },
+        "mimeType": {
+          "type": "string"
+        },
+        "provider": {
+          "type": "string"
+        },
+        "outputFormat": {
+          "type": "string"
+        }
+      }
+    },
+    "TtsReadAloudStatusParams": {
+      "additionalProperties": false,
+      "type": "object",
+      "properties": {
+        "agentId": {
+          "minLength": 1,
+          "type": "string"
+        }
+      }
+    },
+    "TtsReadAloudStatusResult": {
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "enabled",
+        "maxTextLength"
+      ],
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "maxTextLength": {
+          "minimum": 1,
+          "type": "integer"
         }
       }
     },
