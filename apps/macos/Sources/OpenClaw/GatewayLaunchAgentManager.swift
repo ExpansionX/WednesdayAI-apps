@@ -10,9 +10,11 @@ enum GatewayLaunchAgentManager {
             .appendingPathComponent(self.disableLaunchAgentMarker)
     }
 
-    private static var plistURL: URL {
+    static let gatewayLaunchdLabels = [gatewayLaunchdLabel, legacyGatewayLaunchdLabel]
+
+    private static var launchAgentsDir: URL {
         FileManager().homeDirectoryForCurrentUser
-            .appendingPathComponent("Library/LaunchAgents/\(gatewayLaunchdLabel).plist")
+            .appendingPathComponent("Library/LaunchAgents")
     }
 
     static func isLaunchAgentWriteDisabled() -> Bool {
@@ -82,8 +84,14 @@ enum GatewayLaunchAgentManager {
         _ = await self.runDaemonCommand(["restart"], timeout: 20)
     }
 
-    static func launchdConfigSnapshot() -> LaunchAgentPlistSnapshot? {
-        LaunchAgentPlist.snapshot(url: self.plistURL)
+    static func launchdConfigSnapshot(launchAgentsDir: URL? = nil) -> LaunchAgentPlistSnapshot? {
+        let dir = launchAgentsDir ?? self.launchAgentsDir
+        for label in self.gatewayLaunchdLabels {
+            if let snapshot = LaunchAgentPlist.snapshot(url: dir.appendingPathComponent("\(label).plist")) {
+                return snapshot
+            }
+        }
+        return nil
     }
 
     static func launchdGatewayLogPath() -> String {
