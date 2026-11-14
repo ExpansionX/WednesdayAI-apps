@@ -116,11 +116,10 @@ extension GatewayLaunchAgentManager {
             ["status", "--json", "--no-probe"],
             timeout: 15,
             quiet: true)
-        guard result.success, let payload = result.payload else { return nil }
-        guard
-            let json = try? JSONSerialization.jsonObject(with: payload) as? [String: Any],
-            let service = json["service"] as? [String: Any],
-            let loaded = service["loaded"] as? Bool
+        guard result.success, let payload = result.payload,
+              let json = try? JSONSerialization.jsonObject(with: payload) as? [String: Any],
+              let service = json["service"] as? [String: Any],
+              let loaded = service["loaded"] as? Bool
         else {
             return nil
         }
