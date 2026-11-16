@@ -50,6 +50,11 @@
       "title": "Edit",
       "detailKeys": ["path"]
     },
+    "delete": {
+      "emoji": "🗑️",
+      "title": "Delete",
+      "detailKeys": ["path"]
+    },
     "attach": {
       "emoji": "📎",
       "title": "Attach",
