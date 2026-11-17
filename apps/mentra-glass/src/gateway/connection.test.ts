@@ -218,7 +218,7 @@ describe("GatewayConnection", () => {
     await flush()
     expect(connectParams(socket)).toMatchObject({
       minProtocol: 3,
-      maxProtocol: 3,
+      maxProtocol: 4,
       role: "operator",
       scopes: ["operator.read", "operator.write"],
       caps: [],

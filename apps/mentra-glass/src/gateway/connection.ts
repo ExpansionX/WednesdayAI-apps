@@ -11,8 +11,11 @@ import {
   CLIENT_PLATFORM,
   DEVICE_AUTH_STORAGE_KEY,
   DEVICE_FAMILY,
+  GATEWAY_MIN_NODE_PROTOCOL_VERSION,
+  GATEWAY_MIN_PROTOCOL_VERSION,
+  GATEWAY_PROTOCOL_VERSION,
   GATEWAY_STORAGE_KEY,
-  PROTOCOL_VERSION,
+  minimumProtocolVersion,
   ROLE,
   SCOPES,
 } from "./constants"
@@ -379,8 +382,8 @@ export class GatewayConnection {
       id: CONNECT_REQUEST_ID,
       method: "connect",
       params: {
-        minProtocol: PROTOCOL_VERSION,
-        maxProtocol: PROTOCOL_VERSION,
+        minProtocol: minimumProtocolVersion(ROLE, CLIENT_MODE),
+        maxProtocol: GATEWAY_PROTOCOL_VERSION,
         client: {
           id: CLIENT_ID,
           displayName: CLIENT_DISPLAY_NAME,

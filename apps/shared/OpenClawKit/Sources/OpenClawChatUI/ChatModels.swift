@@ -261,11 +261,19 @@ public struct OpenClawChatSendResponse: Codable, Sendable {
     public let status: String
 }
 
+/// Tolerant decode of the gateway `chat` event payload. Deliberately hand-written: it must
+/// decode both the v3 flat shape and the v4 four-arm ChatEvent union (plan protocol-v4 §6
+/// P2). Readers MUST prefer a cumulative `message` when present — the server's dropIfSlow
+/// can skip a delta for one recipient while advancing the shared baseline — and apply
+/// `deltaText`/`replace` only when no cumulative message text is present (including the
+/// clearing delta `{deltaText: "", replace: true}`).
 public struct OpenClawChatEventPayload: Codable, Sendable {
     public let runId: String?
     public let sessionKey: String?
     public let state: String?
     public let message: AnyCodable?
+    public let deltaText: String?
+    public let replace: Bool?
     public let errorMessage: String?
 }
 

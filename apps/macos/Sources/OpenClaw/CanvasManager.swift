@@ -154,7 +154,11 @@ final class CanvasManager {
 
     private func handleGatewayPush(_ push: GatewayPush) {
         guard case let .snapshot(snapshot) = push else { return }
-        let raw = snapshot.canvashosturl?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        // v4 advertises the canvas on `pluginSurfaceUrls.canvas`; v3 sends the legacy
+        // `canvasHostUrl` field (plan protocol-v4 §6 P2). Read-only observer, no refresh.
+        let raw = ((snapshot.pluginsurfaceurls?["canvas"]?.value as? String)
+            ?? snapshot.canvashosturl ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
         if raw.isEmpty {
             Self.logger.log(level: .debug, "canvas host url missing in gateway snapshot")
         } else {

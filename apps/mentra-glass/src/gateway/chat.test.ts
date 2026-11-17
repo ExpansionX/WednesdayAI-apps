@@ -22,6 +22,43 @@ describe("applyChatEvent", () => {
     expect(run.state).toBe("streaming")
   })
 
+  it("prefers the cumulative message over deltaText on a delta", () => {
+    // The server's dropIfSlow can skip a delta for one recipient while advancing the shared
+    // baseline, so applying suffixes when a cumulative message is present corrupts the text:
+    // applying the replace suffix here would produce "zzz".
+    const run = startRun("k1")
+    applyChatEvent(run, chatEvent("delta", "Hello", {deltaText: "zzz", replace: true}))
+    expect(run.text).toBe("Hello")
+  })
+
+  it("applies deltaText only when no cumulative message is present", () => {
+    const run = startRun("k1")
+    expect(
+      applyChatEvent(run, chatEvent("delta", null, {deltaText: "Hel", replace: false})),
+    ).not.toBeNull()
+    expect(run.text).toBe("Hel")
+    applyChatEvent(run, chatEvent("delta", null, {deltaText: "lo", replace: false}))
+    expect(run.text).toBe("Hello")
+  })
+
+  it("replaces the shown text when a deltaText delta says replace", () => {
+    const run = startRun("k1")
+    applyChatEvent(run, chatEvent("delta", null, {deltaText: "Hello", replace: true}))
+    expect(run.text).toBe("Hello")
+    applyChatEvent(run, chatEvent("delta", null, {deltaText: "Hi", replace: true}))
+    expect(run.text).toBe("Hi")
+  })
+
+  it("clears the text on the empty clearing delta", () => {
+    // `{deltaText: "", replace: true}` clears the stream even though the delta is empty; the
+    // server pairs it with an empty-text assistant message (plan protocol-v4 §6 P3).
+    const run = startRun("k1")
+    applyChatEvent(run, chatEvent("delta", "Hello world", {deltaText: " world", replace: false}))
+    expect(run.text).toBe("Hello world")
+    applyChatEvent(run, chatEvent("delta", null, {deltaText: "", replace: true, message: {role: "assistant", content: [{type: "text", text: ""}]}}))
+    expect(run.text).toBe("")
+  })
+
   it("ignores events for other runs", () => {
     const run = startRun("k1")
     expect(applyChatEvent(run, {...chatEvent("delta", "Hello"), runId: "other-run"})).toBeNull()

@@ -22,6 +22,7 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.booleanOrNull
 import java.util.UUID
 
 enum class VoiceConversationRole {
@@ -164,9 +165,22 @@ class MicCaptureManager(
 
     when (payload["state"].asStringOrNull()) {
       "delta" -> {
-        val deltaText = parseAssistantText(payload)
-        if (!deltaText.isNullOrBlank()) {
-          upsertPendingAssistant(text = deltaText.trim(), isStreaming = true)
+        val cumulative = parseAssistantText(payload)
+        if (!cumulative.isNullOrBlank()) {
+          // Cumulative message wins: the server's dropIfSlow can skip a delta for one
+          // recipient while advancing the shared baseline, so suffixes on a stale stream
+          // would corrupt the text.
+          upsertPendingAssistant(text = cumulative.trim(), isStreaming = true)
+        } else {
+          val deltaText = payload["deltaText"].asStringOrNull()
+          if (deltaText != null) {
+            // No cumulative message: apply the incremental delta, including the clearing
+            // delta {deltaText:"", replace:true} which must clear despite being empty.
+            val replace = (payload["replace"] as? JsonPrimitive)?.booleanOrNull == true
+            val current = currentPendingAssistantText().orEmpty()
+            val text = if (replace) deltaText else current + deltaText
+            upsertPendingAssistant(text = text, isStreaming = true)
+          }
         }
       }
 
@@ -433,6 +447,11 @@ class MicCaptureManager(
     val updated = current.toMutableList()
     updated[targetIndex] = entry.copy(text = updatedText, isStreaming = isStreaming)
     _conversation.value = updated
+  }
+
+  private fun currentPendingAssistantText(): String? {
+    val id = pendingAssistantEntryId ?: return null
+    return _conversation.value.firstOrNull { it.id == id }?.text
   }
 
   private fun upsertPendingAssistant(

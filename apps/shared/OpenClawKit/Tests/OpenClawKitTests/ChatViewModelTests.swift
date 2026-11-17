@@ -122,6 +122,8 @@ private func emitExternalFinal(
                 sessionKey: sessionKey,
                 state: "final",
                 message: nil,
+                deltaText: nil,
+                replace: nil,
                 errorMessage: nil)))
 }
 
@@ -273,6 +275,8 @@ extension TestChatTransportState {
                     sessionKey: "main",
                     state: "final",
                     message: nil,
+                    deltaText: nil,
+                    replace: nil,
                     errorMessage: nil)))
 
         try await waitUntil("pending run clears") { await MainActor.run { vm.pendingRunCount == 0 } }
@@ -306,6 +310,8 @@ extension TestChatTransportState {
                     sessionKey: "agent:main:main",
                     state: "final",
                     message: nil,
+                    deltaText: nil,
+                    replace: nil,
                     errorMessage: nil)))
 
         try await waitUntil("pending run clears") { await MainActor.run { vm.pendingRunCount == 0 } }
@@ -335,6 +341,8 @@ extension TestChatTransportState {
                     sessionKey: "agent:main:main",
                     state: "final",
                     message: nil,
+                    deltaText: nil,
+                    replace: nil,
                     errorMessage: nil)))
 
         try await waitUntil("history refresh after canonical external event") {
@@ -476,6 +484,8 @@ extension TestChatTransportState {
                     sessionKey: "main",
                     state: "error",
                     message: nil,
+                    deltaText: nil,
+                    replace: nil,
                     errorMessage: "boom")))
 
         try await waitUntil("streaming cleared") { await MainActor.run { vm.streamingAssistantText == nil } }
@@ -537,6 +547,8 @@ Hello?
                     sessionKey: "main",
                     state: "aborted",
                     message: nil,
+                    deltaText: nil,
+                    replace: nil,
                     errorMessage: nil)))
 
         try await waitUntil("pending run clears") { await MainActor.run { vm.pendingRunCount == 0 } }

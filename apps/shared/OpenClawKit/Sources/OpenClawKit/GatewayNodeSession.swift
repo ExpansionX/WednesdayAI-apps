@@ -11,6 +11,10 @@ private struct NodeInvokeRequestPayload: Codable, Sendable {
     var idempotencyKey: String?
 }
 
+private struct NodePluginSurfaceRefreshResponse: Codable, Sendable {
+    var pluginSurfaceUrls: [String: AnyCodable]?
+}
+
 
 public actor GatewayNodeSession {
     private let logger = Logger(subsystem: "ai.openclaw", category: "node.gateway")
@@ -108,6 +112,7 @@ public actor GatewayNodeSession {
     }
     private var serverEventSubscribers: [UUID: AsyncStream<EventFrame>.Continuation] = [:]
     private var canvasHostUrl: String?
+    private var pluginSurfaceUrls: [String: String] = [:]
 
     public init() {}
 
@@ -220,7 +225,39 @@ public actor GatewayNodeSession {
     }
 
     public func currentCanvasHostUrl() -> String? {
-        self.canvasHostUrl
+        // v4 advertises the canvas on `pluginSurfaceUrls.canvas`; v3 sends the legacy
+        // `canvasHostUrl` field (plan protocol-v4 §6 P2). Read the surface first, then legacy.
+        self.pluginSurfaceUrls["canvas"] ?? self.canvasHostUrl
+    }
+
+    /// Rotates the canvas surface URL with `node.pluginSurface.refresh` and returns the new
+    /// scoped URL. Only servers that advertised `pluginSurfaceUrls` in the hello expose this
+    /// method (the server's params are closed: `{surface: "canvas"}`); the legacy
+    /// `node.canvas.capability.refresh` rewrite has no Swift caller, so legacy sessions
+    /// (v3 hello) return nil and keep using the hello-provided URL.
+    @discardableResult
+    public func refreshCanvasHostUrl(timeoutSeconds: Int = 8) async -> String? {
+        guard !self.pluginSurfaceUrls.isEmpty, let channel = self.channel else { return nil }
+        let params: [String: AnyCodable] = ["surface": AnyCodable("canvas")]
+        do {
+            let data = try await channel.request(
+                method: "node.pluginSurface.refresh",
+                params: params,
+                timeoutMs: Double(timeoutSeconds) * 1000)
+            let response = try JSONDecoder().decode(NodePluginSurfaceRefreshResponse.self, from: data)
+            let urls = response.pluginSurfaceUrls?.compactMapValues { value in
+                (value.value as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
+            } ?? [:]
+            let refreshed = urls.filter { !$0.value.isEmpty }
+            for (surface, url) in refreshed {
+                self.pluginSurfaceUrls[surface] = url
+            }
+            guard let canvas = refreshed["canvas"] else { return nil }
+            return canvas
+        } catch {
+            self.logger.error("node.pluginSurface.refresh failed: \(error.localizedDescription, privacy: .public)")
+            return nil
+        }
     }
 
     public func currentRemoteAddress() -> String? {
@@ -274,6 +311,10 @@ public actor GatewayNodeSession {
     private func handlePush(_ push: GatewayPush) async {
         switch push {
         case let .snapshot(ok):
+            let urls = ok.pluginsurfaceurls?.compactMapValues { value in
+                (value.value as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
+            } ?? [:]
+            self.pluginSurfaceUrls = urls.filter { !$0.value.isEmpty }
             let raw = ok.canvashosturl?.trimmingCharacters(in: .whitespacesAndNewlines)
             self.canvasHostUrl = (raw?.isEmpty == false) ? raw : nil
             if self.hasEverConnected {

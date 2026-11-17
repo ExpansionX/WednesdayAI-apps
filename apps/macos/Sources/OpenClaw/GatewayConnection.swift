@@ -277,8 +277,13 @@ actor GatewayConnection {
     }
 
     func canvasHostUrl() async -> String? {
+        // v4 advertises the canvas on `pluginSurfaceUrls.canvas`; v3 sends the legacy
+        // `canvasHostUrl` field (plan protocol-v4 §6 P2). Read-only: the operator path has no
+        // refresh flow, so no `node.pluginSurface.refresh` call is added here.
         guard let snapshot = self.lastSnapshot else { return nil }
-        let trimmed = snapshot.canvashosturl?.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines) ?? ""
+        let surface = snapshot.pluginsurfaceurls?["canvas"]?.value as? String
+        let raw = surface ?? snapshot.canvashosturl
+        let trimmed = raw?.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines) ?? ""
         return trimmed.isEmpty ? nil : trimmed
     }
 

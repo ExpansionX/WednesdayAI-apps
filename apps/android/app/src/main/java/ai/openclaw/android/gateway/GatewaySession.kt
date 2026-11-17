@@ -101,6 +101,10 @@ class GatewaySession(
 
   @Volatile private var canvasHostUrl: String? = null
 
+  // v4 hello advertises plugin surfaces (`pluginSurfaceUrls.canvas`); v3 sends only the legacy
+  // `canvasHostUrl` field (plan protocol-v4 §6 P2). Non-empty when the hello advertised them.
+  @Volatile private var pluginSurfaceUrls: Map<String, String> = emptyMap()
+
   @Volatile private var mainSessionKey: String? = null
 
   private data class DesiredConnection(
@@ -136,6 +140,7 @@ class GatewaySession(
       job?.cancelAndJoin()
       job = null
       canvasHostUrl = null
+      pluginSurfaceUrls = emptyMap()
       mainSessionKey = null
       onDisconnected("Offline")
     }
@@ -195,6 +200,19 @@ class GatewaySession(
 
   suspend fun refreshNodeCanvasCapability(timeoutMs: Long = 8_000): Boolean {
     val conn = currentConnection ?: return false
+    // v4 sessions advertise plugin surfaces and rotate via `node.pluginSurface.refresh`
+    // (params are closed: {surface:"canvas"}); legacy sessions keep the old capability flow.
+    return if (pluginSurfaceUrls.isNotEmpty()) {
+      refreshPluginSurfaceCanvas(conn, timeoutMs)
+    } else {
+      refreshLegacyCanvasCapability(conn, timeoutMs)
+    }
+  }
+
+  private suspend fun refreshLegacyCanvasCapability(
+    conn: Connection,
+    timeoutMs: Long,
+  ): Boolean {
     val response =
       try {
         conn.request(
@@ -236,6 +254,64 @@ class GatewaySession(
       return false
     }
     canvasHostUrl = refreshedUrl
+    return true
+  }
+
+  // The v4 response already carries the fully scoped URL (`pluginSurfaceUrls.canvas`); it only
+  // needs the same endpoint/TLS normalization the hello URL gets.
+  private suspend fun refreshPluginSurfaceCanvas(
+    conn: Connection,
+    timeoutMs: Long,
+  ): Boolean {
+    val response =
+      try {
+        conn.request(
+          "node.pluginSurface.refresh",
+          params = buildJsonObject { put("surface", JsonPrimitive("canvas")) },
+          timeoutMs = timeoutMs,
+        )
+      } catch (err: Throwable) {
+        Log.w(
+          "OpenClawGateway",
+          "node.pluginSurface.refresh failed: ${err.message ?: err::class.java.simpleName}",
+        )
+        return false
+      }
+    if (!response.ok) {
+      val err = response.error
+      Log.w(
+        "OpenClawGateway",
+        "node.pluginSurface.refresh rejected: ${err?.code ?: "UNAVAILABLE"}: ${err?.message ?: "request failed"}",
+      )
+      return false
+    }
+    val refreshedUrl =
+      response.payloadJson
+        ?.let(::parseJsonOrNull)
+        ?.asObjectOrNull()
+        ?.get("pluginSurfaceUrls")
+        .asObjectOrNull()
+        ?.get("canvas")
+        .asStringOrNull()
+        ?.trim()
+        .orEmpty()
+    if (refreshedUrl.isEmpty()) {
+      Log.w("OpenClawGateway", "node.pluginSurface.refresh missing canvas surface URL")
+      return false
+    }
+    val desired = this.desired
+    val normalized =
+      if (desired == null) {
+        refreshedUrl
+      } else {
+        normalizeCanvasHostUrl(refreshedUrl, desired.endpoint, isTlsConnection = desired.tls != null)
+      }
+    if (normalized == null) {
+      Log.w("OpenClawGateway", "node.pluginSurface.refresh unable to normalize canvas URL")
+      return false
+    }
+    canvasHostUrl = normalized
+    pluginSurfaceUrls = pluginSurfaceUrls + ("canvas" to normalized)
     return true
   }
 
@@ -422,7 +498,17 @@ class GatewaySession(
       if (!deviceToken.isNullOrBlank()) {
         deviceAuthStore.saveToken(deviceId, authRole, deviceToken)
       }
-      val rawCanvas = obj["canvasHostUrl"].asStringOrNull()
+      val surfaceObj = obj["pluginSurfaceUrls"].asObjectOrNull()
+      pluginSurfaceUrls =
+        surfaceObj
+          ?.entries
+          ?.mapNotNull { (surface, value) ->
+            value.asStringOrNull()?.trim()?.takeIf { it.isNotEmpty() }?.let { surface to it }
+          }
+          ?.toMap()
+          .orEmpty()
+      // v4 advertises the canvas on `pluginSurfaceUrls.canvas`; v3 sends the legacy field.
+      val rawCanvas = pluginSurfaceUrls["canvas"] ?: obj["canvasHostUrl"].asStringOrNull()
       canvasHostUrl = normalizeCanvasHostUrl(rawCanvas, endpoint, isTlsConnection = tls != null)
       val sessionDefaults =
         obj["snapshot"]
@@ -503,7 +589,7 @@ class GatewaySession(
         }
 
       return buildJsonObject {
-        put("minProtocol", JsonPrimitive(GATEWAY_PROTOCOL_VERSION))
+        put("minProtocol", JsonPrimitive(minimumProtocolVersion(options.role, client.mode)))
         put("maxProtocol", JsonPrimitive(GATEWAY_PROTOCOL_VERSION))
         put("client", clientObj)
         if (options.caps.isNotEmpty()) put("caps", JsonArray(options.caps.map(::JsonPrimitive)))
@@ -692,8 +778,22 @@ class GatewaySession(
       } finally {
         currentConnection = null
         canvasHostUrl = null
+        pluginSurfaceUrls = emptyMap()
         mainSessionKey = null
       }
+    }
+
+  // Mirrors upstream OpenClawKit's minimumProtocolVersion(role:mode:): node RPC frames stayed
+  // compatible across v3/v4, so node-role sockets keep the node minimum; other roles ride the
+  // client minimum (plan protocol-v4 §6 P2).
+  private fun minimumProtocolVersion(
+    role: String,
+    clientMode: String,
+  ): Int =
+    if (role.trim().lowercase() == "node" && clientMode.trim().lowercase() == "node") {
+      GATEWAY_MIN_NODE_PROTOCOL_VERSION
+    } else {
+      GATEWAY_MIN_PROTOCOL_VERSION
     }
 
   private fun normalizeCanvasHostUrl(
