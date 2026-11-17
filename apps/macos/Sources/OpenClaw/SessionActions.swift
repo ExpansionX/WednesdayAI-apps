@@ -79,19 +79,33 @@ enum SessionActions {
         }
     }
 
+    typealias SessionExportRequest = @MainActor (
+        _ method: String,
+        _ params: [String: AnyHashable],
+        _ timeoutMs: Double) async throws -> Data
+
     /// Pages `sessions.export` until `nextCursor` is absent and writes the whole transcript
     /// as a JSONL file (0600). The gateway holds the SQL session store; there is no local
     /// session file to open anymore (#437). Cursors are opaque tokens bound to the session
-    /// they were issued for; a response whose `sessionId` differs from the first page's ends
-    /// the export with an error instead of mixing two transcripts.
+    /// they were issued for; any cursor the gateway already returned during this export ends
+    /// it with an error instead of looping, and a response whose `sessionId` differs from the
+    /// first page's ends the export with an error instead of mixing two transcripts.
     @MainActor
-    private static func exportSessionLogToJSONL(
+    static func exportSessionLogToJSONL(
         sessionKey: String,
-        fallbackSessionId: String) async throws -> URL
+        fallbackSessionId: String,
+        inDirectory directory: URL = URL(fileURLWithPath: NSTemporaryDirectory()),
+        request: SessionExportRequest = { method, params, timeoutMs in
+            try await ControlChannel.shared.request(
+                method: method,
+                params: params,
+                timeoutMs: timeoutMs)
+        }) async throws -> URL
     {
         var lines: [String] = []
         var sessionId: String?
         var cursor: String?
+        var seenCursors: Set<String> = []
         while true {
             var params: [String: AnyHashable] = ["key": AnyHashable(sessionKey)]
             if let cursor {
@@ -99,10 +113,7 @@ enum SessionActions {
             }
             // Each page reads the whole session server-side, so one page can take well over
             // the 15 s default; the deadline is per page, not cumulative.
-            let data = try await ControlChannel.shared.request(
-                method: "sessions.export",
-                params: params,
-                timeoutMs: 120_000)
+            let data = try await request("sessions.export", params, 120_000)
             guard let page = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
                 throw ControlChannelError.badResponse("sessions.export returned no payload")
             }
@@ -116,15 +127,14 @@ enum SessionActions {
             }
             lines.append(contentsOf: page["lines"] as? [String] ?? [])
             guard let next = page["nextCursor"] as? String else { break }
-            if next == cursor {
+            if !seenCursors.insert(next).inserted {
                 throw ControlChannelError.badResponse("sessions.export returned a repeated cursor")
             }
             cursor = next
         }
 
         let name = sessionId ?? fallbackSessionId
-        let url = URL(fileURLWithPath: NSTemporaryDirectory())
-            .appendingPathComponent("openclaw-session-\(name).jsonl")
+        let url = directory.appendingPathComponent("openclaw-session-\(name).jsonl")
         let payload = Data(lines.map { $0 + "\n" }.joined().utf8)
         if !FileManager.default.createFile(
             atPath: url.path,
