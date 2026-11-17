@@ -516,9 +516,56 @@ public final class OpenClawChatViewModel {
             self.pendingToolCallsById = [:]
             self.streamingAssistantText = nil
             Task { await self.refreshHistoryAfterRun() }
+        case "delta":
+            // Chat delta text is not rendered here: the streaming display is fed by agent
+            // assistant events, and applying chat deltas too would render the reply twice.
+            // The one exception is the clearing delta — `replace: true` with an empty
+            // `deltaText` and no cumulative message text — which must clear text that is
+            // already streaming, so a following silent final leaves nothing on screen.
+            let cumulative = Self.cumulativeMessageText(chat.message)
+            let effective = cumulative ?? (chat.deltaText ?? "")
+            if chat.replace == true, effective.isEmpty {
+                self.streamingAssistantText = nil
+            }
         default:
             break
         }
+    }
+
+    /// Text carried by a chat event's cumulative `message` (nil when it carries none).
+    /// Handles both raw `Any` payloads and JSON-decoded `AnyCodable` wrappers.
+    private static func cumulativeMessageText(_ message: AnyCodable?) -> String? {
+        guard let value = message?.value else { return nil }
+        if let text = value as? String { return text }
+        let content: Any
+        if let raw = value as? [String: Any] {
+            guard let found = raw["content"] else { return nil }
+            content = found
+        } else if let wrapped = value as? [String: AnyCodable] {
+            guard let found = wrapped["content"] else { return nil }
+            content = found.value
+        } else {
+            return nil
+        }
+        if let text = content as? String { return text }
+        let entries: [Any]
+        if let list = content as? [Any] {
+            entries = list
+        } else if let list = content as? [AnyCodable] {
+            entries = list.map(\.value)
+        } else {
+            return nil
+        }
+        let text = entries.compactMap { entry -> String? in
+            if let text = entry as? String { return text }
+            if let wrapped = entry as? AnyCodable {
+                if let text = wrapped.value as? String { return text }
+                return (wrapped.value as? [String: Any])?["text"] as? String
+            }
+            guard let part = entry as? [String: Any] else { return nil }
+            return part["text"] as? String
+        }.joined()
+        return text.isEmpty ? nil : text
     }
 
     private static func matchesCurrentSessionKey(incoming: String, current: String) -> Bool {
