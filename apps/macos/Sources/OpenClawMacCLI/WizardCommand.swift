@@ -257,7 +257,8 @@ actor GatewayWizardClient {
         ]
 
         var params: [String: ProtoAnyCodable] = [
-            "minProtocol": ProtoAnyCodable(GATEWAY_PROTOCOL_VERSION),
+            "minProtocol": ProtoAnyCodable(
+                GatewayChannelActor.minimumProtocolVersion(role: role, clientMode: clientMode)),
             "maxProtocol": ProtoAnyCodable(GATEWAY_PROTOCOL_VERSION),
             "client": ProtoAnyCodable(client),
             "caps": ProtoAnyCodable([String]()),

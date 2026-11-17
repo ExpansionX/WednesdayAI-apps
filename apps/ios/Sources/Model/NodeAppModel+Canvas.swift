@@ -36,8 +36,22 @@ extension NodeAppModel {
                 self.screen.navigate(to: a2uiUrl)
                 self.lastAutoA2uiURL = a2uiUrl
             } else {
-                self.lastAutoA2uiURL = nil
-                self.screen.showDefaultCanvas()
+                // The cached surface URL rotates server-side; one `node.pluginSurface.refresh`
+                // (v4, advertised sessions only) then a re-resolve before giving up. Legacy
+                // sessions keep the old behaviour: default canvas, no refresh call.
+                _ = await self.gatewaySession.refreshCanvasHostUrl()
+                let refreshed = await self.resolveA2UIHostURL()
+                if let refreshed, let url = URL(string: refreshed),
+                   await Self.probeTCP(url: url, timeoutSeconds: 2.5)
+                {
+                    self.screen.navigate(to: refreshed)
+                    self.lastAutoA2uiURL = refreshed
+                } else {
+                    await MainActor.run {
+                        self.lastAutoA2uiURL = nil
+                        self.screen.showDefaultCanvas()
+                    }
+                }
             }
         }
     }

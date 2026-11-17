@@ -2,7 +2,9 @@
 // swiftlint:disable file_length
 import Foundation
 
-public let GATEWAY_PROTOCOL_VERSION = 3
+public let GATEWAY_PROTOCOL_VERSION = 4
+public let GATEWAY_MIN_PROTOCOL_VERSION = 3
+public let GATEWAY_MIN_NODE_PROTOCOL_VERSION = 3
 
 public enum ErrorCode: String, Codable, Sendable {
     case notLinked = "NOT_LINKED"
@@ -85,6 +87,7 @@ public struct HelloOk: Codable, Sendable {
     public let canvashosturl: String?
     public let auth: [String: AnyCodable]?
     public let policy: [String: AnyCodable]
+    public let pluginsurfaceurls: [String: AnyCodable]?
 
     public init(
         type: String,
@@ -94,7 +97,8 @@ public struct HelloOk: Codable, Sendable {
         snapshot: Snapshot,
         canvashosturl: String? = nil,
         auth: [String: AnyCodable]? = nil,
-        policy: [String: AnyCodable])
+        policy: [String: AnyCodable],
+        pluginsurfaceurls: [String: AnyCodable]? = nil)
     {
         self.type = type
         self._protocol = _protocol
@@ -104,6 +108,7 @@ public struct HelloOk: Codable, Sendable {
         self.canvashosturl = canvashosturl
         self.auth = auth
         self.policy = policy
+        self.pluginsurfaceurls = pluginsurfaceurls
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -115,6 +120,7 @@ public struct HelloOk: Codable, Sendable {
         case canvashosturl = "canvasHostUrl"
         case auth
         case policy
+        case pluginsurfaceurls = "pluginSurfaceUrls"
     }
 }
 

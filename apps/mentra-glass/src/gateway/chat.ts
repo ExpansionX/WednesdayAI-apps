@@ -3,7 +3,9 @@
  *
  * Gateway facts this encodes (WednesdayAI core):
  * - `chat.send` emits events whose `runId` equals the caller's `idempotencyKey`.
- * - `delta` message text is cumulative, so each event replaces the shown text.
+ * - a cumulative `message` on a delta wins; `deltaText`/`replace` apply only when no
+ *   cumulative message is present (the server's dropIfSlow can skip a delta for one
+ *   recipient while advancing the shared baseline).
  * - `error` events carry `errorMessage`; terminal states are final/aborted/error.
  */
 
@@ -38,9 +40,18 @@ export function applyChatEvent(run: ChatRun, payload: unknown): ChatRun | null {
   switch (payload.state) {
     case "delta":
     case "final": {
-      // Delta text is cumulative: replace, never append.
-      const text = chatEventText(payload.message)
-      if (text) run.text = text
+      // A cumulative `message` wins: the server's dropIfSlow can skip a delta for one
+      // recipient while still advancing the shared baseline, so applying suffixes on top of
+      // a stale stream corrupts the text. Apply `deltaText`/`replace` only when no
+      // cumulative message text is present — including the clearing delta
+      // `{deltaText: "", replace: true}`, which must clear despite being empty.
+      const cumulative = chatEventText(payload.message)
+      if (cumulative !== "") {
+        run.text = cumulative
+      } else if (payload.state === "delta" && typeof payload.deltaText === "string") {
+        const replace = payload.replace === true
+        run.text = replace ? payload.deltaText : run.text + payload.deltaText
+      }
       run.state = payload.state === "delta" ? "streaming" : "final"
       break
     }

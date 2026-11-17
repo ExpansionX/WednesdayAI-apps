@@ -117,17 +117,26 @@ describe("synced contracts", () => {
     expect(content.includes("let jobs:")).toBe(true);
   });
 
-  it("generated Swift declares the schema protocol version", () => {
+  it("generated Swift declares the client protocol bounds, not the synced schema version", () => {
     const schema = JSON.parse(
       fs.readFileSync(path.join(contractsDir, "gateway-protocol.schema.json"), "utf8"),
     );
-    const declaration = `public let GATEWAY_PROTOCOL_VERSION = ${schema["x-protocol-version"]}`;
+    // Client capabilities are independent of the synced schema version and of server
+    // admission floors (plan protocol-v4 §6 P2): clients advertise [3, 4] unless the synced
+    // contract declares explicit bounds (x-protocol-min/max-version, x-protocol-min-node-version).
+    const declarations = [
+      `public let GATEWAY_PROTOCOL_VERSION = ${schema["x-protocol-max-version"] ?? 4}`,
+      `public let GATEWAY_MIN_PROTOCOL_VERSION = ${schema["x-protocol-min-version"] ?? 3}`,
+      `public let GATEWAY_MIN_NODE_PROTOCOL_VERSION = ${schema["x-protocol-min-node-version"] ?? 3}`,
+    ];
     for (const relPath of [
       "apps/macos/Sources/OpenClawProtocol/GatewayModels.swift",
       "apps/shared/OpenClawKit/Sources/OpenClawProtocol/GatewayModels.swift",
     ]) {
       const content = fs.readFileSync(path.join(repoRoot, relPath), "utf8");
-      expect(content.includes(declaration), `${relPath} missing ${declaration}`).toBe(true);
+      for (const declaration of declarations) {
+        expect(content.includes(declaration), `${relPath} missing ${declaration}`).toBe(true);
+      }
     }
   });
 });

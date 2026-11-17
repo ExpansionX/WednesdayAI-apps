@@ -317,6 +317,18 @@ public actor GatewayChannelActor {
         }
     }
 
+    // Client protocol bounds are capabilities (plan protocol-v4 §6 P2): node RPC frames stayed
+    // compatible across v3/v4, so node sockets keep the lower minimum while operator surfaces
+    // ride the client maximum. Mirrors upstream OpenClawKit's minimumProtocolVersion(role:mode:).
+    nonisolated public static func minimumProtocolVersion(role: String, clientMode: String) -> Int {
+        if role.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "node",
+           clientMode.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "node"
+        {
+            return GATEWAY_MIN_NODE_PROTOCOL_VERSION
+        }
+        return GATEWAY_MIN_PROTOCOL_VERSION
+    }
+
     private func sendConnect() async throws {
         let platform = InstanceIdentity.platformString
         let primaryLocale = Locale.preferredLanguages.first ?? Locale.current.identifier
@@ -350,7 +362,7 @@ public actor GatewayChannelActor {
             client["modelIdentifier"] = ProtoAnyCodable(model)
         }
         var params: [String: ProtoAnyCodable] = [
-            "minProtocol": ProtoAnyCodable(GATEWAY_PROTOCOL_VERSION),
+            "minProtocol": ProtoAnyCodable(Self.minimumProtocolVersion(role: role, clientMode: clientMode)),
             "maxProtocol": ProtoAnyCodable(GATEWAY_PROTOCOL_VERSION),
             "client": ProtoAnyCodable(client),
             "caps": ProtoAnyCodable(options.caps),

@@ -15,6 +15,7 @@ import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.booleanOrNull
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 
@@ -329,9 +330,21 @@ class ChatController(
       "delta" -> {
         // Only show streaming text for runs we initiated
         if (!isPending) return
-        val text = parseAssistantDeltaText(payload)
-        if (!text.isNullOrEmpty()) {
-          _streamingAssistantText.value = text
+        val cumulative = parseAssistantDeltaText(payload)
+        if (!cumulative.isNullOrEmpty()) {
+          // Cumulative message wins: the server's dropIfSlow can skip a delta for one
+          // recipient while advancing the shared baseline, so suffixes on a stale stream
+          // would corrupt the text.
+          _streamingAssistantText.value = cumulative
+        } else {
+          val deltaText = payload["deltaText"].asStringOrNull()
+          if (deltaText != null) {
+            // No cumulative message: apply the incremental delta, including the clearing
+            // delta {deltaText:"", replace:true} which must clear despite being empty.
+            val replace = (payload["replace"] as? JsonPrimitive)?.booleanOrNull == true
+            val current = _streamingAssistantText.value.orEmpty()
+            _streamingAssistantText.value = if (replace) deltaText else current + deltaText
+          }
         }
       }
 

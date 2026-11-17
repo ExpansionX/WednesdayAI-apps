@@ -905,17 +905,18 @@ final class TalkModeManager: NSObject {
                 for await evt in stream {
                     if Task.isCancelled { return .timeout }
                     guard evt.event == "chat", let payload = evt.payload else { continue }
-                    guard let chatEvent = try? GatewayPayloadDecoding.decode(payload, as: ChatEvent.self) else {
+                    // Decode the tolerant hand-written payload, not the generated ChatEvent
+                    // model: the v4 sync turns ChatEvent into a four-arm union (plan
+                    // protocol-v4 §6 P2), and the payload shape is identical for both eras.
+                    guard let chatEvent = try? GatewayPayloadDecoding.decode(payload, as: OpenClawChatEventPayload.self) else {
                         continue
                     }
-                    guard chatEvent.runid == runId else { continue }
-                    if let state = chatEvent.state.value as? String {
-                        switch state {
-                        case "final": return .final
-                        case "aborted": return .aborted
-                        case "error": return .error
-                        default: break
-                        }
+                    guard chatEvent.runId == runId else { continue }
+                    switch chatEvent.state {
+                    case "final": return .final
+                    case "aborted": return .aborted
+                    case "error": return .error
+                    default: break
                     }
                 }
                 return .timeout

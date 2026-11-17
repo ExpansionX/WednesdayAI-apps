@@ -122,6 +122,8 @@ private func emitExternalFinal(
                 sessionKey: sessionKey,
                 state: "final",
                 message: nil,
+                deltaText: nil,
+                replace: nil,
                 errorMessage: nil)))
 }
 
@@ -273,6 +275,8 @@ extension TestChatTransportState {
                     sessionKey: "main",
                     state: "final",
                     message: nil,
+                    deltaText: nil,
+                    replace: nil,
                     errorMessage: nil)))
 
         try await waitUntil("pending run clears") { await MainActor.run { vm.pendingRunCount == 0 } }
@@ -306,6 +310,8 @@ extension TestChatTransportState {
                     sessionKey: "agent:main:main",
                     state: "final",
                     message: nil,
+                    deltaText: nil,
+                    replace: nil,
                     errorMessage: nil)))
 
         try await waitUntil("pending run clears") { await MainActor.run { vm.pendingRunCount == 0 } }
@@ -335,6 +341,8 @@ extension TestChatTransportState {
                     sessionKey: "agent:main:main",
                     state: "final",
                     message: nil,
+                    deltaText: nil,
+                    replace: nil,
                     errorMessage: nil)))
 
         try await waitUntil("history refresh after canonical external event") {
@@ -476,9 +484,81 @@ extension TestChatTransportState {
                     sessionKey: "main",
                     state: "error",
                     message: nil,
+                    deltaText: nil,
+                    replace: nil,
                     errorMessage: "boom")))
 
         try await waitUntil("streaming cleared") { await MainActor.run { vm.streamingAssistantText == nil } }
+    }
+
+    @Test func clearingDeltaClearsStreamingAssistantText() async throws {
+        let sessionId = "sess-main"
+        let history = historyPayload(sessionId: sessionId)
+        let (transport, vm) = await makeViewModel(historyResponses: [history, history])
+        try await loadAndWaitBootstrap(vm: vm, sessionId: sessionId)
+
+        await sendUserMessage(vm)
+        try await waitUntil("pending run starts") { await MainActor.run { vm.pendingRunCount == 1 } }
+        let runId = try #require(await transport.lastSentRunId())
+
+        emitAssistantText(transport: transport, runId: sessionId, text: "streaming reply")
+        try await waitUntil("streaming active") {
+            await MainActor.run { vm.streamingAssistantText == "streaming reply" }
+        }
+
+        // The clearing delta — `replace: true` with an empty `deltaText` and an empty-text
+        // assistant message — must clear text that is already streaming, so a following
+        // silent final leaves nothing on screen.
+        transport.emit(
+            .chat(
+                OpenClawChatEventPayload(
+                    runId: runId,
+                    sessionKey: "main",
+                    state: "delta",
+                    message: AnyCodable([
+                        "role": "assistant",
+                        "content": [["type": "text", "text": ""]],
+                    ]),
+                    deltaText: "",
+                    replace: true,
+                    errorMessage: nil)))
+
+        try await waitUntil("streaming cleared by clearing delta") {
+            await MainActor.run { vm.streamingAssistantText == nil }
+        }
+    }
+
+    @Test func chatDeltaTextNeverRendersWhileAgentStreamFeedsTheDisplay() async throws {
+        let sessionId = "sess-main"
+        let history = historyPayload(sessionId: sessionId)
+        let (transport, vm) = await makeViewModel(historyResponses: [history, history])
+        try await loadAndWaitBootstrap(vm: vm, sessionId: sessionId)
+
+        await sendUserMessage(vm)
+        try await waitUntil("pending run starts") { await MainActor.run { vm.pendingRunCount == 1 } }
+        let runId = try #require(await transport.lastSentRunId())
+
+        emitAssistantText(transport: transport, runId: sessionId, text: "agent stream")
+        try await waitUntil("streaming active") {
+            await MainActor.run { vm.streamingAssistantText == "agent stream" }
+        }
+
+        // A non-clearing chat delta never renders: the streaming display is fed by agent
+        // assistant events, and applying chat deltas too would show the reply twice.
+        transport.emit(
+            .chat(
+                OpenClawChatEventPayload(
+                    runId: runId,
+                    sessionKey: "main",
+                    state: "delta",
+                    message: nil,
+                    deltaText: " chat suffix",
+                    replace: false,
+                    errorMessage: nil)))
+
+        try await waitUntil("streaming text untouched by chat delta") {
+            await MainActor.run { vm.streamingAssistantText == "agent stream" }
+        }
     }
 
     @Test func stripsInboundMetadataFromHistoryMessages() async throws {
@@ -537,6 +617,8 @@ Hello?
                     sessionKey: "main",
                     state: "aborted",
                     message: nil,
+                    deltaText: nil,
+                    replace: nil,
                     errorMessage: nil)))
 
         try await waitUntil("pending run clears") { await MainActor.run { vm.pendingRunCount == 0 } }
