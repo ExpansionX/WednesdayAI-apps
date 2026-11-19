@@ -1,6 +1,7 @@
 {
   "version": 1,
   "seed": "0xEDEC6",
+  "unicodeVersion": "17.0",
   "vectors": [
     { "pattern": "/tmp/iile", "target": "/tmp/iile", "matches": true },
     { "pattern": "/tmp/iile", "target": "/tmp/Iile", "matches": true },
